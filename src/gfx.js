@@ -120,15 +120,21 @@ function makeTextures() {
   });
   tx.concrete = pbrSet(128, (u, v) => tileFbm(u * 16, v * 16, 16, 3), (h) => { const k = 168 + h * 40; return [k, k, k - 4]; }, null).albedo;
   tx.fence = canvasTex(64, 64, (g, w, h) => { g.clearRect(0, 0, w, h); g.strokeStyle = 'rgba(205,210,215,0.9)'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(0, 0); g.lineTo(w, h); g.moveTo(w, 0); g.lineTo(0, h); g.stroke(); });
+  // seated crowd: 16 rows of people per tile, each ~12 px wide: head, hair, shoulders, shirt, some waving flags or arms
   tx.crowd = canvasTex(1024, 256, (g, w, h) => {
-    g.fillStyle = '#3a3e46'; g.fillRect(0, 0, w, h);
-    const cols = ['#e53935', '#fdd835', '#1e88e5', '#ffffff', '#ff7a00', '#43a047', '#8e24aa', '#f48fb1', '#1a1a1a', '#90caf9', '#ffcc80'];
+    g.fillStyle = '#4a4f57'; g.fillRect(0, 0, w, h);
+    const shirts = ['#e53935', '#fdd835', '#1e88e5', '#f4f4f4', '#ff7a00', '#43a047', '#8e24aa', '#f48fb1', '#202124', '#90caf9', '#ffcc80', '#c62828', '#00897b', '#5d4037'];
+    const skin = ['#f1c9a5', '#e0b089', '#c68e63', '#8d5a3b', '#5b3a29'], hair = ['#2b1d14', '#5a3a1e', '#c9a063', '#1a1a1a', '#8a8a8a', '#a0522d'];
     for (let y = 0; y < h; y += 16) {
-      g.fillStyle = '#2a2d33'; g.fillRect(0, y + 13, w, 3);
-      for (let x = 0; x < w; x += 6) {
-        if (rng() < 0.08) continue;
-        g.fillStyle = cols[(rng() * cols.length) | 0]; g.fillRect(x + rng() * 1.5, y + 5, 4, 7);
-        g.fillStyle = ['#e0b089', '#c68e63', '#8d5a3b', '#f1c9a5'][(rng() * 4) | 0]; g.beginPath(); g.arc(x + 2.5, y + 3, 2, 0, 7); g.fill();
+      g.fillStyle = '#3a3e46'; g.fillRect(0, y + 13, w, 3); // seat row edge
+      for (let x = 1; x < w; x += 6) {
+        if (rng() < 0.06) continue;
+        const sx = x + (rng() - 0.5), sh = shirts[(rng() * shirts.length) | 0];
+        g.fillStyle = sh; g.beginPath(); g.ellipse(sx + 2.5, y + 11, 3, 4, 0, Math.PI, 0); g.fill(); g.fillRect(sx - 0.5, y + 10, 6, 3); // shoulders and torso
+        g.fillStyle = skin[(rng() * skin.length) | 0]; g.beginPath(); g.arc(sx + 2.5, y + 5, 2.1, 0, 7); g.fill();          // head
+        if (rng() < 0.7) { g.fillStyle = rng() < 0.25 ? sh : hair[(rng() * hair.length) | 0]; g.beginPath(); g.arc(sx + 2.5, y + 4.2, 2.2, Math.PI, 0); g.fill(); } // hair or cap
+        if (rng() < 0.07) { g.fillStyle = shirts[(rng() * shirts.length) | 0]; g.fillRect(sx + 4, y - 3, 5, 4); g.fillStyle = '#ddd'; g.fillRect(sx + 4, y - 3, 0.6, 9); } // flag
+        else if (rng() < 0.08) { g.fillStyle = sh; g.fillRect(sx + 5, y + 1, 1.2, 6); }                                       // raised arm
       }
     }
   });
@@ -266,7 +272,8 @@ function wallRibbon(T, off, side, h0, h1, vScale) {
   let s = 0;
   for (let k = 0; k <= T.n; k++) {
     const i = k % T.n, o = off[i] * side, x = T.px[i] + T.nx[i] * o, y = T.py[i] + T.ny[i] * o;
-    pos.push(x, h0, -y, x, h1, -y); uv.push(s / vScale, 0, s / vScale, 1);
+    const u = (side > 0 ? s : -s) / vScale; // the right wall is seen from the other side: run its texture backwards so text reads
+    pos.push(x, h0, -y, x, h1, -y); uv.push(u, 0, u, 1);
     if (k) { const b = k * 2; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
     s += T.ds;
   }
@@ -292,11 +299,43 @@ function antiTile(mat) {
   };
 }
 
+// crowd shader: each figure in the texture is a 6 px column; columns get their own phase and jump/wave amount
+function crowdMaterial(tex) {
+  const m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 });
+  m.userData.excite = { value: 0 }; m.userData.time = { value: 0 };
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.excite = m.userData.excite; sh.uniforms.ctime = m.userData.time;
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
+      vec2 cuv = vMapUv; float col = floor(cuv.x * 1024.0 / 6.0); float row = floor(cuv.y * 16.0);
+      float ph = fract(sin(col * 12.9898 + row * 78.233) * 43758.5453);
+      float bob = max(0.0, sin(ctime * (4.0 + ph * 5.0) + ph * 30.0)) * (0.15 + excite * 0.85) * step(0.35, ph);
+      cuv.y -= bob * (1.0 / 256.0) * 4.0;
+      vec4 sampledDiffuseColor = texture2D(map, cuv);
+      diffuseColor *= sampledDiffuseColor;`);
+    sh.fragmentShader = 'uniform float excite; uniform float ctime;\n' + sh.fragmentShader;
+  };
+  return m;
+}
+// stepped stand with roof on columns, its crowd facing local -z (toward the track)
+function cornerStand(L, rows, white, steel, crowdMat) {
+  const depth = 0.85, rise = 0.5, shape = new THREE.Shape(); shape.moveTo(0, 0);
+  for (let r = 0; r < rows; r++) { shape.lineTo(-r * depth, (r + 1) * rise); shape.lineTo(-(r + 1) * depth, (r + 1) * rise); }
+  shape.lineTo(-rows * depth, 0); shape.lineTo(0, 0);
+  const sg = new THREE.ExtrudeGeometry(shape, { depth: L, bevelEnabled: false }); sg.translate(0, 0, -L / 2);
+  const uv = sg.attributes.uv, p = sg.attributes.position; for (let i = 0; i < uv.count; i++) uv.setXY(i, p.getZ(i) / 30, p.getY(i) / (rise * 16));
+  const g = new THREE.Group(), stand = new THREE.Mesh(sg, crowdMat); stand.rotation.y = -Math.PI / 2; stand.castShadow = stand.receiveShadow = true; g.add(stand);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 1.02, 0.4, rows * depth + 3), white); roof.position.set(0, rows * rise + 4, -(rows * depth) / 2 - 0.5); roof.castShadow = true; g.add(roof);
+  for (let k = -3; k <= 3; k++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.4, rows * rise + 4, 0.4), steel); c.position.set(k * L / 7, (rows * rise + 4) / 2, -rows * depth - 0.3); g.add(c); }
+  return g;
+}
 function buildWorld(T, themeKey, quality) {
   const th = THEMES[themeKey], tx = GFX.tex, world = new THREE.Group();
   const night = th.time === 'night', rng = mulberry32(hashStr(T.spec.id)), hw = T.hw, n = T.n;
   const add = (geo, mat, o = {}) => { const m = new THREE.Mesh(geo, mat); m.receiveShadow = o.rs !== false; m.castShadow = !!o.cs; world.add(m); return m; };
   const desert = themeKey === 'desert', street = themeKey === 'street';
+  // animated crowd: the texture's people bob and wave (two frames offset per column), more when cars pass
+  const crowdMat = crowdMaterial(tx.crowd);
+  GFX.crowdMat = crowdMat;
   const groundAlb = desert ? tx.sand : tx.grass, groundN = desert ? tx.sandN : tx.grassN;
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), p4 = new THREE.Vector3(), cc = new THREE.Color(), UP = new THREE.Vector3(0, 1, 0);
 
@@ -464,7 +503,7 @@ function buildWorld(T, themeKey, quality) {
     const sg = new THREE.ExtrudeGeometry(shape, { depth: L * 0.85, bevelEnabled: false }); sg.translate(0, 0, -L * 0.425);
     const suv = sg.attributes.uv, spos = sg.attributes.position;
     for (let i = 0; i < suv.count; i++) suv.setXY(i, spos.getZ(i) / 30, spos.getY(i) / (rise * 16));
-    const stand = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ map: rep(tx.crowd, 1, 1), roughness: 0.9 })); stand.castShadow = stand.receiveShadow = true;
+    const stand = new THREE.Mesh(sg, crowdMat); stand.castShadow = stand.receiveShadow = true;
     stand.rotation.y = -Math.PI / 2;
     const standG = new THREE.Group(); standG.add(stand);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 0.88, 0.5, rows * depth + 4), white); roof.position.set(0, rows * rise + 5, -(rows * depth) / 2 - 1); roof.castShadow = true; standG.add(roof);
@@ -496,9 +535,16 @@ function buildWorld(T, themeKey, quality) {
       const side = T.kapW[apex] > 0 ? -1 : 1, off = (side > 0 ? T.wallL : T.wallR)[apex] + 10;
       const x = T.px[apex] + T.nx[apex] * off * side, y = T.py[apex] + T.ny[apex] * off * side;
       if (trackDistance(T, x, y, -1, 0, 2).d > off - 3) {
-        const st = new THREE.Mesh(new THREE.BoxGeometry(70, 0.6, 14), new THREE.MeshStandardMaterial({ map: rep(tx.crowd, 2, 1), roughness: 0.9 }));
-        st.position.copy(W(x, y, 4.2)); st.rotation.order = 'YXZ'; st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); st.rotation.x = 0.5;
-        st.castShadow = true; world.add(st);
+        const st = cornerStand(64, 12, white, steel, crowdMat);
+        st.position.copy(W(x, y, 0)); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st);
+        if (quality >= 1) {
+          // TV camera tower beside the stand
+          const tw = new THREE.Group(), leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 0.3), steel); leg.position.y = 4; tw.add(leg);
+          const plat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 2.2), steel); plat.position.y = 8; tw.add(plat);
+          const cam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.45), new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.5 })); cam.position.set(0, 8.6, 0); tw.add(cam);
+          const ap = (apex + Math.round(25 / T.ds)) % n, o2 = off - 4;
+          tw.position.copy(W(T.px[ap] + T.nx[ap] * o2 * side, T.py[ap] + T.ny[ap] * o2 * side, 0)); tw.lookAt(W(T.px[apex], T.py[apex], 8.6)); world.add(tw);
+        }
       }
     }
   });
@@ -1146,7 +1192,7 @@ function liveryFromModel(team, num) {
   g.fillStyle = team.c1;
   for (const [x0, y0, x1, y1] of [[325, 45, 392, 92], [325, 195, 392, 238], [455, 80, 545, 135], [455, 230, 545, 285], [440, 118, 466, 142], [440, 268, 466, 292], [685, 310, 750, 352], [785, 310, 850, 352],
     [690, 195, 985, 240], [140, 378, 320, 402], [55, 588, 85, 609], [105, 613, 133, 634], [440, 140, 470, 160], [440, 290, 470, 305]]) g.fillRect(x0 * w / 1024, y0 * h / 1024, (x1 - x0) * w / 1024, (y1 - y0) * h / 1024);
-  text(sp[pick % sp.length][0], 488, 106, 21, true); text(sp[pick % sp.length][0], 488, 258, 21, true);
+  text(sp[pick % sp.length][0], 488, 106, 21, true); text(sp[pick % sp.length][0], 488, 258, 21, false);
   text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'v');
   text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, false); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, false);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = GFX.maxAniso; t.userData.keep = true;

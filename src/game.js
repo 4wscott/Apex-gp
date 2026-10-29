@@ -486,6 +486,12 @@ const App = {
     }
     this.particles.update(dt);
     this.weatherVisuals(dt, race);
+    // crowd: always a little movement, jumping when cars are close to the camera or at the start
+    if (GFX.crowdMat) {
+      const u = GFX.crowdMat.userData; u.time.value += dt;
+      const near = race.cars.some((c) => (c.x - P.x) ** 2 + (c.y - P.y) ** 2 < 900 && c !== P) || race.phase !== 'green' || race.greenT < 8 || P.finished;
+      u.excite.value += ((near ? 1 : 0.25) - u.excite.value) * Math.min(1, dt * 2);
+    }
     // camera
     const cam = this.camera, mode = S.camMode;
     const fwd = new THREE.Vector3(Math.cos(P.h), 0, -Math.sin(P.h));
