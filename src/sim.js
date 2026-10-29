@@ -327,11 +327,19 @@ const ERS_MODES = [
   { name: 'ATTACK', deploy: 350e3, harvestCoast: 0 },
 ];
 const SOC_MAX = 4e6;
+// grip of a compound on a track with water level w (0 dry .. 1 standing water), relative to its dry grip
+function wetGrip(key, w) {
+  if (key === 'I') return 1 - 0.26 * Math.abs(w - 0.45) / 0.55 - (w < 0.15 ? 0.06 : 0);
+  if (key === 'W') return 1 - 0.3 * Math.max(0, 0.75 - w) / 0.75;
+  return 1 - 0.38 * w; // slicks
+}
 // tyre compounds: grip multiplier, wear rate, ideal temperature (C)
 const COMPOUNDS = {
   S: { name: 'Soft', grip: 1.0, wear: 1.7, temp: 92, color: '#e0262b' },
   M: { name: 'Medium', grip: 0.978, wear: 1.0, temp: 102, color: '#f2c318' },
   H: { name: 'Hard', grip: 0.955, wear: 0.6, temp: 112, color: '#f2f2f2' },
+  I: { name: 'Intermediate', grip: 0.93, wear: 1.1, temp: 72, color: '#2fbf4a', wet: true },
+  W: { name: 'Wet', grip: 0.88, wear: 0.8, temp: 62, color: '#2f7bd6', wet: true },
 };
 
 class Car {
@@ -452,11 +460,12 @@ class Car {
     let FzF = (p.m * G * p.b) / p.L + DfF - (p.m * this.axS * p.h) / p.L;
     let FzR = (p.m * G * p.a) / p.L + DfR + (p.m * this.axS * p.h) / p.L;
     FzF = Math.max(FzF, 200); FzR = Math.max(FzR, 200);
-    const cp = COMPOUNDS[this.compound];
+    const cp = COMPOUNDS[this.compound], wet = this.env ? this.env.wet : 0;
+    this.gripWet = wetGrip(this.compound, wet);
     const gripT = (t) => (0.86 + 0.14 * Math.exp(-(((t - cp.temp) / 28) ** 2))) * cp.grip;
     const wearF = 1 - 0.09 * this.wear - 0.5 * Math.max(0, this.wear - 0.65) ** 2 * 4; // grip falls away sharply past ~65 % wear
-    const capF = p.mu * smu * gripT(this.tempF) * wearF * FzF;
-    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * FzR;
+    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF;
+    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR;
 
     // --- power unit
     const curve = clamp(0.55 + 0.45 * Math.sin(((this.rpm - 4000) / 8000) * Math.PI * 0.62), 0.3, 1);
@@ -548,7 +557,7 @@ class Car {
     const cool = 0.004 * (1 + vxa / 80), roll = 0.005 * vxa;
     this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool) * dt;
     this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool) * dt;
-    this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * dt);
+    this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt); // wet tyres overheat on a dry track
 
     // --- walls
     this.locate(false);
@@ -664,6 +673,7 @@ class AIDriver {
     vT *= this.pace * (1 + this.noise) * (race ? race.aiPace : 1) * (this.cool ? 0.7 : 1);
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
     if (blocked && gapAhead < 12 && blocked.vx < c.vx) vT = Math.min(vT, blocked.vx + gapAhead * 0.4);
+    vT *= Math.pow(c.gripWet ?? 1, 0.7); // slower where the grip is lower (rain)
     if (race && race.vsc) vT = Math.min(vT, race.vscCap(c));
     if (race && race.beingLapped(c)) vT *= 0.94; // blue flag: back off to let the leaders by
     const err = vT - v;
@@ -757,6 +767,12 @@ class Race {
       else this.ais.push(new AIDriver(car, e.dr.skill * (0.97 + 0.03 * e.tm.perf.a), hashStr(e.dr.code) ^ (k * 7919)));
     });
     if (this.mode === 'trial') { this.phase = 'green'; this.greenT = 10; }
+    // weather: 'dry' | 'wet' | 'mixed' (dry start, rain arrives during the race, may stop again)
+    this.weather = opts.weather || 'dry';
+    this.env = { wet: this.weather === 'wet' ? 0.8 : 0, rain: this.weather === 'wet' ? 0.75 : 0 };
+    if (this.weather === 'mixed') { const r = mulberry32(Date.now() & 0xffff); this.rainPlan = { start: 60 + r() * 200, peak: 0.55 + r() * 0.4, length: 120 + r() * 240 }; }
+    this.cars.forEach((c) => { c.env = this.env; if (this.weather === 'wet' && c !== this.player) c.compound = rng() < 0.6 ? 'W' : 'I'; });
+    if (this.weather === 'wet' && !COMPOUNDS[opts.compound]?.wet) this.player.compound = 'I';
     // short races wear tyres faster so strategy still matters (a soft lasts roughly half a race)
     this.wearMul = this.mode === 'race' && !this.quali ? clamp(58 / this.laps, 1, 12) : 1;
     this.twoCompounds = this.mode === 'race' && !this.quali && this.laps >= 8; // F1 rule: use two different dry compounds
@@ -765,7 +781,21 @@ class Race {
     this.pit = pitLane(T);
   }
   compoundRule(c) {
-    if (this.twoCompounds && new Set(c.usedCompounds || [c.compound]).size < 2) { c.penalty += 20; this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
+    const used = c.usedCompounds || [c.compound];
+    if (this.twoCompounds && !used.some((k) => COMPOUNDS[k].wet) && new Set(used).size < 2) { c.penalty += 20; this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
+  }
+  // ---- weather -----------------------------------------------------------------------------
+  weatherStep(dt) {
+    const E = this.env, R = this.rainPlan;
+    if (R && this.phase === 'green') {
+      const t = this.greenT, target = t > R.start && t < R.start + R.length ? R.peak : 0;
+      const was = E.rain > 0.05;
+      E.rain += clamp(target - E.rain, -dt / 25, dt / 25);
+      if (!was && E.rain > 0.05) this.emit('rainstart', {}); else if (was && E.rain <= 0.05) this.emit('rainstop', {});
+    }
+    // water builds up while it rains and dries off (faster with cars running) when it stops
+    if (E.rain > 0.02) E.wet += (Math.min(1, E.rain * 1.1) - E.wet) * Math.min(1, dt / 40);
+    else E.wet = Math.max(0, E.wet - dt / 260);
   }
   // ---- race control: yellow flags, virtual safety car, blue flags -----------------------------
   vscCap(c) { return Math.min(this.track.lineV[c.idx] * 0.6, 44); }
@@ -788,7 +818,7 @@ class Race {
         R.yellowUntil[sec] = this.time + 6;
         if (c.incT > 3 && !this.vsc && R.vscCool <= 0 && !c.vscRolled) {
           c.vscRolled = true;
-          if (Math.random() < 0.45) { this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
+          if ((R.vscCount || 0) < 2 && Math.random() < 0.35) { R.vscCount = (R.vscCount || 0) + 1; this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
         }
       } else if (c.incT === 0) c.vscRolled = false;
     }
@@ -822,6 +852,12 @@ class Race {
     const left = this.lapsLeft(c);
     if (left < 2) return;
     const mustStop = this.twoCompounds && !c.stops && (c.lap > c.planLap || left <= 2);
+    const w = this.env.wet, onWet = COMPOUNDS[c.compound].wet;
+    if (!onWet && w > 0.36 && left >= 1) { c.pitReq = w > 0.78 ? 'W' : 'I'; return; }
+    if (onWet && w < 0.22 && left >= 1) { c.pitReq = left <= Math.max(2, this.laps * 0.35) ? 'S' : 'M'; return; }
+    if (c.compound === 'W' && w < 0.6 && left > 2) { c.pitReq = 'I'; return; }
+    if (c.compound === 'I' && w > 0.86 && left > 2) { c.pitReq = 'W'; return; }
+    if (onWet) return;
     if (c.wingHealth < 0.6 && left > 1) { c.pitReq = c.compound === 'H' ? 'M' : 'H'; return; }
     if (mustStop || c.wear > 0.6 || (c.wear > 0.5 && left > 3)) c.pitReq = left <= Math.max(2, this.laps * 0.35) ? 'S' : c.compound === 'H' ? 'M' : 'H';
   }
@@ -907,6 +943,7 @@ class Race {
     });
     collideCars(this.cars.filter((c) => !c.pit));
     this.raceControl(dt);
+    this.weatherStep(dt);
     for (const c of this.cars) this.progress(c);
   }
   progress(c) {
@@ -1026,4 +1063,4 @@ function aiQualiTimes(T, field, aiPace, seed) {
     return { code: dr.code, time: (ref / (pace * aiPace * carF)) * (1 + (rng() - 0.5) * 0.008) };
   });
 }
-if (typeof module !== 'undefined') module.exports = { pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };
+if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };

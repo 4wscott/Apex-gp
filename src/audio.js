@@ -28,6 +28,7 @@ class AudioEngine {
     this.rumble = mkNoise('lowpass', 140, 1);
     this.gravel = mkNoise('bandpass', 600, 0.8);
     this.crowd = mkNoise('bandpass', 1100, 0.3);
+    this.rain = mkNoise('highpass', 2500, 0.4);
   }
   makeEngine(level) {
     const ctx = this.ctx;
@@ -106,6 +107,7 @@ class AudioEngine {
     this.rumble.g.gain.setTargetAtTime(p.surface === 'kerb' && v > 3 ? 0.6 : 0, t, 0.02);
     this.gravel.g.gain.setTargetAtTime((p.surface === 'gravel' || p.surface === 'grass') && v > 2 ? 0.35 : 0, t, 0.05);
     this.crowd.g.gain.setTargetAtTime(st.crowd || 0, t, 0.5);
+    this.rain.g.gain.setTargetAtTime((st.rain || 0) * 0.12, t, 0.5);
   }
   thud(strength) {
     if (!this.ctx || strength < 2) return;
@@ -130,7 +132,7 @@ class AudioEngine {
     o.frequency.value = freq; o.type = 'sine'; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g); g.connect(this.out); o.start(t); o.stop(t + dur + 0.02);
   }
-  silence() { if (!this.ctx) return; this.setEngine(this.player, 4000, 0, 0); this.setEngine(this.other, 4000, 0, 0); ['wind', 'squeal', 'rumble', 'gravel', 'crowd'].forEach((k) => this[k].g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05)); }
+  silence() { if (!this.ctx) return; this.setEngine(this.player, 4000, 0, 0); this.setEngine(this.other, 4000, 0, 0); ['wind', 'squeal', 'rumble', 'gravel', 'crowd', 'rain'].forEach((k) => this[k].g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05)); }
   setVolume(v) { this.vol = v; if (this.master) this.master.gain.value = v; }
 }
 

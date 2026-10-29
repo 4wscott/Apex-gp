@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'game', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'game', weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -155,12 +155,13 @@ const App = {
     if (!night && sunDir.y < 0.35) { sunDir.y = 0.35; sunDir.normalize(); }
     this.sunDir = sunDir;
     this.scene.environment = H.env;
+    this.wx = null; // weather baselines belong to this scene's lights
     const sky = buildSky(theme, sunDir); root.add(sky); this.sky = sky;
-    const { world, lightMats } = buildWorld(T, theme, settings.quality); root.add(world); this.lightMats = lightMats;
+    const { world, lightMats, wetMats } = buildWorld(T, theme, settings.quality); root.add(world); this.lightMats = lightMats; this.wetMats = wetMats;
     const fogCol = night ? new THREE.Color('#1a1828') : new THREE.Color(th.sky[1]).lerp(new THREE.Color('#c9d6e3'), 0.4);
     this.scene.fog = new THREE.FogExp2(fogCol, night ? 0.00035 : 0.00011);
     this.scene.background = fogCol;
-    const hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : 0xdfe9f5, night ? 0x3a3024 : 0x5a5040, night ? 1.4 : 0.35); root.add(hemi);
+    const hemi = (this.hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : 0xdfe9f5, night ? 0x3a3024 : 0x5a5040, night ? 1.4 : 0.35)); root.add(hemi);
     const sun = new THREE.DirectionalLight(night ? 0xfff1dd : th.sunColor, night ? 2.2 : th.time === 'overcast' ? 2.2 : 3.4);
     const q = settings.quality;
     sun.castShadow = q >= 1;
@@ -225,7 +226,7 @@ const App = {
       const opp = mode === 'trial' ? 0 : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
       const race = new Race(T, {
-        mode, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
+        mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
         replaceCode: cfg && cfg.replaceCode, upgrades: cfg && cfg.upgrades, gridOrder: cfg && cfg.gridOrder, quali: cfg && cfg.quali,
         assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear },
       });
@@ -245,6 +246,34 @@ const App = {
       this.paused = false;
       this.resize();
     }, 30);
+  },
+  // rain: darker sky and denser fog, falling drops around the camera, a wet and reflective track
+  weatherVisuals(dt, race) {
+    const E = race.env, rain = E.rain, wet = E.wet, W = (this.wx = this.wx || {});
+    if (W.sun === undefined) { W.sun = this.sun.intensity; W.fog = this.scene.fog.density; W.fogCol = this.scene.fog.color.clone(); W.hemi = this.hemi.intensity; }
+    const k = Math.min(1, rain * 1.3);
+    this.sun.intensity = W.sun * (1 - 0.7 * k); this.hemi.intensity = W.hemi * (1 + 0.8 * k);
+    this.scene.fog.density = W.fog * (1 + 5 * k); this.scene.fog.color.copy(W.fogCol).lerp(new THREE.Color('#7d848c'), k);
+    this.scene.background = this.scene.fog.color; this.sky.visible = k < 0.35;
+    for (const m of this.wetMats || []) { m.roughness = 1 - 0.5 * wet; m.color.setScalar(1 - 0.55 * wet); m.envMapIntensity = 1 + 0.5 * wet; }
+    if (!this.rainFx) {
+      const N = settings.quality >= 2 ? 4000 : settings.quality === 1 ? 2400 : 1200, pos = new Float32Array(N * 6), g = new THREE.BufferGeometry();
+      for (let i = 0; i < N; i++) { const x = (Math.random() - 0.5) * 60, y = Math.random() * 30, z = (Math.random() - 0.5) * 60; pos.set([x, y, z, x, y - 0.6, z], i * 6); }
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc8d2dc, transparent: true, opacity: 0.45, depthWrite: false }));
+      lines.frustumCulled = false; this.scene.add(lines); this.rainFx = { lines, pos, N };
+    }
+    const R = this.rainFx; R.lines.visible = rain > 0.03;
+    if (R.lines.visible) {
+      const c = this.camera.position, p = R.pos, fall = 24 * dt;
+      for (let i = 0; i < R.N; i++) {
+        let o = i * 6, y = p[o + 1] - fall;
+        if (y < -2) y += 30;
+        p[o + 1] = y; p[o + 4] = y - 0.6;
+      }
+      R.lines.position.set(c.x, c.y - 12, c.z); R.lines.geometry.attributes.position.needsUpdate = true;
+      R.lines.geometry.setDrawRange(0, Math.floor(R.N * Math.min(1, rain)) * 2);
+    }
   },
   setupCockpit(car) {
     // the player's car swaps the simple wheel for the detailed one with a live display
@@ -295,6 +324,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
     this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1);
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
     $('#r-again').textContent = 'Race again'; $('#r-menu').textContent = 'Main menu'; $('#r-menu').hidden = false;
@@ -358,9 +388,9 @@ const App = {
     if (inp.biasFPressed) { P.bias = Math.min(0.62, P.bias + 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     if (inp.biasRPressed) { P.bias = Math.max(0.5, P.bias - 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     if (inp.pitPressed && race.mode === 'race' && !race.quali && !P.pit && !P.finished) {
-      // each press cycles: box on Soft -> Medium -> Hard -> cancel
-      const order = ['S', 'M', 'H', null], cur = order.indexOf(P.pitReq ?? null);
-      let next = order[(cur + 1) % 4]; if (next === P.compound && P.pitReq == null) next = order[(order.indexOf(next) + 1) % 3];
+      // each press cycles: box on Soft -> Medium -> Hard -> Intermediate -> Wet -> cancel
+      const order = ['S', 'M', 'H', 'I', 'W', null], cur = order.indexOf(P.pitReq ?? null);
+      let next = order[(cur + 1) % order.length]; if (next === P.compound && P.pitReq == null) next = order[(order.indexOf(next) + 1) % (order.length - 1)];
       race.requestPit(P, next);
       Hud.banner(next ? `Box this lap: ${COMPOUNDS[next].name} tyres` : 'Pit stop cancelled', next ? 'info' : 'warn');
     }
@@ -376,6 +406,8 @@ const App = {
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
+      else if (e.type === 'rainstart') Hud.banner('Rain is starting to fall', 'warn');
+      else if (e.type === 'rainstop') Hud.banner('Rain has stopped: the track will dry', 'info');
       else if (e.type === 'yellow') Hud.banner(`Yellow flag · sector ${e.sector}`, 'warn');
       else if (e.type === 'vsc') Hud.banner('Virtual Safety Car deployed: slow to the delta', 'warn');
       else if (e.type === 'vscending') Hud.banner('VSC ending', 'info');
@@ -437,7 +469,7 @@ const App = {
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));
       m.flapPivot.rotation.z = -0.45 + m.aeroT * 0.38;
       m.fw[0].rotation.z = m.aeroT * 0.18; m.fw[1].rotation.z = m.aeroT * 0.26;
-      m.rainLight.material.emissiveIntensity = c.harvesting && (performance.now() % 400 < 200) ? 6 : 0;
+      m.rainLight.material.emissiveIntensity = (c.harvesting || race.env.wet > 0.3) && (performance.now() % 400 < 200) ? 6 : 0;
       // brake discs glow under heavy braking
       m.brakeT = clamp(m.brakeT + (c.brake * Math.max(0, c.vx) * 0.0006 - m.brakeT * 0.35) * dt * 10, 0, 1);
       m.discs.forEach((dsc) => (dsc.material.emissiveIntensity = Math.max(0, m.brakeT - 0.3) * 6));
@@ -450,6 +482,7 @@ const App = {
       if (dx * dx + dy * dy < 160 * 160) this.particles.emitFor(c, dt);
     }
     this.particles.update(dt);
+    this.weatherVisuals(dt, race);
     // camera
     const cam = this.camera, mode = S.camMode;
     const fwd = new THREE.Vector3(Math.cos(P.h), 0, -Math.sin(P.h));
@@ -507,7 +540,7 @@ const App = {
     // audio: player + the closest other car
     let other = null, best = 60;
     for (const c of race.cars) { if (c === P) continue; const d = Math.hypot(c.x - P.x, c.y - P.y); if (d < best) { best = d; other = c; } }
-    const st = { player: P, inCockpit: mode === 'cockpit', crowd: race.phase !== 'green' ? 0.06 : 0.015 };
+    const st = { rain: race.env.rain, player: P, inCockpit: mode === 'cockpit', crowd: race.phase !== 'green' ? 0.06 : 0.015 };
     if (other) {
       const rx = other.x - P.x, ry = other.y - P.y, side = -(rx * -Math.sin(P.h) + ry * Math.cos(P.h)) / (best + 1);
       st.other = { car: other, gain: 0.5 * (1 - best / 60), pan: clamp(side, -1, 1) };
@@ -616,6 +649,7 @@ class Particles {
       mk('spark', 600, tex.spark, 0.12, THREE.AdditiveBlending, 0xffffff);
       mk('smoke', 300, tex.smoke, 2.2, THREE.NormalBlending, 0xdddddd);
       mk('dust', 300, tex.smoke, 2.6, THREE.NormalBlending, 0xb59a72);
+      mk('spray', 700, tex.smoke, 2.4, THREE.NormalBlending, 0xb4bac2); this.sets.spray.pts.material.opacity = 0.35;
     };
     if (GFX.tex) this.ready(GFX.tex);
   }
@@ -628,6 +662,9 @@ class Particles {
     if (!this.sets.spark) { if (GFX.tex) this.ready(GFX.tex); else return; }
     const ch = Math.cos(c.h), sh = Math.sin(c.h), wx = c.vx * ch - c.vy * sh, wy = c.vx * sh + c.vy * ch;
     const kmh = c.vx * 3.6;
+    // rain spray thrown up behind the rear tyres
+    const wet = c.env ? c.env.wet : 0;
+    if (wet > 0.2 && kmh > 50) { const n = Math.min(2, Math.floor(wet * kmh * dt * 0.35 + Math.random() * 0.6)); for (let k = 0; k < n; k++) { const sd = Math.random() < 0.5 ? 0.75 : -0.75; this.spawn('spray', c.x - ch * 2.2 - sh * sd, 0.35 + Math.random() * 0.3, -(c.y - sh * 2.2 + ch * sd), wx * 0.35 + (Math.random() - 0.5) * 3, 1.2 + Math.random() * 1.5, -wy * 0.35 + (Math.random() - 0.5) * 3); } }
     // titanium skid blocks: sparks at high speed, more over kerbs and when braking hard
     const rate = kmh > 250 ? (kmh - 250) * 0.9 + (c.kerbHit ? 60 : 0) + (c.brake > 0.5 ? 30 : 0) : 0;
     let n = rate * dt; while (n > 0) {
@@ -732,7 +769,7 @@ const Hud = {
     const tcol = (t) => (t < 80 ? '#4aa3ff' : t > 118 ? '#ff4d4d' : '#2bd46a');
     $('#h-tf').style.background = tcol(P.tempF); $('#h-tr').style.background = tcol(P.tempR);
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
-    $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? ` · BOX → ${P.pitReq}` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
+    $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? ` · BOX → ${P.pitReq}` : ''}${S.race.env.wet > 0.05 ? ` · track ${Math.round(S.race.env.wet * 100)}% wet` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));

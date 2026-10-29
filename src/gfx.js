@@ -636,7 +636,7 @@ function buildWorld(T, themeKey, quality) {
     }
     poles.count = heads.count = k; world.add(poles, heads);
   }
-  return { world, lightMats };
+  return { world, lightMats, wetMats: [asphaltMat] };
 }
 
 // trees built from painted foliage cards: normals point out from the crown centre,

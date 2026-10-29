@@ -282,7 +282,7 @@ body.touch #h-track { display: none; }
         </div>
         <div id="career" hidden></div>
         <div class="group"><h2>Tyres</h2>
-          <div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button></div>
+          <div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button><button type="button" data-v="I">Intermediate · damp track</button><button type="button" data-v="W">Wet · heavy rain</button></div>
         </div>
         <div class="group free-only"><h2>Circuit</h2><div id="circuits"></div></div>
         <div class="group free-only"><h2>Team and driver</h2><div id="teams"></div>
@@ -294,6 +294,7 @@ body.touch #h-track { display: none; }
           </details></div>
         <div class="group" id="race-only"><h2>Race settings</h2>
           <div class="row"><label for="laps">Race distance</label><div class="ctl"><input id="laps" type="range" min="1" max="30" step="1"><output id="laps-out"></output></div></div>
+          <div class="row"><label>Weather</label><div class="ctl seg" data-set="weather"><button type="button" data-v="dry">Dry</button><button type="button" data-v="mixed">Changing (rain arrives)</button><button type="button" data-v="wet">Wet</button></div></div>
           <div class="row"><label for="opps">Opponents</label><div class="ctl"><input id="opps" type="range" min="0" max="21" step="1"><output id="opps-out"></output></div></div>
           <div class="row"><label for="aipace">AI pace</label><div class="ctl"><input id="aipace" type="range" min="80" max="104" step="1"><output id="aipace-out"></output></div></div>
           <div class="row"><label>Starting position</label><div class="ctl seg" data-set="grid"><button type="button" data-v="pole">Pole</button><button type="button" data-v="mid">Midfield</button><button type="button" data-v="back">Back of grid</button><button type="button" data-v="random">Random</button></div></div>
