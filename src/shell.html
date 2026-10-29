@@ -146,6 +146,7 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 .tyre { width: 12px; height: 18px; border-radius: 3px; }
 #dash.compact { display: none; }
 #h-wing { color: var(--red); font-weight: 700; }
+#sp-now { margin: 6px 0; font-weight: 600; }
 #h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 .banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
@@ -348,8 +349,20 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label for="fov">Field of view</label><div class="ctl"><input id="fov" type="range" min="45" max="90" step="1"><output id="fov-out"></output></div></div>
         <div class="row"><label for="vol">Volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
-        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button></div></div>
+        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
         <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
+        <div id="sp-panel" hidden>
+          <div class="row"><label for="sp-client">Spotify Client ID</label><div class="ctl"><input id="sp-client" type="text" autocomplete="off" spellcheck="false" placeholder="32 letters and numbers from developer.spotify.com"></div></div>
+          <p class="hint" id="sp-redirect"></p>
+          <div class="actions"><button type="button" class="btn primary" id="sp-login">Connect Spotify</button><button type="button" class="btn" id="sp-logout" hidden>Disconnect</button></div>
+          <div id="sp-ctl" hidden>
+            <p class="sp-now" id="sp-now" aria-live="polite">Nothing playing</p>
+            <div class="actions"><button type="button" class="btn" id="sp-prev" aria-label="Previous track">⏮</button><button type="button" class="btn primary" id="sp-pp" aria-label="Play or pause">⏯</button><button type="button" class="btn" id="sp-next" aria-label="Next track">⏭</button></div>
+            <div class="row"><label for="sp-list">Playlist</label><div class="ctl"><select id="sp-list"><option value="">Loading playlists…</option></select> <button type="button" class="btn" id="sp-playlist">Play</button></div></div>
+            <p class="hint">During a race: <kbd>N</kbd> next track, <kbd>K</kbd> play/pause. Spotify plays on your phone, computer or speaker; on a computer with Spotify Premium the game itself can be the player.</p>
+          </div>
+          <p class="hint" id="sp-msg" aria-live="polite"></p>
+        </div>
         <div class="row"><label for="music">Music (hardstyle)</label><div class="ctl"><input id="music" type="range" min="0" max="100" step="1"><output id="music-out"></output></div></div>
         <div class="row"><label>Music in races</label><div class="ctl seg" data-set="musicRace"><button type="button" data-v="off">Off</button><button type="button" data-v="quiet">Quiet</button><button type="button" data-v="full">Full</button></div></div>
         <div class="row"><label>Units</label><div class="ctl seg" data-set="units"><button type="button" data-v="kmh">km/h</button><button type="button" data-v="mph">mph</button></div></div>

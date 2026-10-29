@@ -257,12 +257,12 @@ const ACTIONS = [
   ['steerLeft', 'Steer left', 'axis'], ['steerRight', 'Steer right', 'axis'], ['throttle', 'Throttle', 'axis'], ['brake', 'Brake', 'axis'],
   ['shiftUp', 'Shift up', 'button'], ['shiftDown', 'Shift down', 'button'], ['aero', 'Active aero', 'button'], ['overtake', 'Overtake (hold)', 'button'],
   ['ers', 'ERS mode', 'button'], ['biasF', 'Brake bias forward', 'button'], ['biasR', 'Brake bias rearward', 'button'],
-  ['pit', 'Pit stop (press again to change tyres / cancel)', 'button'], ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
+  ['pit', 'Pit stop (press again to change tyres / cancel)', 'button'], ['spNext', 'Spotify: next track', 'button'], ['spPlay', 'Spotify: play / pause', 'button'], ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
 ];
 const KEYMAP = {
   steerLeft: ['ArrowLeft'], steerRight: ['ArrowRight'], throttle: ['KeyA', 'ArrowUp'], brake: ['KeyD', 'ArrowDown'],
   shiftUp: ['KeyE', 'ShiftRight'], shiftDown: ['KeyQ', 'ControlRight'], aero: ['Space'], overtake: ['KeyF'], ers: ['KeyX'],
-  biasF: ['BracketLeft'], biasR: ['BracketRight'], pit: ['KeyM'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
+  biasF: ['BracketLeft'], biasR: ['BracketRight'], pit: ['KeyM'], spNext: ['KeyN'], spPlay: ['KeyK'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
 };
 // default for the "standard" gamepad mapping
 const PAD_DEFAULT = {

@@ -413,6 +413,10 @@ const App = {
       race.requestPit(P, next);
       Hud.banner(next ? `Box this lap: ${COMPOUNDS[next].name} tyres` : 'Pit stop cancelled', next ? 'info' : 'warn');
     }
+    if (settings.musicSource === 'spotify' && Spotify.connected()) {
+      if (inp.spNextPressed) Spotify.next().then(() => Hud.flash('Spotify: next track')).catch((e) => Hud.flash(e.message));
+      if (inp.spPlayPressed) Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())).catch((e) => Hud.flash(e.message));
+    }
     if (inp.resetPressed && race.phase === 'green' && !P.pit) {
       const T = race.track, d0 = P.dist; P.place(P.idx, T.lineO[P.idx], 0); P.dist = d0; P.lastS = P.s; P.lapValid = race.mode === 'race' && P.lapValid;
       if (race.mode === 'trial') P.lapValid = false;
@@ -888,6 +892,32 @@ const Results = {
 
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
+  // Spotify panel
+  initSpotify() {
+    $('#sp-client').value = store.get('sp.client', '');
+    $('#sp-redirect').innerHTML = `Redirect URI to add in your Spotify app: <code>${Spotify.redirect()}</code>`;
+    const msg = (t) => ($('#sp-msg').textContent = t || '');
+    $('#sp-client').onchange = () => store.set('sp.client', $('#sp-client').value.trim());
+    $('#sp-login').onclick = () => { store.set('sp.client', $('#sp-client').value.trim()); Spotify.login().catch((e) => msg(e.message)); };
+    $('#sp-logout').onclick = () => { Spotify.logout(); this.spotifyUI(); };
+    const act = (f) => () => f().then(() => setTimeout(() => this.spotifyNow(), 500)).catch((e) => msg(e.message));
+    $('#sp-prev').onclick = act(() => Spotify.prev()); $('#sp-next').onclick = act(() => Spotify.next());
+    $('#sp-pp').onclick = act(() => Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())));
+    $('#sp-playlist').onclick = act(() => Spotify.play($('#sp-list').value || undefined));
+    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
+    setInterval(() => { if (Spotify.connected() && settings.musicSource === 'spotify' && !$('#menu').hidden) this.spotifyNow(); }, 8000);
+  },
+  spotifyUI() {
+    const on = Spotify.connected();
+    $('#sp-login').hidden = on; $('#sp-logout').hidden = !on; $('#sp-ctl').hidden = !on;
+    if (on) {
+      this.spotifyNow();
+      Spotify.playlists().then((ls) => { $('#sp-list').innerHTML = '<option value="">Continue what was playing</option>' + ls.map((p) => `<option value="${p.uri}">${p.name.replace(/[<&]/g, '')}</option>`).join(''); }).catch((e) => ($('#sp-msg').textContent = e.message));
+    }
+  },
+  spotifyNow() {
+    Spotify.now().then((n) => { const it = n && n.item; $('#sp-now').textContent = it ? `${n.is_playing ? '▶' : '⏸'} ${it.name} · ${(it.artists || []).map((a) => a.name).join(', ')}${n.device ? ` (on ${n.device.name})` : ''}` : 'Nothing playing: pick a playlist and press Play'; }).catch(() => {});
+  },
   // online room panel
   initOnline() {
     $('#on-name').value = store.get('netname', '') || '';
@@ -910,7 +940,7 @@ const Menu = {
     Net.onLeft = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (!c) return; c.net = null; c.x = 1e5; c.y = 1e5; if (c.mesh) c.mesh.grp.visible = false; Hud.banner(`${c.driver.name} left the race`, 'warn'); };
   },
   init() {
-    this.initOnline();
+    this.initOnline(); this.initSpotify();
     // circuits
     const grid = $('#circuits');
     TRACKS.forEach((spec) => {
@@ -932,7 +962,7 @@ const Menu = {
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
-        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); }
+        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'spotify') this.spotifyUI(); }
       });
     });
     const range = (id, key, fmt, scale = 1) => {
@@ -1018,6 +1048,7 @@ const Menu = {
     const career = settings.mode === 'career';
     $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${TEAMS.find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
       : `<b>${settings.mode === 'race' ? 'Grand Prix' : 'Time trial'}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
+    $('#sp-panel').hidden = settings.musicSource !== 'spotify';
     const online = settings.mode === 'online';
     $('#race-only').hidden = settings.mode !== 'race' && !online; $('#opps').closest('.row').hidden = online; $('#aipace').closest('.row').hidden = online; $('[data-set="grid"]').closest('.row').hidden = online;
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
@@ -1056,5 +1087,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net;
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
