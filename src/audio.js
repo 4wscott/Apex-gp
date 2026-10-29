@@ -34,14 +34,24 @@ class AudioEngine {
     const shaper = ctx.createWaveShaper(); const curve = new Float32Array(1024);
     for (let i = 0; i < 1024; i++) { const x = (i / 1023) * 2 - 1; curve[i] = Math.tanh(x * 2.4); }
     shaper.curve = curve;
-    const oscs = [['sawtooth', 1, 0.5], ['square', 0.5, 0.28], ['sawtooth', 2, 0.18], ['triangle', 1.5, 0.22]].map(([type, mul, amp]) => {
-      const o = ctx.createOscillator(); o.type = type; const og = ctx.createGain(); og.gain.value = amp; o.connect(og); og.connect(shaper); o.start(); return { o, mul };
+    // crank-order harmonics of a 1.6 L V6: firing orders (3, 6, 9...) dominate, the small odd orders from
+    // cylinder-to-cylinder differences give the rasp
+    const N = 40, re = new Float32Array(N), im = new Float32Array(N);
+    for (let k = 1; k < N; k++) im[k] = k % 3 === 0 ? 1 / Math.pow(k / 3, 0.75) : (k % 3 === 1 ? 0.16 : 0.1) / Math.pow(k, 0.35);
+    const wave = ctx.createPeriodicWave(re, im);
+    const oscs = [[null, 1 / 3, 0.62], ['sawtooth', 1, 0.16], ['triangle', 0.5, 0.2]].map(([type, mul, amp]) => {
+      const o = ctx.createOscillator(); if (type) o.type = type; else o.setPeriodicWave(wave);
+      const og = ctx.createGain(); og.gain.value = amp; o.connect(og); og.connect(shaper); o.start(); return { o, mul };
     });
+    // exhaust rasp: noise band-passed around the firing frequency
+    const rs = ctx.createBufferSource(); rs.buffer = this.noiseBuf; rs.loop = true;
+    const rbp = ctx.createBiquadFilter(); rbp.type = 'bandpass'; rbp.Q.value = 1.6; const rg = ctx.createGain(); rg.gain.value = 0;
+    rs.connect(rbp); rbp.connect(rg); rg.connect(shaper); rs.start();
     // MGU-H / turbo whine
     const whine = ctx.createOscillator(); whine.type = 'sine'; const wg = ctx.createGain(); wg.gain.value = 0; whine.connect(wg); whine.start();
     shaper.connect(lp); lp.connect(g); wg.connect(g);
     if (pan) { g.connect(pan); pan.connect(this.out); } else g.connect(this.out);
-    return { g, lp, oscs, whine, wg, pan, level, cut: 0 };
+    return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg };
   }
   setEngine(e, rpm, thr, gain, panV = 0) {
     if (!this.ctx) return;
@@ -50,6 +60,7 @@ class AudioEngine {
     e.lp.frequency.setTargetAtTime(600 + thr * 3400 + rpm * 0.12, t, 0.03);
     const cut = e.cut > 0 ? 0.25 : 1;
     e.g.gain.setTargetAtTime(gain * e.level * (0.25 + 0.75 * thr) * cut, t, 0.02);
+    e.rbp.frequency.setTargetAtTime(f * 2, t, 0.03); e.rg.gain.setTargetAtTime((0.05 + 0.35 * thr) * Math.min(1, rpm / 11000), t, 0.03);
     e.whine.frequency.setTargetAtTime(2800 + rpm * 0.35, t, 0.05);
     e.wg.gain.setTargetAtTime(gain * 0.03 * thr, t, 0.05);
     if (e.pan) e.pan.pan.setTargetAtTime(panV, t, 0.05);
@@ -58,9 +69,15 @@ class AudioEngine {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const p = st.player;
-    if (p.justShifted) { this.player.cut = 0.06; p.justShifted = 0; }
-    this.player.cut -= dt;
-    this.setEngine(this.player, p.rpm, Math.max(p.throttle, 0.05), st.inCockpit ? 0.55 : 0.42);
+    if (p.justShifted) { if (p.justShifted < 0) this.blip = 0.11; else this.player.cut = 0.06; p.justShifted = 0; }
+    this.player.cut -= dt; this.blip = Math.max(0, (this.blip || 0) - dt);
+    let thr = Math.max(p.throttle, 0.05, this.blip > 0 ? 0.85 : 0);
+    // rev limiter: the ignition cuts in and out ~25 times a second
+    if (p.rpm > p.p.redline - 60 && p.throttle > 0.8 && Math.floor(t * 25) % 2) thr *= 0.35;
+    // lifting off at high revs: unburnt fuel pops in the exhaust
+    if ((this.prevThr || 0) > 0.6 && p.throttle < 0.15 && p.rpm > 8500) this.crackle(4 + Math.floor(Math.random() * 5));
+    this.prevThr = p.throttle;
+    this.setEngine(this.player, p.rpm + (this.blip > 0 ? 900 : 0), thr, st.inCockpit ? 0.55 : 0.42);
     if (st.other) this.setEngine(this.other, st.other.car.rpm, Math.max(st.other.car.throttle, 0.1), st.other.gain, st.other.pan);
     else this.setEngine(this.other, 4000, 0, 0);
     const v = Math.max(0, p.vx);
@@ -80,6 +97,15 @@ class AudioEngine {
     const g = ctx.createGain(); g.gain.setValueAtTime(Math.min(1, strength / 15), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
     src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t); src.stop(t + 0.4);
   }
+  crackle(n) {
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    for (let i = 0; i < n; i++) {
+      const t = t0 + 0.04 + Math.random() * 0.6, src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+      const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 700 + Math.random() * 1400; fl.Q.value = 1.2;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25 + Math.random() * 0.3, t + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t, Math.random()); src.stop(t + 0.07);
+    }
+  }
   beep(freq, dur = 0.12, vol = 0.25) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
@@ -90,6 +116,122 @@ class AudioEngine {
   setVolume(v) { this.vol = v; if (this.master) this.master.gain.value = v; }
 }
 
+// ==== Music: procedural hardstyle / EDM at 150 BPM ===========================
+// Distorted hardstyle kicks tuned to the chord root, supersaw pads and leads with kick sidechain,
+// off-beat hats and claps. Song form: intro, then breakdown (with riser) and drop, repeating with a
+// fresh melody each time round. Everything is synthesised; nothing is sampled.
+class Music {
+  constructor(audio) { this.audio = audio; this.on = false; this.level = 0.55; this.duck = 1; }
+  init() {
+    const a = this.audio, ctx = a.ctx; if (!ctx || this.bus) return;
+    this.bus = ctx.createGain(); this.bus.gain.value = 0;
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -8; lim.ratio.value = 12; lim.attack.value = 0.003; lim.release.value = 0.15;
+    this.bus.connect(lim); lim.connect(a.master);
+    // synth bus: filter (opened through the breakdown) -> sidechain gain -> dry + reverb
+    this.synF = ctx.createBiquadFilter(); this.synF.type = 'lowpass'; this.synF.frequency.value = 9000; this.synF.Q.value = 0.7;
+    this.side = ctx.createGain(); this.synF.connect(this.side); this.side.connect(this.bus);
+    const rev = ctx.createConvolver(), len = ctx.sampleRate * 2.4, ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+    rev.buffer = ir; const rg = ctx.createGain(); rg.gain.value = 0.28; this.side.connect(rg); rg.connect(rev); rev.connect(this.bus);
+    this.drums = ctx.createGain(); this.drums.connect(this.bus);
+    const curve = new Float32Array(2048); for (let i = 0; i < 2048; i++) { const x = (i / 2047) * 2 - 1; curve[i] = Math.tanh(x * 7) * 0.9; }
+    this.dist = curve;
+    this.step = 0; this.cycle = 0; this.rng = mulberry32(Date.now() & 0xffff);
+  }
+  start() {
+    if (!this.audio.ctx) return; this.init(); if (this.on) return;
+    this.on = true; this.step = 0; this.next = this.audio.ctx.currentTime + 0.1; this.makeSong();
+    this.timer = setInterval(() => this.schedule(), 25);
+    this.apply();
+  }
+  stop() { this.on = false; clearInterval(this.timer); this.apply(); }
+  setLevel(v) { this.level = v; this.apply(); }
+  setDuck(v) { this.duck = v; this.apply(); }
+  apply() { if (this.bus) this.bus.gain.setTargetAtTime(this.on ? this.level * this.duck * 0.9 : 0, this.audio.ctx.currentTime, 0.4); }
+  // chords (A minor family) and a melody per cycle
+  makeSong() {
+    const progs = [[0, 5, 2, 6], [5, 6, 0, 0], [0, 3, 5, 6], [5, 2, 6, 0], [0, 6, 5, 6]];
+    const prog = progs[Math.floor(this.rng() * progs.length)];
+    const scale = [0, 2, 3, 5, 7, 8, 10]; // natural minor degrees
+    this.chords = prog.map((d) => [0, 2, 4].map((k) => { const i = d + k; return scale[i % 7] + 12 * Math.floor(i / 7); }));
+    const rhythms = [[1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0], [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0], [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0]];
+    this.rhythm = rhythms[Math.floor(this.rng() * rhythms.length)];
+    this.melody = this.chords.map((ch) => { let last = 1; return this.rhythm.map((hit) => { if (!hit) return null; last = Math.max(0, Math.min(4, last + Math.floor(this.rng() * 3) - 1)); return last; }); });
+    this.cycle++;
+  }
+  // section at a given bar: 8 intro bars, then [8 breakdown + 16 drop] repeating
+  section(bar) { if (bar < 8) return ['intro', bar]; const b = (bar - 8) % 24; return b < 8 ? ['break', b] : ['drop', b - 8]; }
+  schedule() {
+    const ctx = this.audio.ctx, sx = 60 / 150 / 4;
+    while (this.next < ctx.currentTime + 0.15) { this.play(this.step, this.next); this.step++; this.next += sx; }
+  }
+  play(step, t) {
+    const bar = Math.floor(step / 16), s16 = step % 16, [sec, sb] = this.section(bar), ci = bar % 4, ch = this.chords[ci];
+    if (sec === 'break' && sb === 0 && s16 === 0 && bar > 8) this.makeSong();
+    const root = 45 + ch[0]; // A2 = MIDI 45
+    const beat = s16 % 4 === 0;
+    if (sec !== 'break' && beat) { this.kick(t, root - 12); this.pump(t); }
+    if (sec !== 'break' && s16 % 4 === 2) this.hat(t, 0.16);
+    if (sec === 'drop' && (s16 === 4 || s16 === 12)) this.clap(t);
+    if (sec === 'intro' && s16 % 4 === 2) this.bass(t, root - 12);
+    if (s16 === 0 && sec !== 'intro') this.pad(t, ch.map((n) => 57 + n), sec === 'break' ? 0.3 : 0.2);
+    const m = this.melody[ci][s16];
+    if (m !== null && (sec === 'drop' || (sec === 'break' && sb >= 4))) {
+      const deg = [0, 1, 2, 0, 1][m], oct = m >= 3 ? 12 : 0, note = 69 + ch[deg] + oct;
+      this.lead(t, note, sec === 'drop' ? 0.24 : 0.16);
+    }
+    // breakdown: filter rises over the last four bars, snare roll and noise riser into the drop
+    if (sec === 'break' && s16 === 0) this.synF.frequency.setTargetAtTime(sb < 4 ? 1400 : 1400 + (sb - 3) * 1900, t, 0.8);
+    if (sec === 'drop' && sb === 0 && s16 === 0) this.synF.frequency.setTargetAtTime(9000, t, 0.05);
+    if (sec === 'break' && sb >= 6) { const fast = sb === 7 ? (s16 >= 8 ? 1 : 2) : 4; if (s16 % fast === 0) this.clap(t, 0.25 + (sb - 6) * 0.25 + s16 / 64); }
+    if (sec === 'break' && sb === 6 && s16 === 0) this.riser(t, (60 / 150) * 8);
+  }
+  mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  kick(t, rootMidi) {
+    const ctx = this.audio.ctx, o = ctx.createOscillator(), sh = ctx.createWaveShaper(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    let f = this.mtof(rootMidi); while (f < 45) f *= 2; while (f > 75) f /= 2;
+    o.frequency.setValueAtTime(260, t); o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.03); o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
+    sh.curve = this.dist; lp.type = 'lowpass'; lp.frequency.setValueAtTime(4000, t); lp.frequency.exponentialRampToValueAtTime(900, t + 0.3);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.62, t + 0.004); g.gain.setValueAtTime(0.62, t + 0.2); g.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    o.connect(sh); sh.connect(lp); lp.connect(g); g.connect(this.drums); o.start(t); o.stop(t + 0.4);
+    this.noise(t, 0.012, 'highpass', 3000, 0.35);
+  }
+  bass(t, rootMidi) {
+    const ctx = this.audio.ctx, o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = this.mtof(rootMidi + 12); lp.type = 'lowpass'; lp.frequency.value = 500;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.28, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(lp); lp.connect(g); g.connect(this.drums); o.start(t); o.stop(t + 0.11);
+  }
+  noise(t, dur, type, f, vol, q = 0.7) {
+    const ctx = this.audio.ctx, src = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = this.audio.noiseBuf; fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(fl); fl.connect(g); g.connect(this.drums); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  }
+  hat(t, vol) { this.noise(t, 0.07, 'highpass', 8000, vol); }
+  clap(t, vol = 0.45) { for (let k = 0; k < 3; k++) this.noise(t + k * 0.011, 0.12 - k * 0.02, 'bandpass', 1500, vol * (k === 2 ? 1 : 0.6), 1.2); }
+  riser(t, dur) {
+    const ctx = this.audio.ctx, src = ctx.createBufferSource(), fl = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = this.audio.noiseBuf; src.loop = true; fl.type = 'bandpass'; fl.Q.value = 2;
+    fl.frequency.setValueAtTime(400, t); fl.frequency.exponentialRampToValueAtTime(9000, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + dur * 0.95); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
+    src.connect(fl); fl.connect(g); g.connect(this.drums); src.start(t); src.stop(t + dur + 0.1);
+  }
+  saw(t, midi, dur, vol, voices, spread, attack, release) {
+    const ctx = this.audio.ctx, g = ctx.createGain(), f = this.mtof(midi);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.setValueAtTime(vol, t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + release);
+    g.connect(this.synF);
+    for (let v = 0; v < voices; v++) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = (v - (voices - 1) / 2) * spread;
+      const pg = ctx.createGain(); pg.gain.value = 1 / voices; o.connect(pg); pg.connect(g); o.start(t); o.stop(t + dur + release + 0.05);
+    }
+  }
+  pad(t, notes, vol) { const bar = (60 / 150) * 4; notes.forEach((n) => this.saw(t, n, bar * 0.92, vol, 4, 14, 0.12, 0.3)); }
+  lead(t, note, vol) { this.saw(t, note, 0.085, vol, 5, 18, 0.006, 0.12); this.saw(t, note + 12, 0.085, vol * 0.35, 3, 12, 0.006, 0.1); }
+  // kick sidechain: synths dip on every kick and swell back
+  pump(t) { const g = this.side.gain; g.cancelScheduledValues(t); g.setValueAtTime(0.25, t); g.linearRampToValueAtTime(1, t + 0.32); }
+}
+
 // ==== Input: keyboard, gamepads and wheels ===================================
 const ACTIONS = [
   ['steerLeft', 'Steer left', 'axis'], ['steerRight', 'Steer right', 'axis'], ['throttle', 'Throttle', 'axis'], ['brake', 'Brake', 'axis'],
@@ -98,7 +240,7 @@ const ACTIONS = [
   ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
 ];
 const KEYMAP = {
-  steerLeft: ['ArrowLeft', 'KeyA'], steerRight: ['ArrowRight', 'KeyD'], throttle: ['ArrowUp', 'KeyW'], brake: ['ArrowDown', 'KeyS'],
+  steerLeft: ['ArrowLeft'], steerRight: ['ArrowRight'], throttle: ['KeyA', 'ArrowUp'], brake: ['KeyD', 'ArrowDown'],
   shiftUp: ['KeyE', 'ShiftRight'], shiftDown: ['KeyQ', 'ControlRight'], aero: ['Space'], overtake: ['KeyF'], ers: ['KeyX'],
   biasF: ['BracketLeft'], biasR: ['BracketRight'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
 };
@@ -228,7 +370,11 @@ class Input {
       padThr = padVal('throttle'); padBrk = padVal('brake');
       const dz = opts.deadzone ?? 0.06;
       padSteer = Math.sign(padSteer) * Math.pow(Math.max(0, Math.abs(padSteer) - dz) / (1 - dz), opts.linearity ?? 1.4);
-      if (Math.abs(padSteer) > 0.05 || padThr > 0.05 || padBrk > 0.05) this.lastDevice = p.mapping === 'standard' ? 'gamepad' : 'wheel';
+      // a controller only takes over when it moves away from where it rests (pedals or axes that idle off zero,
+      // or devices such as headsets that report as gamepads, must not lock out the keyboard)
+      const id = p.id + p.index, now = [padSteer, padThr, padBrk];
+      if (!this.padRest || this.padRest.id !== id) this.padRest = { id, v: now };
+      if (now.some((v, i) => Math.abs(v - this.padRest.v[i]) > 0.2)) this.lastDevice = p.mapping === 'standard' ? 'gamepad' : 'wheel';
     }
     // keyboard smoothing
     const kl = this.key('steerLeft'), kr = this.key('steerRight');
@@ -237,6 +383,8 @@ class Input {
     this.kbSteer += clamp(target - this.kbSteer, -rate * dt, rate * dt);
     this.kbThr += clamp((this.key('throttle') ? 1 : 0) - this.kbThr, -8 * dt, 6 * dt);
     this.kbBrk += clamp((this.key('brake') ? 1 : 0) - this.kbBrk, -8 * dt, 9 * dt);
+    // holding a driving key always means the keyboard is in use
+    if (kl || kr || this.key('throttle') || this.key('brake')) this.lastDevice = 'keyboard';
     const useKb = this.lastDevice === 'keyboard', useTouch = this.lastDevice === 'touch';
     if (useTouch) {
       // arrows build steering up gradually (like a keyboard); wheel and pad follow the thumb directly
@@ -249,8 +397,9 @@ class Input {
     const assistOn = this.lastDevice === 'wheel' ? opts.wheelAssist : useTouch ? opts.touchAssist !== false : opts.steerAssist;
     if (assistOn) steer *= 1 / (1 + (Math.max(0, speed) / 40) ** 2) ** 0.5 * (useKb ? 1 : 1);
     s.steer = steer; s.steerFast = !useKb;
-    s.throttle = Math.max(useKb ? this.kbThr : 0, padThr);
-    s.brake = Math.max(useKb ? this.kbBrk : 0, padBrk);
+    const padOn = this.lastDevice === 'gamepad' || this.lastDevice === 'wheel'; // resting controllers contribute nothing
+    s.throttle = Math.max(useKb ? this.kbThr : 0, padOn ? padThr : 0);
+    s.brake = Math.max(useKb ? this.kbBrk : 0, padOn ? padBrk : 0);
     if (!useKb) { s.throttle = Math.max(s.throttle, this.kbThr); s.brake = Math.max(s.brake, this.kbBrk); }
     if (useTouch) { this.tThr = (this.tThr || 0) + clamp(this.touch.thr - (this.tThr || 0), -10 * dt, 5 * dt); this.tBrk = (this.tBrk || 0) + clamp(this.touch.brk - (this.tBrk || 0), -10 * dt, 8 * dt); s.throttle = Math.max(s.throttle, this.tThr); s.brake = Math.max(s.brake, this.tBrk); s.steerFast = false; }
     for (const [a, , kind] of ACTIONS) {

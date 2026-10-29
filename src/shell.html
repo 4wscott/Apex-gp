@@ -337,6 +337,10 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label for="fov">Field of view</label><div class="ctl"><input id="fov" type="range" min="45" max="90" step="1"><output id="fov-out"></output></div></div>
         <div class="row"><label for="vol">Volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
+        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button></div></div>
+        <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
+        <div class="row"><label for="music">Music (hardstyle)</label><div class="ctl"><input id="music" type="range" min="0" max="100" step="1"><output id="music-out"></output></div></div>
+        <div class="row"><label>Music in races</label><div class="ctl seg" data-set="musicRace"><button type="button" data-v="off">Off</button><button type="button" data-v="quiet">Quiet</button><button type="button" data-v="full">Full</button></div></div>
         <div class="row"><label>Units</label><div class="ctl seg" data-set="units"><button type="button" data-v="kmh">km/h</button><button type="button" data-v="mph">mph</button></div></div>
       </section>
     </div>
@@ -352,7 +356,7 @@ body.touch #h-track { display: none; }
     <div class="card">
       <h2>Paused</h2>
       <div class="table-wrap"><table><tbody>
-        <tr><td>Throttle / brake / steer</td><td><kbd>W</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>D</kbd> or arrow keys</td></tr>
+        <tr><td>Steer</td><td><kbd>←</kbd> <kbd>→</kbd></td></tr><tr><td>Accelerate / brake</td><td><kbd>A</kbd> / <kbd>D</kbd> (or <kbd>↑</kbd> / <kbd>↓</kbd>)</td></tr>
         <tr><td>Shift up / down (manual)</td><td><kbd>E</kbd> / <kbd>Q</kbd></td></tr>
         <tr><td>Active aero (driver mode) / overtake (hold)</td><td><kbd>Space</kbd> / <kbd>F</kbd></td></tr>
         <tr><td>ERS mode / brake bias</td><td><kbd>X</kbd> / <kbd>[</kbd> <kbd>]</kbd></td></tr>

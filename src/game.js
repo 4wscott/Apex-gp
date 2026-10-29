@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'game', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -55,6 +55,10 @@ const App = {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(settings.fov, 1, 0.08, 30000);
     this.input = new Input(); this.audio = new AudioEngine();
+    this.music = new Music(this.audio);
+    // browsers only allow sound after a tap or key press: start the menu music on the first one
+    const wake = () => { applyAudioSession(); this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); this.music.setDuck(this.session ? raceMusic() : 1); };
+    addEventListener('pointerdown', wake, { once: true }); addEventListener('keydown', wake, { once: true });
     this.particles = new Particles(this.scene);
     this.hdriCache = {};
     this.setupComposer();
@@ -209,6 +213,7 @@ const App = {
   start(cfg) {
     cfg = cfg || null; this.cfg = cfg;
     this.audio.start(); this.audio.setVolume(settings.volume);
+    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); this.music.setDuck(raceMusic());
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
     $('#loading').hidden = false; $('#menu').hidden = true;
@@ -290,7 +295,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
-    this.session = null; this.paused = false; this.audio.silence();
+    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1);
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
     $('#r-again').textContent = 'Race again'; $('#r-menu').textContent = 'Main menu'; $('#r-menu').hidden = false;
     $('#res-head').innerHTML = '<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr>';
@@ -361,7 +366,7 @@ const App = {
   handleEvents(race) {
     const S = this.session;
     for (const e of race.events) {
-      if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); }
+      if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
       else if (e.type === 'lap' && e.car === race.player) {
@@ -498,6 +503,10 @@ const App = {
   },
 };
 
+// with the player's own music (Spotify, Apple Music...) the game's sounds mix in instead of stopping it (iOS 17+ Safari)
+const applyAudioSession = () => { try { if (navigator.audioSession) navigator.audioSession.type = settings.musicSource === 'own' ? 'ambient' : 'auto'; } catch (e) { /* not supported */ } };
+// music level while racing, relative to the menu
+const raceMusic = () => ({ off: 0, quiet: 0.35, full: 1 }[settings.musicRace] ?? 0.35);
 const dx0 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const _v = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 function updateArms(m) {
@@ -788,16 +797,18 @@ const Menu = {
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
+        if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
+        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); }
       });
     });
     const range = (id, key, fmt, scale = 1) => {
       if (!$(id)) return;
       const el = $(id); el.value = settings[key] * scale;
-      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); };
+      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'music') App.music.setLevel(settings.music); };
       el.addEventListener('input', upd); out.textContent = fmt(settings[key]);
     };
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
-    range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100);
+    range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
     $('#start').onclick = () => App.start();
@@ -909,5 +920,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu;
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music };
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => App.init());
