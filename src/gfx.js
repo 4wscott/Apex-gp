@@ -1050,7 +1050,7 @@ function loadModels() {
   if (typeof MODEL_DATA === 'undefined') return Promise.resolve();
   const L = new GLTFLoader();
   const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no)));
-  return Promise.all([get('helmet'), get('driver')]).then(([h, d]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene) }; })
+  return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null]).then(([h, d, c]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null }; })
     .catch((e) => console.warn('driver models unavailable', e));
 }
 // helmet parts baked into car space: front faces +x, about 0.31 m long, centred on the head pivot
@@ -1101,6 +1101,56 @@ function driverHelmetTexture(team, dr) {
     for (const u of [0.25, 0.75]) { g.strokeText(String(dr.num), w * u, h * 0.5); g.fillText(String(dr.num), w * u, h * 0.5); }
     g.fillStyle = '#16181b'; g.fillRect(0, h * 0.8, w, h * 0.2);
   });
+}
+// 2026-regulations car body (wheels removed in tools/prep_car.mjs): baked into car space, scaled so its axles
+// sit on the game's wheel centres (wheelbase 3.4 m), split into livery and rear-light parts
+function prepCar(root) {
+  root.updateMatrixWorld(true);
+  const S = 0.47, M = new THREE.Matrix4().makeTranslation(0.051, 0, 0).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2)).multiply(new THREE.Matrix4().makeScale(S, S, S));
+  const livery = [], light = []; let tex = null;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (!['position', 'uv'].includes(k)) g.deleteAttribute(k);
+    // dequantize (positions and uvs are stored as normalized integers) before transforming and merging
+    const get = ['getX', 'getY', 'getZ'];
+    for (const k of ['position', 'uv']) { const a = g.attributes[k]; if (a && !(a.array instanceof Float32Array)) { const f = new Float32Array(a.count * a.itemSize); for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) f[i * a.itemSize + c] = a[get[c]](i); g.setAttribute(k, new THREE.BufferAttribute(f, a.itemSize)); } }
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(M, o.matrixWorld));
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    if (/light/i.test(o.material.name)) light.push(g); else { livery.push(g); tex = tex || o.material.map; }
+  });
+  const out = { livery: mergeGeometries(livery, false), light: light.length ? mergeGeometries(light, false) : null, tex };
+  for (const g of [out.livery, out.light]) if (g) { g.computeVertexNormals(); g.computeBoundingSphere(); }
+  return out;
+}
+// team livery painted onto the model's own texture layout: base -> team colour, stripes and panels -> accents,
+// carbon stays carbon, the original logos are painted out and our own sponsor names / race number added
+function liveryFromModel(team, num) {
+  GFX.carLivery = GFX.carLivery || {};
+  const key = team.id + num; if (GFX.carLivery[key]) return GFX.carLivery[key];
+  const img = GFX.models.car.tex.image, w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, w, h), p = d.data;
+  const rgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
+  const A = rgb(team.c1), B = rgb(lum(team.c2) > 0.15 ? team.c2 : team.c3), C = rgb(team.c3), K = [20, 22, 25];
+  const pal = [[[0, 53, 114], A], [[0, 0, 0], K], [[255, 219, 150], B], [[255, 255, 255], A], [[220, 20, 20], B], [[255, 120, 0], C], [[255, 230, 0], lum(team.c1) > 0.6 ? K : [255, 255, 255]], [[255, 255, 146], B]];
+  for (let i = 0; i < p.length; i += 4) {
+    let best = 0, bd = 1e9;
+    for (let k = 0; k < pal.length; k++) { const q = pal[k][0], dd = (p[i] - q[0]) ** 2 + (p[i + 1] - q[1]) ** 2 + (p[i + 2] - q[2]) ** 2; if (dd < bd) { bd = dd; best = k; } }
+    const o = pal[best][1]; p[i] = o[0]; p[i + 1] = o[1]; p[i + 2] = o[2];
+  }
+  g.putImageData(d, 0, 0);
+  // our branding where the original logos were (several islands are mirrored in the texture layout)
+  const sp = GFX.tex.sponsors, pick = hashStr(team.id), ink = lum(team.c1) > 0.55 ? '#121417' : '#ffffff';
+  const text = (t, x, y, size, mirror, col = ink) => { g.save(); g.translate(x * w / 1024, y * h / 1024); if (mirror === 'v') g.scale(1, -1); else if (mirror) g.scale(-1, 1); g.fillStyle = col; g.font = `800 ${size * w / 1024}px "Saira Condensed", Arial Narrow, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, 0, 0); g.restore(); };
+  // paint out every original logo area with the base colour first (atlas pixel boxes)
+  g.fillStyle = team.c1;
+  for (const [x0, y0, x1, y1] of [[325, 45, 392, 92], [325, 195, 392, 238], [455, 80, 545, 135], [455, 230, 545, 285], [440, 118, 466, 142], [440, 268, 466, 292], [685, 310, 750, 352], [785, 310, 850, 352],
+    [690, 195, 985, 240], [140, 378, 320, 402], [55, 588, 85, 609], [105, 613, 133, 634], [440, 140, 470, 160], [440, 290, 470, 305]]) g.fillRect(x0 * w / 1024, y0 * h / 1024, (x1 - x0) * w / 1024, (y1 - y0) * h / 1024);
+  text(sp[pick % sp.length][0], 488, 106, 21, true); text(sp[pick % sp.length][0], 488, 258, 21, true);
+  text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'v');
+  text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, false); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, false);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = GFX.maxAniso; t.userData.keep = true;
+  return (GFX.carLivery[key] = t);
 }
 function prepDriver(root) {
   root.traverse((o) => { if (o.isSkinnedMesh) { o.frustumCulled = false; o.castShadow = true; } });
@@ -1359,13 +1409,25 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     const disc = new THREE.Mesh(G2.disc, mats.disc.clone()); disc.position.z = 0.02 * Math.sign(z); piv.add(disc); discs.push(disc);
     wheels.push(wheel); if (front) steer.push(piv);
   });
+  // imported 2026 car body replaces the code-built bodywork (wheels, driver, wheel and mirrors stay)
+  let modelBody = null;
+  if (M && M.car) {
+    const keep = new Set([hans, shoulders, ...mirrors]);
+    body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
+    fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
+    const mat = new THREE.MeshPhysicalMaterial({ map: liveryFromModel(team, num), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
+    modelBody = new THREE.Mesh(M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
+    // live mirror glass moved onto the model's mirror housings
+    mirrors.forEach((m, k) => { m.position.set(0.6, 0.78, (k === 0 ? 1 : -1) * 0.55); m.scale.set(1, 1.3, 1.4); });
+    if (M.car.light) body.add(new THREE.Mesh(M.car.light, new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 0.6 })));
+  }
   // imported driver replaces the simple shoulders, arms and fists (the fists stay as invisible grip targets)
   let avatar = null;
   if (M) {
     avatar = makeAvatar(team, body); shoulders.visible = false;
     for (const a of arms) { a.fore.visible = a.upper.visible = false; a.hand.visible = false; if (a.elb) a.elb.visible = false; }
   }
-  const out = { fwParts: { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
+  const out = { modelBody, fwParts: modelBody ? null : { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
   return out;
 }

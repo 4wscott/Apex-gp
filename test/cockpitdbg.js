@@ -13,6 +13,7 @@ for(const a of m.arms){const k=m.avatar.ik[a.sd<0?0:1];const S=k.up.getWorldPosi
 const loc=(v)=>{const w=b.worldToLocal(v.clone());return w.toArray().map(x=>x.toFixed(2)).join(',')};
 out.push({sd:a.sd,shoulder:loc(S),elbow:loc(E),hand:loc(H),target:loc(T),reach:(S.distanceTo(E)+E.distanceTo(H)).toFixed(2),need:S.distanceTo(T).toFixed(2)});}
 return out;}));
+console.log(await page.evaluate(()=>{const m=App.session.race.player.mesh,cam=App.camera;return m.mirrors.map(g=>{const w=g.getWorldPosition(new THREE_V0());const p=w.clone().project(cam);return {vis:g.visible,parentVis:g.parent.visible,ndc:[p.x.toFixed(2),p.y.toFixed(2),p.z.toFixed(3)],mat:g.material.type,map:!!g.material.map,scale:g.scale.toArray()};});}));
 await page.screenshot({path:SP+'ck0.png',timeout:120000});
 // side view of the player's car with cockpit parts shown
 await page.evaluate(()=>{const P=App.session.race.player;App.session.camMode='chase';window.DEBUG_CAM2=true;P.mesh.swTilt.visible=true;});

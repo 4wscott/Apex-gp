@@ -289,7 +289,7 @@ const App = {
       const sides = car.mesh.mirrors.map((glass, k) => {
         const rt = new THREE.WebGLRenderTarget(384, 128, { type: THREE.HalfFloatType });
         rt.texture.repeat.x = -1; rt.texture.offset.x = 1; rt.texture.wrapS = THREE.RepeatWrapping; // mirror image
-        glass.material = new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdfe6ee });
+        glass.material = new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdfe6ee, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
         return { glass, rt, cam: new THREE.PerspectiveCamera(30, 3, 0.2, 1500), side: k === 0 ? 1 : -1 };
       });
       this.session.mirror = { sides, n: 0 };

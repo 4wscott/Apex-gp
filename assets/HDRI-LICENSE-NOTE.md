@@ -217,3 +217,5 @@ The loops are shared under the same licence (CC BY-SA 3.0).
 - "race driver" by asset_for_games — https://sketchfab.com/3d-models/e4e97df9865d466c8359fbb23e757308
 - "Racing helmet" by mizucorp4 — https://sketchfab.com/3d-models/b92c1426837e47778db2487f2c2d7121
 They are recoloured per team, trimmed and resized for the game.
+- "My take on the 2026 f1 regulations" by MaG80 — https://sketchfab.com/3d-models/4b77c9b72dc44803a530eaaff18ed590
+  (car body; wheels removed and the mesh simplified by tools/prep_car.mjs, livery recoloured per team in the game)
