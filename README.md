@@ -3,7 +3,7 @@
 A browser racing game in the style of modern Formula 1, built with three.js: eleven fictional teams, eight circuits,
 career mode, free-play Grand Prix and time trial, with touch, keyboard and gamepad controls.
 
-**Play / install:** https://4wscott.github.io/apex-gp — on iPhone open it in Safari and choose Share → Add to Home Screen;
+**Play / install:** https://4wscott.github.io/Apex-gp/ — on iPhone open it in Safari and choose Share → Add to Home Screen;
 on Android use Chrome's Install app. The installed app works offline and picks up new versions on its next launch.
 
 ## Layout
