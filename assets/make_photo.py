@@ -16,15 +16,15 @@ def plain(path, size, q, mode='RGB'):
     return enc(Image.open(path).convert(mode), size, q)
 G4 = S + 'Grass004/Grass004_1K-JPG_'
 out = {
-  'asphalt': albedo(S + 'asphalt_track_diff.jpg', [82, 83, 86]),
-  'asphaltN': plain(S + 'asphalt_track_nor.jpg', 1024, 82),
+  'asphalt': albedo(S + 'asphalt_track_diff.jpg', [82, 83, 86], 1024, 70),
+  'asphaltN': plain(S + 'asphalt_track_nor.jpg', 512, 78),
   'asphaltR': plain(S + 'asphalt_track_rough.jpg', 512, 80, 'L'),
-  'grass': albedo(G4 + 'Color.jpg', [80, 120, 46]),
+  'grass': albedo(G4 + 'Color.jpg', [80, 120, 46], 768, 72),
   'grassN': plain(G4 + 'NormalGL.jpg', 512, 82),
-  'gravel': albedo(S + 'gravel_floor_02_diff.jpg', [182, 164, 132], 1024, 78),
-  'gravelN': plain(S + 'gravel_floor_02_nor.jpg', 512, 82),
-  'sand': albedo(S + 'coast_sand_01_diff.jpg', [210, 178, 132], 1024, 78),
-  'sandN': plain(S + 'coast_sand_01_nor.jpg', 512, 82),
+  'gravel': albedo(S + 'gravel_floor_02_diff.jpg', [182, 164, 132], 512, 74),
+  'gravelN': plain(S + 'gravel_floor_02_nor.jpg', 256, 78),
+  'sand': albedo(S + 'coast_sand_01_diff.jpg', [210, 178, 132], 512, 74),
+  'sandN': plain(S + 'coast_sand_01_nor.jpg', 256, 78),
   'concrete': albedo(S + 'concrete_floor_02_diff.jpg', [182, 180, 174], 512, 80, 0.2),
   'runoff': albedo(S + 'asphalt_pit_lane_diff.jpg', [104, 106, 110], 512, 80, 0.2),
 }

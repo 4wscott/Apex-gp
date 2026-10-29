@@ -464,7 +464,10 @@ const App = {
       m.steer.forEach((s) => (s.rotation.y = c.delta));
       // steering wheel turns ~100 degrees each way at full lock; arms follow the grips
       m.swSpin.rotation.x = -(c.delta / c.p.maxSteer) * 1.75;
-      if (c === P || dx0(c, P) < 150) updateArms(m);
+      // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
+      const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
+      if (m.avatar) m.avatar.root.visible = c === P || far < lod;
+      if (c === P || far < Math.min(150, lod)) updateArms(m);
       // active aero: flaps open in X-mode
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));
       m.flapPivot.rotation.z = -0.45 + m.aeroT * 0.38;
