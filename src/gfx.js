@@ -968,13 +968,26 @@ function makeCarGeometries() {
   G2.rwMain = spanUV(wingElement(0.3, 0.11, 0.98, -2.03, 0.87, 6));
   G2.rwFlap = spanUV(mergeGeos([wingElement(0.19, 0.1, 0.98, 0, 0, 0), wingElement(0.12, 0.1, 0.98, -0.16, 0.07, 14)]));
   // mirror housings (wing-shaped) and t-cam
-  G2.accent = mergeGeos([1, -1].map((s) => new THREE.SphereGeometry(1, 20, 10).scale(0.045, 0.032, 0.085).translate(0.85, 0.765, 0.56 * s)));
+  // rear-view mirrors: rounded aero housing with the glass on its rear face
+  const mshape = new THREE.Shape(), mw = 0.085, mh = 0.032, mr = 0.018;
+  mshape.moveTo(-mw + mr, -mh); mshape.lineTo(mw - mr, -mh); mshape.quadraticCurveTo(mw, -mh, mw, -mh + mr); mshape.lineTo(mw, mh - mr); mshape.quadraticCurveTo(mw, mh, mw - mr, mh);
+  mshape.lineTo(-mw + mr, mh); mshape.quadraticCurveTo(-mw, mh, -mw, mh - mr); mshape.lineTo(-mw, -mh + mr); mshape.quadraticCurveTo(-mw, -mh, -mw + mr, -mh);
+  G2.accent = mergeGeos([1, -1].map((s) => new THREE.ExtrudeGeometry(mshape, { depth: 0.04, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.006, bevelSegments: 3, curveSegments: 8 }).rotateY(Math.PI / 2).translate(0.832, 0.765, 0.56 * s)));
+  G2.mirrorGlass = new THREE.PlaneGeometry(0.152, 0.05).rotateY(-Math.PI / 2);
   G2.tcam = box(0.16, 0.05, 0.08, -0.36, 1.02, 0);
   G2.exhaust = new THREE.CylinderGeometry(0.042, 0.048, 0.3, 18, 1, true).rotateZ(Math.PI / 2 - 0.12).translate(-2.15, 0.53, 0);
   // driver: helmet shell (longer than wide), chin guard, visor, rear spoiler, HANS collar, shoulders
-  G2.helmet = new THREE.SphereGeometry(0.15, 36, 26).scale(1.06, 1, 0.9);
-  G2.visor = new THREE.SphereGeometry(0.154, 32, 8, -0.95, 1.9, 1.1, 0.5).rotateY(Math.PI / 2).scale(1.06, 1, 0.9);
-  G2.chin = new THREE.SphereGeometry(0.15, 32, 20, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.4).scale(1.1, 0.95, 0.86).translate(0.018, -0.03, 0); // lower shell and chin, blended into the dome
+  G2.helmet = loft([
+    [0.158, 0, 0.03, -0.01, -0.1, 2.2, 2.6], [0.142, 0, 0.088, 0.06, -0.118, 2.3, 2.6], [0.1, 0, 0.112, 0.118, -0.122, 2.2, 2.7], [0.04, 0, 0.12, 0.148, -0.118, 2.15, 2.8],
+    [-0.03, 0, 0.12, 0.15, -0.108, 2.15, 2.8], [-0.09, 0, 0.112, 0.135, -0.09, 2.2, 2.6], [-0.135, 0, 0.088, 0.1, -0.06, 2.3, 2.4], [-0.162, 0, 0.035, 0.05, -0.02, 2.4, 2.4],
+  ], 40, 40);
+  { // spherical uvs (front of the helmet at u = 0.5, top at v = 1) so the helmet livery wraps like a real paint scheme
+    const p = G2.helmet.attributes.position, uv = G2.helmet.attributes.uv;
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i) - 0.01, z = p.getZ(i), r = Math.hypot(x, y, z) || 1, ph = Math.atan2(z, -x); uv.setXY(i, (ph < 0 ? ph + Math.PI * 2 : ph) / (Math.PI * 2), 1 - Math.acos(clamp(y / r, -1, 1)) / Math.PI); }
+  }
+  // visor: a curved band across the eye port, standing just proud of the shell
+  G2.visor = new THREE.CylinderGeometry(0.123, 0.12, 0.058, 40, 1, true, Math.PI / 2 - 1.15, 2.3).scale(1.04, 1, 1).translate(0.018, 0.04, 0);
+  G2.chin = new THREE.BufferGeometry();
   G2.spoiler = mergeGeos([box(0.06, 0.008, 0.11, -0.15, 0.07, 0, 0, 0, -0.3), box(0.04, 0.018, 0.006, -0.145, 0.062, 0.05), box(0.04, 0.018, 0.006, -0.145, 0.062, -0.05)]);
   G2.hans = mergeGeos([new THREE.TorusGeometry(0.12, 0.028, 8, 18, Math.PI * 1.15).rotateX(Math.PI / 2).rotateY(Math.PI * 0.42).translate(-0.02, -0.15, 0), box(0.18, 0.02, 0.24, -0.1, -0.16, 0)]);
   G2.shoulders = new THREE.CapsuleGeometry(0.07, 0.26, 8, 16).rotateX(Math.PI / 2).translate(-0.12, -0.26, 0); // kept below the cockpit rim
@@ -1022,7 +1035,9 @@ function makeCarGeometries() {
     ]);
     G2.cuff[sd] = new THREE.CylinderGeometry(0.034, 0.037, 0.05, 16).rotateZ(Math.PI / 2 - 0.5).translate(-0.05, -0.03, 0.02 * sd);
   }
-  G2.limb = new THREE.CylinderGeometry(0.031, 0.04, 1, 14).translate(0, 0.5, 0);
+  G2.limb = new THREE.LatheGeometry([[0.001, 0], [0.034, 0.025], [0.043, 0.22], [0.04, 0.55], [0.032, 0.9], [0.028, 0.975], [0.001, 1]].map(([r, y]) => new THREE.Vector2(r, y)), 20); // forearm: muscle near the elbow, narrow wrist
+  G2.upperArm = new THREE.LatheGeometry([[0.001, 0], [0.046, 0.04], [0.053, 0.2], [0.05, 0.5], [0.043, 0.85], [0.038, 0.96], [0.001, 1]].map(([r, y]) => new THREE.Vector2(r, y)), 20);
+  G2.elbow = new THREE.SphereGeometry(0.04, 16, 12);
   G2.disc = new THREE.CylinderGeometry(0.15, 0.15, 0.032, 28).rotateX(Math.PI / 2);
   G2.blob = new THREE.PlaneGeometry(6.4, 2.8).rotateX(-Math.PI / 2);
   return G2;
@@ -1176,7 +1191,8 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     mk(G2.fwEnd[sd], endplateMaterial(team, 2.35, 3.03, 0.05, 0.35, sd < 0, false));
     mk(G2.rwEnd[sd], endplateMaterial(team, -2.55, -1.98, 0.55, 1.1, sd < 0, true));
   }
-  mk(G2.body, paint); mk(G2.pods, paint); mk(G2.fin, paint); mk(G2.carbon, mats.carbon); mk(G2.dark, mats.dark, false); mk(G2.accent, accent);
+  mk(G2.body, paint); mk(G2.pods, paint); mk(G2.fin, paint); mk(G2.carbon, mats.carbon); mk(G2.dark, mats.dark, false); mk(G2.accent, new THREE.MeshPhysicalMaterial({ color: team.c1, roughness: 0.3, clearcoat: 0.8 }));
+  const mirrors = [1, -1].map((sd) => { const m = mk(G2.mirrorGlass, mats.mirrorGlass || mats.visor, false); m.position.set(0.818, 0.765, 0.56 * sd); return m; });
   const wPlain = wingMaterial(team, 'plain'), wFront = wingMaterial(team, 'front'), wRear = wingMaterial(team, 'rear');
   mk(G2.rwMain, wPlain); mk(G2.fwMain, wFront); mk(G2.fwFlap3, wPlain);
   mk(G2.exhaust, mats.exhaust, false);
@@ -1190,7 +1206,6 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
   const head = new THREE.Group(); head.position.set(-0.08, 0.86, 0); body.add(head);
   const helmetMat = new THREE.MeshPhysicalMaterial({ map: helmetTexture(team, num), roughness: 0.18, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 });
   const helmet = new THREE.Mesh(G2.helmet, helmetMat); helmet.castShadow = true; head.add(helmet);
-  const chin = new THREE.Mesh(G2.chin, helmetMat); head.add(chin);
   const spoiler = new THREE.Mesh(G2.spoiler, mats.carbon); head.add(spoiler);
   const visor = new THREE.Mesh(G2.visor, mats.visor); head.add(visor);
   const hans = new THREE.Mesh(G2.hans, mats.carbon); hans.position.set(-0.08, 0.86, 0); body.add(hans);
@@ -1207,9 +1222,10 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     const hand = new THREE.Mesh(G2.fist[sd], glove); hand.position.set(-0.02, 0, 0.152 * sd); hand.rotation.x = 0.2 * sd; hand.castShadow = true; swSpin.add(hand); swSimple.push(hand);
     hand.add(new THREE.Mesh(G2.cuff[sd], accent));
     const fore = new THREE.Mesh(G2.limb, suit); body.add(fore);
-    const upper = new THREE.Mesh(G2.limb, suit); body.add(upper);
-    const shoulder = new THREE.Vector3(-0.12, 0.76, 0.2 * sd), elbow = new THREE.Vector3(0.12, 0.6, 0.26 * sd);
-    const d = elbow.clone().sub(shoulder); upper.position.copy(shoulder); upper.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); upper.scale.set(1.1, d.length(), 1.1);
+    const upper = new THREE.Mesh(G2.upperArm, suit); body.add(upper);
+    const shoulder = new THREE.Vector3(-0.12, 0.74, 0.19 * sd), elbow = new THREE.Vector3(0.1, 0.6, 0.25 * sd);
+    const elb = new THREE.Mesh(G2.elbow, suit); elb.position.copy(elbow); body.add(elb);
+    const d = elbow.clone().sub(shoulder); upper.position.copy(shoulder); upper.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); upper.scale.set(1, d.length(), 1);
     arms.push({ hand, fore, upper, elbow });
   }
   const blob = new THREE.Mesh(G2.blob, mats.blob); blob.position.y = 0.01; blob.renderOrder = 1; grp.add(blob);
@@ -1229,7 +1245,7 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     const disc = new THREE.Mesh(G2.disc, mats.disc.clone()); disc.position.z = 0.02 * Math.sign(z); piv.add(disc); discs.push(disc);
     wheels.push(wheel); if (front) steer.push(piv);
   });
-  const out = { grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
+  const out = { mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
   return out;
 }

@@ -51,6 +51,7 @@ const App = {
       disc: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6, emissive: 0xff5a10, emissiveIntensity: 0 }),
       blob: new THREE.MeshBasicMaterial({ map: tx.blob, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -32 }),
       visor: new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, roughness: 0.04, metalness: 0.95, clearcoat: 1, iridescence: 0.6 }),
+      mirrorGlass: new THREE.MeshStandardMaterial({ color: 0xaab4bf, roughness: 0.06, metalness: 1 }),
     };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(settings.fov, 1, 0.08, 30000);
@@ -255,15 +256,13 @@ const App = {
     this.session.wheel = { tilt: m.swTilt, spin: m.swSpin, canvas: sw.canvas, tex: sw.tex, ctx: sw.canvas.getContext('2d'), t: 0, leds: sw.leds, flags: sw.flags, rotaries: sw.rotaries };
     // rear-view mirrors rendered into a texture
     if (settings.mirrors && settings.quality >= 1) {
-      const rt = new THREE.WebGLRenderTarget(512, 170, { type: THREE.HalfFloatType });
-      const mcam = new THREE.PerspectiveCamera(38, 3, 0.2, 2500);
-      const mat = new THREE.MeshBasicMaterial({ map: rt.texture });
-      rt.texture.repeat.x = -1; rt.texture.offset.x = 1; rt.texture.wrapS = THREE.RepeatWrapping;
-      for (const s of [1, -1]) {
-        const m = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.05), mat);
-        m.position.set(0.815, 0.765, 0.56 * s); m.rotation.y = -Math.PI / 2 + 0.2 * s; car.mesh.body.add(m);
-      }
-      this.session.mirror = { rt, cam: mcam, n: 0 };
+      const sides = car.mesh.mirrors.map((glass, k) => {
+        const rt = new THREE.WebGLRenderTarget(384, 128, { type: THREE.HalfFloatType });
+        rt.texture.repeat.x = -1; rt.texture.offset.x = 1; rt.texture.wrapS = THREE.RepeatWrapping; // mirror image
+        glass.material = new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdfe6ee });
+        return { glass, rt, cam: new THREE.PerspectiveCamera(30, 3, 0.2, 1500), side: k === 0 ? 1 : -1 };
+      });
+      this.session.mirror = { sides, n: 0 };
     }
   },
   setupGhost(T, team) {
@@ -466,11 +465,14 @@ const App = {
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(cam.position);
     // mirrors
-    if (S.mirror && mode === 'cockpit' && (S.mirror.n++ % 2 === 0)) {
-      const mc = S.mirror.cam, eye = new THREE.Vector3(0.0, 0.95, 0).applyMatrix4(P.mesh.body.matrixWorld);
-      mc.position.copy(eye); mc.lookAt(eye.clone().addScaledVector(fwd, -10).add(new THREE.Vector3(0, -0.3, 0)));
+    if (S.mirror && mode === 'cockpit') {
+      // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
+      const sd = S.mirror.sides[S.mirror.n++ % 2], mc = sd.cam;
+      sd.glass.getWorldPosition(mc.position);
+      const back = fwd.clone().negate(), side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(sd.side); // car-right is +z in the body
+      mc.lookAt(mc.position.clone().add(back.multiplyScalar(10)).addScaledVector(side, 1.6).add(new THREE.Vector3(0, -0.35, 0)));
       const vis = P.mesh.grp.visible; P.mesh.grp.visible = false;
-      this.renderer.setRenderTarget(S.mirror.rt); this.renderer.render(this.scene, mc); this.renderer.setRenderTarget(null);
+      this.renderer.setRenderTarget(sd.rt); this.renderer.render(this.scene, mc); this.renderer.setRenderTarget(null);
       P.mesh.grp.visible = vis;
     }
     // steering wheel display at 20 Hz

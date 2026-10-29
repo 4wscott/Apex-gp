@@ -207,5 +207,6 @@ $ make
 
 ## Engine sound
 
-`engine.js` holds four short loops cut from "F-1raceCar-IdleAndRaceStartDemo.wav" by Ears68 on Freesound
-(https://freesound.org/people/Ears68/sounds/181187/), released under Creative Commons 0 (public domain).
+`engine.js` holds four short loops cut from "Williams-Cosworth FW32 (2010).ogg" on Wikimedia Commons
+(https://commons.wikimedia.org/wiki/File:Williams-Cosworth_FW32_(2010).ogg), licensed CC BY-SA 3.0.
+The loops are shared under the same licence (CC BY-SA 3.0).

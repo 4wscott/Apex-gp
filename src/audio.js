@@ -63,7 +63,7 @@ class AudioEngine {
       const g = ctx.createGain(); g.gain.value = 0; src.connect(g); g.connect(e.lp); src.start(ctx.currentTime + Math.random() * 0.05);
       return { src, g, rpm: l.rpm };
     });
-    e.synth.gain.setTargetAtTime(0.28, ctx.currentTime, 0.2); // synthesised engine stays underneath as body
+    e.synth.gain.setTargetAtTime(0.1, ctx.currentTime, 0.2); // a little synthesised engine underneath smooths the blends
   }
   setEngine(e, rpm, thr, gain, panV = 0) {
     if (!this.ctx) return;
