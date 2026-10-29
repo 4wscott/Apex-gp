@@ -543,7 +543,7 @@ function updateArms(m) {
       a.hand.getWorldPosition(_t); if (!a.hand.userData.wrist) _t.add(_c.set(-0.07, -0.01, 0).transformDirection(m.body.matrixWorld).multiplyScalar(0.07));
       const d = Math.min(S.distanceTo(_t), (la + lb) * 0.995), n = _t.clone().sub(S).normalize(), T = S.clone().addScaledVector(n, d);
       const x = (la * la - lb * lb + d * d) / (2 * d), h = Math.sqrt(Math.max(0, la * la - x * x));
-      _pole.copy(down).add(_c.set(0, 0, a.sd * 0.8).transformDirection(m.body.matrixWorld)); _pole.addScaledVector(n, -_pole.dot(n)).normalize();
+      _pole.copy(down).multiplyScalar(0.25).add(_c.set(0, 0, a.sd).transformDirection(m.body.matrixWorld)); // elbows out to the sides, as in a real cockpit _pole.addScaledVector(n, -_pole.dot(n)).normalize();
       const E = S.clone().addScaledVector(n, x).addScaledVector(_pole, h);
       aimBone(k.up, E0, E); aimBone(k.fore, k.hand.getWorldPosition(new THREE.Vector3()), T);
     }

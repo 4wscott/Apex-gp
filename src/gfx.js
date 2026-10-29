@@ -1070,7 +1070,37 @@ function prepHelmet(root) {
     g.rotateY(Math.PI); // the visor faces -x in the source
     g.computeVertexNormals(); g.computeBoundingSphere();
   }
+  { // wrap-around uvs for the paint scheme: front at u = 0.5, crown at the top of the texture
+    const p = out.shell.attributes.position, uv = new Float32Array(p.count * 2);
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), r = Math.hypot(x, y, z) || 1, ph = Math.atan2(z, -x); uv[i * 2] = (ph < 0 ? ph + Math.PI * 2 : ph) / (Math.PI * 2); uv[i * 2 + 1] = 1 - Math.acos(clamp(y / r, -1, 1)) / Math.PI; }
+    out.shell.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  }
   return out;
+}
+// each driver's own helmet design: team colours plus a personal colour and one of several classic patterns
+function driverHelmetTexture(team, dr) {
+  const hsh = hashStr(dr.code), pat = hsh % 5, hue = (hsh >> 3) % 360;
+  const personal = `hsl(${hue}, 85%, ${45 + ((hsh >> 9) % 15)}%)`, base = lum(team.c2) > 0.18 && lum(team.c2) < 0.92 ? team.c2 : team.c1, alt = base === team.c1 ? team.c2 : team.c1;
+  return canvasTex(1024, 512, (g, w, h) => {
+    // u: 0..1 around the head (front/visor at 0.5), v: crown at the top
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    g.fillStyle = alt;
+    if (pat === 0) { for (const dx of [-0.07, 0, 0.07]) g.fillRect(w * (0.5 + dx) - w * 0.02, 0, w * 0.04, h * 0.5); g.fillRect(0, 0, w * 0.03, h * 0.5); } // racing stripes over the crown
+    if (pat === 1) { g.beginPath(); g.moveTo(0, h * 0.55); for (let k = 0; k <= 8; k++) g.lineTo(w * k / 8, h * (k % 2 ? 0.3 : 0.5)); g.lineTo(w, h); g.lineTo(0, h); g.fill(); } // zig-zag lower half
+    if (pat === 2) { g.fillRect(0, h * 0.33, w, h * 0.12); g.fillStyle = personal; g.fillRect(0, h * 0.45, w, h * 0.05); } // band round the head
+    if (pat === 3) { g.beginPath(); g.moveTo(w * 0.5, h * 0.05); g.lineTo(w * 0.15, h * 0.62); g.lineTo(w * 0.3, h * 0.62); g.lineTo(w * 0.5, h * 0.25); g.lineTo(w * 0.7, h * 0.62); g.lineTo(w * 0.85, h * 0.62); g.closePath(); g.fill(); } // chevron from the brow
+    if (pat === 4) { g.fillRect(0, 0, w * 0.5, h); } // split left/right
+    // personal colour accents: stars on the crown
+    g.fillStyle = personal;
+    const star = (cx, cy, r) => { g.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } g.closePath(); g.fill(); };
+    if (pat !== 2) for (let k = 0; k < 4; k++) star(w * (0.1 + k * 0.27), h * 0.12, h * 0.05);
+    // brow strip above the visor carries the team name, numbers on both sides, dark chin
+    g.fillStyle = '#121417'; g.fillRect(w * 0.38, h * 0.36, w * 0.24, h * 0.06);
+    g.fillStyle = '#fff'; g.font = `700 ${h * 0.045}px "Saira Condensed", Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(team.name.toUpperCase().slice(0, 18), w * 0.5, h * 0.39);
+    g.font = `800 ${h * 0.12}px "Saira Condensed", Arial`; g.lineWidth = h * 0.012; g.strokeStyle = '#121417';
+    for (const u of [0.25, 0.75]) { g.strokeText(String(dr.num), w * u, h * 0.5); g.fillText(String(dr.num), w * u, h * 0.5); }
+    g.fillStyle = '#16181b'; g.fillRect(0, h * 0.8, w, h * 0.2);
+  });
 }
 function prepDriver(root) {
   root.traverse((o) => { if (o.isSkinnedMesh) { o.frustumCulled = false; o.castShadow = true; } });
@@ -1279,8 +1309,9 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
   const head = new THREE.Group(); head.position.set(-0.08, 0.86, 0); body.add(head);
   const M = GFX.models;
   if (M) {
-    const H = M.helmet, shellCol = lum(team.c2) > 0.18 && lum(team.c2) < 0.9 ? team.c2 : team.c1;
-    const shell = new THREE.Mesh(H.shell, new THREE.MeshPhysicalMaterial({ color: shellCol, roughness: 0.2, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 })); shell.castShadow = true; head.add(shell);
+    const H = M.helmet;
+    const dr = team.drivers.find((d) => d.num === num) || { code: team.id + num, num };
+    const shell = new THREE.Mesh(H.shell, new THREE.MeshPhysicalMaterial({ map: driverHelmetTexture(team, dr), roughness: 0.2, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 })); shell.castShadow = true; head.add(shell);
     if (H.inner) head.add(new THREE.Mesh(H.inner, new THREE.MeshPhysicalMaterial({ color: team.c1, roughness: 0.25, clearcoat: 1 })));
     if (H.visor) head.add(new THREE.Mesh(H.visor, mats.visor));
     if (H.metal) head.add(new THREE.Mesh(H.metal, mats.rimLip || mats.rim));
