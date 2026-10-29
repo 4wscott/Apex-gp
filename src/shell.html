@@ -278,9 +278,18 @@ body.touch #h-track { display: none; }
 
       <section class="panel" id="p-race">
         <div class="group"><h2>Session</h2>
-          <div class="seg" data-set="mode"><button type="button" data-v="career">Career</button><button type="button" data-v="race">Free play: Grand Prix</button><button type="button" data-v="trial">Free play: Time trial</button></div>
+          <div class="seg" data-set="mode"><button type="button" data-v="career">Career</button><button type="button" data-v="race">Free play: Grand Prix</button><button type="button" data-v="trial">Free play: Time trial</button><button type="button" data-v="online">Online with friends</button></div>
         </div>
         <div id="career" hidden></div>
+        <div class="group" id="online" hidden><h2>Online race</h2>
+          <p class="hint">Race your friends. One person creates a room and shares the 5-letter code; everyone else joins with it. The host's circuit, race distance and weather are used. Pick your team and driver below first.</p>
+          <div class="row"><label for="on-name">Your name</label><div class="ctl"><input id="on-name" type="text" maxlength="20" autocomplete="off"></div></div>
+          <div class="actions"><button type="button" class="btn primary" id="on-create">Create room</button></div>
+          <div class="row"><label for="on-code">Room code</label><div class="ctl"><input id="on-code" type="text" maxlength="5" autocomplete="off" style="text-transform:uppercase;max-width:9ch"> <button type="button" class="btn" id="on-join">Join</button></div></div>
+          <p class="hint" id="on-msg" aria-live="polite"></p>
+          <ol id="on-players"></ol>
+          <div class="actions"><button type="button" class="btn primary" id="on-start" hidden>Start race for everyone</button><button type="button" class="btn" id="on-leave" hidden>Leave room</button></div>
+        </div>
         <div class="group"><h2>Tyres</h2>
           <div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button><button type="button" data-v="I">Intermediate · damp track</button><button type="button" data-v="W">Wet · heavy rain</button></div>
         </div>
@@ -377,6 +386,7 @@ body.touch #h-track { display: none; }
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" async></script>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
 <script type="module">
 import * as THREE from 'three';

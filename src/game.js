@@ -211,6 +211,20 @@ const App = {
     this.previewCar.grp.rotation.y = Math.atan2(T.ty[i], T.tx[i]);
     this.previewT = 0; this.previewTrack = T;
   },
+  // online race from the host's start message
+  startOnline(m) {
+    if (this.session) this.quit();
+    Net.racing = true;
+    const human = (p, i) => {
+      const team = TEAMS.find((t) => t.id === p.team) || TEAMS[0], base = team.drivers.find((d) => d.num === p.num) || team.drivers[0];
+      return { team, driver: { name: p.name, code: 'N' + i, abbr: p.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'PLY', num: base.num, skill: 1 } };
+    };
+    const all = m.players.map((p, i) => Object.assign({ key: p.key }, human(p, i)));
+    const me = all.find((p) => p.key === Net.me) || all[0];
+    this.start({ online: true, mode: 'race', track: m.track, laps: m.laps, weather: m.weather, team: me.team, driver: me.driver, opponents: 0,
+      remotes: all.filter((p) => p !== me), gridOrder: m.grid.map((k) => all.find((p) => p.key === k).driver.code),
+      lightsOutAt: m.lightsOutAt, seed: m.seed, ref: Date.now() - (Net.host ? 0 : 150) });
+  },
   // cfg (career) overrides the free-play settings
   start(cfg) {
     cfg = cfg || null; this.cfg = cfg;
@@ -228,9 +242,11 @@ const App = {
       const race = new Race(T, {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
         replaceCode: cfg && cfg.replaceCode, upgrades: cfg && cfg.upgrades, gridOrder: cfg && cfg.gridOrder, quali: cfg && cfg.quali,
+        remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed,
         assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear },
       });
-      this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0 };
+      if (cfg && cfg.online) race.lightsT = -(4 - (Date.now() - cfg.ref) / 1000); // lights start 4 s after the host pressed start, for everyone
+      this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0, online: !!(cfg && cfg.online), netT: 0 };
       race.cars.forEach((c) => {
         const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player);
         this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m;
@@ -324,6 +340,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
     this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1);
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
@@ -354,6 +371,7 @@ const App = {
     $('#rotate').hidden = !portrait;
     const inp = this.input.poll(dt, P.vx, settings);
     if (inp.pausePressed && $('#results').hidden) this.togglePause();
+    if (S.online && this.paused) { const h = 1 / 360; S.acc += dt; let k = 0; while (S.acc >= h && k < 40) { race.step(h, { steer: 0, throttle: 0, brake: 1 }); S.acc -= h; k++; } }
     if (!this.paused) {
       this.applyPlayerControls(inp, P, race);
       const h = 1 / 360; S.acc += dt; let steps = 0;
@@ -361,7 +379,8 @@ const App = {
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
       this.ghostUpdate(dt, P, race);
-      if (race.mode === 'race' && P.finished && !S.finishedAt) S.finishedAt = performance.now();
+      if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
+      if (race.mode === 'race' && P.finished && !S.finishedAt) { S.finishedAt = performance.now(); if (S.online) Net.send({ t: 'fin', k: Net.me, time: P.finishTime }); }
       if (S.finishedAt && performance.now() - S.finishedAt > 6000 && $('#results').hidden) Results.show(race);
     }
     this.updateVisuals(dt, S, inp);
@@ -869,7 +888,29 @@ const Results = {
 
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
+  // online room panel
+  initOnline() {
+    $('#on-name').value = store.get('netname', '') || '';
+    const name = () => { const v = $('#on-name').value.trim() || 'Player'; store.set('netname', v); return v; };
+    const need = () => { if (Net.available()) return true; $('#on-msg').textContent = 'Online play needs an internet connection (the connection library could not load).'; return false; };
+    $('#on-create').onclick = () => need() && Net.create(name());
+    $('#on-join').onclick = () => { const c = $('#on-code').value.trim(); if (c.length < 5) { $('#on-msg').textContent = 'Enter the 5-letter room code.'; return; } if (need()) Net.join(c, name()); };
+    $('#on-start').onclick = () => Net.startRace();
+    $('#on-leave').onclick = () => Net.leave();
+    Net.onChange = () => {
+      $('#on-msg').textContent = Net.msg ? Net.msg.text : ''; $('#on-msg').dataset.kind = Net.msg ? Net.msg.kind || '' : '';
+      const ol = $('#on-players'); ol.innerHTML = '';
+      for (const p of Net.players) { const li = document.createElement('li'); const tm = TEAMS.find((t) => t.id === p.team); li.textContent = `${p.name}${p.key === Net.me ? ' (you)' : ''}${p.host ? ' · host' : ''} · ${tm ? tm.name : ''} #${p.num}`; ol.appendChild(li); }
+      $('#on-start').hidden = !(Net.host && Net.me); $('#on-leave').hidden = !Net.peer;
+      $('#on-start').textContent = Net.players.length > 1 ? `Start race for everyone (${Net.players.length} drivers)` : 'Start race (waiting for friends… or race alone)';
+    };
+    Net.onStart = (m) => App.startOnline(m);
+    Net.onState = (k, st) => { const S = App.session; if (S && S.online) S.race.setRemoteState(k, st, S.race.time); };
+    Net.onFinish = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (c) Hud.flash(`${c.driver.name} finished`); };
+    Net.onLeft = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (!c) return; c.net = null; c.x = 1e5; c.y = 1e5; if (c.mesh) c.mesh.grp.visible = false; Hud.banner(`${c.driver.name} left the race`, 'warn'); };
+  },
   init() {
+    this.initOnline();
     // circuits
     const grid = $('#circuits');
     TRACKS.forEach((spec) => {
@@ -977,8 +1018,10 @@ const Menu = {
     const career = settings.mode === 'career';
     $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${TEAMS.find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
       : `<b>${settings.mode === 'race' ? 'Grand Prix' : 'Time trial'}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
-    $('#race-only').hidden = settings.mode !== 'race';
-    $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career;
+    const online = settings.mode === 'online';
+    $('#race-only').hidden = settings.mode !== 'race' && !online; $('#opps').closest('.row').hidden = online; $('#aipace').closest('.row').hidden = online; $('[data-set="grid"]').closest('.row').hidden = online;
+    $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
+    if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },
   buildBinds() {
     const tb = $('#binds'); tb.innerHTML = '';
@@ -1013,5 +1056,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music };
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

@@ -728,7 +728,7 @@ class Race {
   constructor(track, opts) {
     this.track = track; this.mode = opts.mode; this.laps = opts.laps || 5;
     this.aiPace = opts.aiPace || 1; this.time = 0; this.greenT = 0; this.phase = 'grid'; this.lightsT = 0; this.lightsOn = 0;
-    this.lightsOutAt = 3 + 5 * 1 + 0.4 + Math.random() * 1.6; // 5 lights 1 s apart, then a random hold
+    this.lightsOutAt = opts.lightsOutAt ?? 3 + 5 * 1 + 0.4 + Math.random() * 1.6; // 5 lights 1 s apart, then a random hold
     this.cars = []; this.ais = []; this.events = []; this.finishOrder = []; this.quali = !!opts.quali;
     this.sectorLen = track.length / 3; this.bestLap = Infinity; this.bestSectors = [Infinity, Infinity, Infinity];
     const rng = mulberry32(hashStr(track.spec.id) ^ 0x5eed);
@@ -741,6 +741,8 @@ class Race {
     field.sort((a, b) => b.dr.skill * b.tm.perf.a - a.dr.skill * a.tm.perf.a + (rng() - 0.5) * 0.02);
     field = field.slice(0, this.mode === 'trial' ? 0 : opts.opponents);
     const playerEntry = { tm: opts.team, dr: opts.driver, player: true };
+    // online: other human players, driven by network updates
+    if (opts.remotes) field = opts.remotes.map((r) => ({ tm: r.team, dr: r.driver, remote: r.key }));
     let grid;
     if (opts.gridOrder && this.mode === 'race') {
       // qualifying order (driver codes, player included)
@@ -764,13 +766,14 @@ class Race {
       car.jump = false;
       this.cars.push(car);
       if (e.player) this.player = car;
+      else if (e.remote) { car.remote = e.remote; car.net = null; }
       else this.ais.push(new AIDriver(car, e.dr.skill * (0.97 + 0.03 * e.tm.perf.a), hashStr(e.dr.code) ^ (k * 7919)));
     });
     if (this.mode === 'trial') { this.phase = 'green'; this.greenT = 10; }
     // weather: 'dry' | 'wet' | 'mixed' (dry start, rain arrives during the race, may stop again)
     this.weather = opts.weather || 'dry';
     this.env = { wet: this.weather === 'wet' ? 0.8 : 0, rain: this.weather === 'wet' ? 0.75 : 0 };
-    if (this.weather === 'mixed') { const r = mulberry32(Date.now() & 0xffff); this.rainPlan = { start: 60 + r() * 200, peak: 0.55 + r() * 0.4, length: 120 + r() * 240 }; }
+    if (this.weather === 'mixed') { const r = mulberry32(opts.seed ?? (Date.now() & 0xffff)); this.rainPlan = { start: 60 + r() * 200, peak: 0.55 + r() * 0.4, length: 120 + r() * 240 }; }
     this.cars.forEach((c) => { c.env = this.env; if (this.weather === 'wet' && c !== this.player) c.compound = rng() < 0.6 ? 'W' : 'I'; });
     if (this.weather === 'wet' && !COMPOUNDS[opts.compound]?.wet) this.player.compound = 'I';
     // short races wear tyres faster so strategy still matters (a soft lasts roughly half a race)
@@ -783,6 +786,28 @@ class Race {
   compoundRule(c) {
     const used = c.usedCompounds || [c.compound];
     if (this.twoCompounds && !used.some((k) => COMPOUNDS[k].wet) && new Set(used).size < 2) { c.penalty += 20; this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
+  }
+  // ---- online: other players' cars follow their latest broadcast state, extrapolated and smoothed -----
+  setRemoteState(key, st, now) {
+    const c = this.cars.find((k) => k.remote === key); if (!c) return;
+    c.net = Object.assign({ at: now }, st);
+  }
+  remoteStep(c, dt) {
+    const n = c.net; if (!n) { c.vx = 0; return; }
+    const age = Math.min(0.5, this.time - n.at);
+    const tx = n.x + Math.cos(n.h) * n.vx * age, ty = n.y + Math.sin(n.h) * n.vx * age;
+    const k = Math.min(1, dt * 12), jump = Math.hypot(tx - c.x, ty - c.y) > 12;
+    c.x = jump ? tx : c.x + (tx - c.x) * k; c.y = jump ? ty : c.y + (ty - c.y) * k;
+    c.h = jump ? n.h : c.h + angleDiff(n.h, c.h) * k;
+    c.vx = n.vx; c.vy = 0; c.r = 0; c.delta = n.delta || 0; c.throttle = n.thr || 0; c.brake = n.brk || 0; c.rpm = n.rpm || 8000; c.gear = n.gear || 4;
+    if (n.cmp && n.cmp !== c.compound) c.compound = n.cmp;
+    c.wingHealth = n.wing ?? 1; c.pit = n.pit ? c.pit || { phase: 'net' } : null;
+    c.locate(false);
+    c.dist = n.dist + n.vx * age; c.lastS = c.s;
+  }
+  netState() {
+    const c = this.player;
+    return { x: +c.x.toFixed(2), y: +c.y.toFixed(2), h: +c.h.toFixed(4), vx: +c.vx.toFixed(2), dist: +c.dist.toFixed(1), delta: +c.delta.toFixed(3), thr: +c.throttle.toFixed(2), brk: +c.brake.toFixed(2), rpm: Math.round(c.rpm), gear: c.gear, cmp: c.compound, wing: +c.wingHealth.toFixed(2), pit: !!c.pit };
   }
   // ---- weather -----------------------------------------------------------------------------
   weatherStep(dt) {
@@ -930,12 +955,14 @@ class Race {
         }
         return playerInput;
       }
+      if (c.remote) return null;
       const ai = this.ais.find((a) => a.car === c); ai.cool = c.finished;
       if (c.pit) { ai.stuckT = 0; ai.lat = ai.latT = 0; return { steer: 0, throttle: 0, brake: 0 }; }
       return ai.control(dt, this.cars, this);
     });
     this.cars.forEach((c, i) => {
       if (held && c !== this.player) { c.vx = 0; c.vy = 0; c.r = 0; }
+      if (c.remote) { this.remoteStep(c, dt); return; }
       if (c !== this.player) this.aiPitDecision(c);
       if (c.pit || this.pitEntry(c)) { this.pitStep(c, dt); return; }
       c.step(dt, inputs[i]);
