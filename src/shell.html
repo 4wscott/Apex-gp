@@ -146,6 +146,7 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 .tyre { width: 12px; height: 18px; border-radius: 3px; }
 #dash.compact { display: none; }
 #h-wing { color: var(--red); font-weight: 700; }
+#h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 .banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
 .banner.good, .banner.go { color: #c9ffd9; border-left: 4px solid var(--green); }
@@ -249,7 +250,7 @@ body.touch #h-track { display: none; }
         <div><small>Tyres</small><b class="tyres"><span class="tyre" id="h-tf"></span><span id="h-tft">--</span><span class="tyre" id="h-tr"></span><span id="h-trt">--</span></b></div>
         <div><small>Tyre life</small><b id="h-wear">100%</b></div>
         <div><small>Input</small><b id="h-device">Keyboard</b></div>
-        <div><b id="h-ot" hidden>OVERTAKE</b><b id="h-wing" hidden>WING DAMAGE</b></div>
+        <div><b id="h-ot" hidden>OVERTAKE</b><b id="h-wing" hidden>WING DAMAGE</b><b id="h-vsc" hidden>VSC</b></div>
       </div>
     </div>
     <div id="lightsbar"><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span></div>

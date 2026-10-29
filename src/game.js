@@ -376,6 +376,11 @@ const App = {
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
+      else if (e.type === 'yellow') Hud.banner(`Yellow flag · sector ${e.sector}`, 'warn');
+      else if (e.type === 'vsc') Hud.banner('Virtual Safety Car deployed: slow to the delta', 'warn');
+      else if (e.type === 'vscending') Hud.banner('VSC ending', 'info');
+      else if (e.type === 'vscend') Hud.banner('Green flag: racing resumes', 'go');
+      else if (e.type === 'blue') Hud.banner(`Blue flag: let ${e.car.driver.abbr || e.car.driver.code} through`, 'info');
       else if (e.type === 'pitentry' && e.car === race.player) Hud.banner('Pit lane: limiter on (80 km/h)', 'info');
       else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(`Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
       else if (e.type === 'pitexit' && e.car === race.player) Hud.banner('Rejoining the track', 'info');
@@ -437,6 +442,9 @@ const App = {
       m.brakeT = clamp(m.brakeT + (c.brake * Math.max(0, c.vx) * 0.0006 - m.brakeT * 0.35) * dt * 10, 0, 1);
       m.discs.forEach((dsc) => (dsc.material.emissiveIntensity = Math.max(0, m.brakeT - 0.3) * 6));
       m.frontWingOk = c.wingHealth;
+      // a badly damaged front wing loses its flaps and one endplate until it is replaced in the pits
+      const broken = c.wingHealth < 0.5;
+      if (m.fwParts && broken !== !!m.wingBroken) { m.wingBroken = broken; m.fw.forEach((g) => (g.visible = !broken)); m.fwParts.end.visible = !broken; if (broken && this.particles.sparks) this.particles.sparks(c); }
       // particles near the camera
       const dx = c.x - P.x, dy = c.y - P.y;
       if (dx * dx + dy * dy < 160 * 160) this.particles.emitFor(c, dt);
@@ -726,6 +734,7 @@ const Hud = {
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
     $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? ` · BOX → ${P.pitReq}` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
+    { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : '0:00.000';
     $('#h-time').classList.toggle('invalid', race.mode === 'trial' && !P.lapValid);

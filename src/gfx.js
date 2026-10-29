@@ -1289,9 +1289,10 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
   const matte = !!team.matte;
   const paint = new THREE.MeshPhysicalMaterial({ map: liveryTexture(team, num, hero), normalMap: panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
   const accent = new THREE.MeshPhysicalMaterial({ color: team.c2, roughness: matte ? 0.5 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.8 });
+  let fwEndR = null;
   const mk = (geo, mat, cs = true, parent = body) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cs; m.receiveShadow = true; parent.add(m); return m; };
   for (const sd of [1, -1]) {
-    mk(G2.fwEnd[sd], endplateMaterial(team, 2.35, 3.03, 0.05, 0.35, sd < 0, false));
+    const fwe = mk(G2.fwEnd[sd], endplateMaterial(team, 2.35, 3.03, 0.05, 0.35, sd < 0, false)); if (sd > 0) fwEndR = fwe;
     mk(G2.rwEnd[sd], endplateMaterial(team, -2.55, -1.98, 0.55, 1.1, sd < 0, true));
   }
   mk(G2.body, paint); mk(G2.pods, paint); mk(G2.fin, paint); mk(G2.carbon, mats.carbon); mk(G2.dark, mats.dark, false); mk(G2.accent, new THREE.MeshPhysicalMaterial({ color: team.c1, roughness: 0.3, clearcoat: 0.8 }));
@@ -1364,7 +1365,7 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     avatar = makeAvatar(team, body); shoulders.visible = false;
     for (const a of arms) { a.fore.visible = a.upper.visible = false; a.hand.visible = false; if (a.elb) a.elb.visible = false; }
   }
-  const out = { avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
+  const out = { fwParts: { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
   return out;
 }
