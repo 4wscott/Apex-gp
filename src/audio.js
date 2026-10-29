@@ -14,6 +14,9 @@ class AudioEngine {
     this.noiseBuf = nb;
     this.player = this.makeEngine(1);
     this.other = this.makeEngine(0.6);
+    // real engine recordings: decode, then attach to both engine voices
+    if (typeof ENGINE_LOOPS !== 'undefined') Promise.all(ENGINE_LOOPS.map((l) => fetch(l.data).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => ({ rpm: l.rpm, buf }))))
+      .then((loops) => { this.loops = loops; [this.player, this.other].forEach((e) => this.attachLoops(e)); }).catch(() => {});
     const mkNoise = (type, f, q) => {
       const src = ctx.createBufferSource(); src.buffer = nb; src.loop = true;
       const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
@@ -49,9 +52,18 @@ class AudioEngine {
     rs.connect(rbp); rbp.connect(rg); rg.connect(shaper); rs.start();
     // MGU-H / turbo whine
     const whine = ctx.createOscillator(); whine.type = 'sine'; const wg = ctx.createGain(); wg.gain.value = 0; whine.connect(wg); whine.start();
-    shaper.connect(lp); lp.connect(g); wg.connect(g);
+    const synth = ctx.createGain(); synth.gain.value = 1; shaper.connect(synth); synth.connect(lp); lp.connect(g); wg.connect(g);
     if (pan) { g.connect(pan); pan.connect(this.out); } else g.connect(this.out);
-    return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg };
+    return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg, synth };
+  }
+  attachLoops(e) {
+    const ctx = this.ctx;
+    e.samples = this.loops.map((l) => {
+      const src = ctx.createBufferSource(); src.buffer = l.buf; src.loop = true;
+      const g = ctx.createGain(); g.gain.value = 0; src.connect(g); g.connect(e.lp); src.start(ctx.currentTime + Math.random() * 0.05);
+      return { src, g, rpm: l.rpm };
+    });
+    e.synth.gain.setTargetAtTime(0.28, ctx.currentTime, 0.2); // synthesised engine stays underneath as body
   }
   setEngine(e, rpm, thr, gain, panV = 0) {
     if (!this.ctx) return;
@@ -60,6 +72,12 @@ class AudioEngine {
     e.lp.frequency.setTargetAtTime(600 + thr * 3400 + rpm * 0.12, t, 0.03);
     const cut = e.cut > 0 ? 0.25 : 1;
     e.g.gain.setTargetAtTime(gain * e.level * (0.25 + 0.75 * thr) * cut, t, 0.02);
+    if (e.samples) {
+      // blend the two loops either side of this rpm (equal power, in log-rpm) and pitch each to match
+      const S = e.samples, r = Math.max(1000, rpm); let i = 0; while (i < S.length - 2 && r > S[i + 1].rpm) i++;
+      const a = S[i], b = S[i + 1], x = clamp(Math.log(r / a.rpm) / Math.log(b.rpm / a.rpm), 0, 1);
+      S.forEach((sm) => { const w = sm === a ? Math.cos(x * Math.PI / 2) : sm === b ? Math.sin(x * Math.PI / 2) : 0; sm.g.gain.setTargetAtTime(w * 1.6, t, 0.03); sm.src.playbackRate.setTargetAtTime(clamp(r / sm.rpm, 0.4, 2.6), t, 0.015); });
+    }
     e.rbp.frequency.setTargetAtTime(f * 2, t, 0.03); e.rg.gain.setTargetAtTime((0.05 + 0.35 * thr) * Math.min(1, rpm / 11000), t, 0.03);
     e.whine.frequency.setTargetAtTime(2800 + rpm * 0.35, t, 0.05);
     e.wg.gain.setTargetAtTime(gain * 0.03 * thr, t, 0.05);

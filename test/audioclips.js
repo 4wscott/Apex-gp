@@ -19,7 +19,7 @@ const music=await page.evaluate(async(SR)=>{
 wav(OUT+'music.wav',music,SR);
 const engine=await page.evaluate(async(SR)=>{
   const secs=14, off=new OfflineAudioContext(2,SR*secs,SR); const AC=window.AudioContext; window.AudioContext=function(){return off;};
-  const e=new AUDIO.AudioEngine(); e.start(); window.AudioContext=AC; e.setVolume(0.9);
+  const e=new AUDIO.AudioEngine(); e.start(); window.AudioContext=AC; e.setVolume(0.9); for(let i=0;i<150&&!e.loops;i++) await new Promise(r=>setTimeout(r,20)); if(!e.loops) throw new Error('loops not decoded');
   // scripted run: launch, upshifts, rev limiter, lift (crackle), braking with downshift blips, back on throttle
   const gears=[82,122,158,192,228,264,302,348], red=12500, dt=0.032; let v=0,g=0;
   const P={rpm:4000,throttle:1,vx:0,slipF:0,slipR:0,surface:'tarmac',p:{redline:red},justShifted:0};

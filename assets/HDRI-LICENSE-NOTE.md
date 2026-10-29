@@ -204,3 +204,8 @@ Pre-requisites:
 ```sh
 $ make
 ```
+
+## Engine sound
+
+`engine.js` holds four short loops cut from "F-1raceCar-IdleAndRaceStartDemo.wav" by Ears68 on Freesound
+(https://freesound.org/people/Ears68/sounds/181187/), released under Creative Commons 0 (public domain).
