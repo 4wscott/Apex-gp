@@ -255,12 +255,12 @@ const ACTIONS = [
   ['steerLeft', 'Steer left', 'axis'], ['steerRight', 'Steer right', 'axis'], ['throttle', 'Throttle', 'axis'], ['brake', 'Brake', 'axis'],
   ['shiftUp', 'Shift up', 'button'], ['shiftDown', 'Shift down', 'button'], ['aero', 'Active aero', 'button'], ['overtake', 'Overtake (hold)', 'button'],
   ['ers', 'ERS mode', 'button'], ['biasF', 'Brake bias forward', 'button'], ['biasR', 'Brake bias rearward', 'button'],
-  ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
+  ['pit', 'Pit stop (press again to change tyres / cancel)', 'button'], ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
 ];
 const KEYMAP = {
   steerLeft: ['ArrowLeft'], steerRight: ['ArrowRight'], throttle: ['KeyA', 'ArrowUp'], brake: ['KeyD', 'ArrowDown'],
   shiftUp: ['KeyE', 'ShiftRight'], shiftDown: ['KeyQ', 'ControlRight'], aero: ['Space'], overtake: ['KeyF'], ers: ['KeyX'],
-  biasF: ['BracketLeft'], biasR: ['BracketRight'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
+  biasF: ['BracketLeft'], biasR: ['BracketRight'], pit: ['KeyM'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
 };
 // default for the "standard" gamepad mapping
 const PAD_DEFAULT = {
@@ -315,7 +315,7 @@ class Input {
         <button type="button" id="t-thr" aria-label="Throttle">Throttle</button>
       </div>
       <div class="t-top">
-        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('reset', 'Reset')}
+        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('pit', 'PIT')}${btn('reset', 'Reset')}
       </div>`;
     const sens = o.touchSens || 1, buzz = (ms) => { if (o.haptics && navigator.vibrate) try { navigator.vibrate(ms); } catch (e) { /* not supported */ } };
     this.buzz = buzz;

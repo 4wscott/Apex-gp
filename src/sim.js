@@ -454,7 +454,7 @@ class Car {
     FzF = Math.max(FzF, 200); FzR = Math.max(FzR, 200);
     const cp = COMPOUNDS[this.compound];
     const gripT = (t) => (0.86 + 0.14 * Math.exp(-(((t - cp.temp) / 28) ** 2))) * cp.grip;
-    const wearF = 1 - 0.09 * this.wear;
+    const wearF = 1 - 0.09 * this.wear - 0.5 * Math.max(0, this.wear - 0.65) ** 2 * 4; // grip falls away sharply past ~65 % wear
     const capF = p.mu * smu * gripT(this.tempF) * wearF * FzF;
     const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * FzR;
 
@@ -548,7 +548,7 @@ class Car {
     const cool = 0.004 * (1 + vxa / 80), roll = 0.005 * vxa;
     this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool) * dt;
     this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool) * dt;
-    this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * dt);
+    this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * dt);
 
     // --- walls
     this.locate(false);
@@ -700,6 +700,17 @@ class AIDriver {
 function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
 // ---- Race / session manager ----------------------------------------------
+// pit lane: runs beside the start straight on the right, between the pit wall and the garages
+function pitLane(T) {
+  const n = T.n; let iA = 0, iB = 0;
+  while (iA > -n / 3 && Math.abs(T.kapW[(iA - 1 + n) % n]) < 1 / 1500) iA--;
+  while (iB < n / 3 && Math.abs(T.kapW[(iB + 1) % n]) < 1 / 1500) iB++;
+  iA += 8; iB -= 8;
+  if (iB - iA < 30) { iA = -Math.round(260 / T.ds); iB = Math.round(220 / T.ds); } // twisty start: use a fixed stretch either side of the line
+  const a = (iA + n) % n, L = (iB - iA) * T.ds;
+  return { a, L, box: L * 0.55, laneLat: (i) => -(T.wallR[i] + 7) };
+}
+const PIT_SPEED = 80 / 3.6;
 class Race {
   // mode: 'race' | 'trial'
   constructor(track, opts) {
@@ -744,6 +755,60 @@ class Race {
       else this.ais.push(new AIDriver(car, e.dr.skill * (0.97 + 0.03 * e.tm.perf.a), hashStr(e.dr.code) ^ (k * 7919)));
     });
     if (this.mode === 'trial') { this.phase = 'green'; this.greenT = 10; }
+    // short races wear tyres faster so strategy still matters (a soft lasts roughly half a race)
+    this.wearMul = this.mode === 'race' && !this.quali ? clamp(58 / this.laps, 1, 12) : 1;
+    this.twoCompounds = this.mode === 'race' && !this.quali && this.laps >= 8; // F1 rule: use two different dry compounds
+    const prng = mulberry32(hashStr(T.spec.id) ^ this.laps * 977);
+    this.cars.forEach((c) => { c.wearMul = this.wearMul; c.pitReq = null; c.pit = null; c.stops = 0; c.planLap = Math.round(this.laps * (0.3 + prng() * 0.35)); });
+    this.pit = pitLane(T);
+  }
+  compoundRule(c) {
+    if (this.twoCompounds && new Set(c.usedCompounds || [c.compound]).size < 2) { c.penalty += 20; this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
+  }
+  // player asks to pit (or changes the tyre choice / cancels); returns the requested compound or null
+  requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
+  lapsLeft(c) { return this.laps - Math.max(0, c.lap - 1); }
+  aiPitDecision(c) {
+    if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished) return;
+    const left = this.lapsLeft(c);
+    if (left < 2) return;
+    const mustStop = this.twoCompounds && !c.stops && (c.lap > c.planLap || left <= 2);
+    if (mustStop || c.wear > 0.6 || (c.wear > 0.5 && left > 3)) c.pitReq = left <= Math.max(2, this.laps * 0.35) ? 'S' : c.compound === 'H' ? 'M' : 'H';
+  }
+  // pit stop: the lane is driven on rails at the limiter; laps keep counting as the lane runs beside the line
+  pitStep(c, dt) {
+    const T = this.track, P = this.pit, q = c.pit;
+    // speed profile: brake to the limiter, hold it, stop on the box, service, leave at the limiter
+    if (q.phase === 'in') {
+      const toBox = P.box - q.s, vStop = Math.sqrt(Math.max(0, 2 * 9 * toBox));
+      q.v = Math.min(Math.max(PIT_SPEED, q.v - 14 * dt), vStop);
+      if (toBox <= 0.05 || q.v < 0.2) { q.phase = 'stop'; q.v = 0; q.t = 0; this.emit('pitstop', { car: c, service: q.service }); }
+    } else if (q.phase === 'stop') {
+      q.t += dt;
+      if (q.t >= q.service) { c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.wingHealth = 1; c.stops++; q.phase = 'out'; this.emit('pitdone', { car: c, compound: q.compound, time: q.service }); }
+    } else q.v = Math.min(PIT_SPEED, q.v + 7 * dt);
+    q.s += q.v * dt;
+    const i = (P.a + Math.floor(q.s / T.ds)) % T.n, f = (q.s % T.ds) / T.ds, j = (i + 1) % T.n;
+    const sm = (x) => x * x * (3 - 2 * x);
+    const lane = P.laneLat(i), exitLat = -(T.hw - 1.6);
+    const lat = q.s < 70 ? q.d0 + (lane - q.d0) * sm(q.s / 70) : q.s > P.L - 70 ? lane + (exitLat - lane) * sm(Math.min(1, (q.s - (P.L - 70)) / 70)) : lane;
+    const px = T.px[i] + (T.px[j] - T.px[i]) * f, py = T.py[i] + (T.py[j] - T.py[i]) * f;
+    c.x = px + T.nx[i] * lat; c.y = py + T.ny[i] * lat; c.h = Math.atan2(T.ty[i], T.tx[i]);
+    c.vx = q.v; c.vy = 0; c.r = 0; c.delta = 0; c.throttle = q.phase === 'out' ? 0.4 : 0; c.brake = q.phase === 'in' && q.v > PIT_SPEED ? 0.6 : 0;
+    c.gear = q.v < 1 ? 1 : 2; c.rpm = 4200 + q.v * 180; c.surface = 'tarmac'; c.slipF = c.slipR = 0;
+    c.locate(false);
+    let dS = c.s - c.lastS; if (dS < -T.length / 2) dS += T.length; else if (dS > T.length / 2) dS -= T.length;
+    c.dist += dS; c.lastS = c.s;
+    if (q.s >= P.L) { c.pit = null; c.vx = PIT_SPEED; this.emit('pitexit', { car: c }); }
+  }
+  pitEntry(c) {
+    if (!c.pitReq || c.pit || this.phase !== 'green' || c.finished) return false;
+    const P = this.pit, n = this.track.n, k = (c.idx - P.a + n) % n;
+    if (k > 4) return false;
+    const service = c === this.player ? 2.4 + Math.random() * 0.4 : 2.2 + Math.random() * 1.2;
+    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service };
+    c.pitReq = null; this.emit('pitentry', { car: c });
+    return true;
   }
   emit(type, data) { this.events.push(Object.assign({ type, t: this.time }, data)); }
   step(dt, playerInput) {
@@ -780,14 +845,17 @@ class Race {
         return playerInput;
       }
       const ai = this.ais.find((a) => a.car === c); ai.cool = c.finished;
+      if (c.pit) { ai.stuckT = 0; ai.lat = ai.latT = 0; return { steer: 0, throttle: 0, brake: 0 }; }
       return ai.control(dt, this.cars, this);
     });
     this.cars.forEach((c, i) => {
       if (held && c !== this.player) { c.vx = 0; c.vy = 0; c.r = 0; }
+      if (c !== this.player) this.aiPitDecision(c);
+      if (c.pit || this.pitEntry(c)) { this.pitStep(c, dt); return; }
       c.step(dt, inputs[i]);
       if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; c.penalty += 5; this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }
     });
-    collideCars(this.cars);
+    collideCars(this.cars.filter((c) => !c.pit));
     for (const c of this.cars) this.progress(c);
   }
   progress(c) {
@@ -797,7 +865,7 @@ class Race {
     if (cp >= 0 && c.cpTimes[cp] === undefined) c.cpTimes[cp] = this.time;
     // track limits (player only): all four wheels past the white line
     const over = Math.abs(c.d) > T.hw + 1.0;
-    if (c === this.player && this.phase === 'green') {
+    if (c === this.player && this.phase === 'green' && !c.pit) {
       if (over && !c.offTrack) {
         c.offTrack = true;
         if (this.mode === 'trial') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap invalidated', kind: 'warn' }); c.lapValid = false; }
@@ -837,11 +905,11 @@ class Race {
         this.emit('lap', { car: c, time: lt, valid, best: valid && lt <= c.bestLap, overall });
         if (this.mode === 'race' && prevLap >= this.laps) { /* already finished */ }
         if (this.mode === 'race' && lapNow > this.laps && !c.finished) {
-          c.finished = true; c.finishTime = this.time; this.finishOrder.push(c);
+          c.finished = true; c.finishTime = this.time; this.finishOrder.push(c); this.compoundRule(c);
           this.emit('finish', { car: c, pos: this.finishOrder.length });
         } else if (this.mode === 'race' && this.finishOrder.length > 0 && !c.finished) {
           // chequered flag already out: finish on crossing the line
-          c.finished = true; c.finishTime = this.time; this.finishOrder.push(c);
+          c.finished = true; c.finishTime = this.time; this.finishOrder.push(c); this.compoundRule(c);
           this.emit('finish', { car: c, pos: this.finishOrder.length });
         }
         if (this.mode === 'race' && lapNow === this.laps && c === this.player) this.emit('msg', { car: c, text: 'Final lap', kind: 'info' });
@@ -907,4 +975,4 @@ function aiQualiTimes(T, field, aiPace, seed) {
     return { code: dr.code, time: (ref / (pace * aiPace * carF)) * (1 + (rng() - 0.5) * 0.008) };
   });
 }
-if (typeof module !== 'undefined') module.exports = { referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };
+if (typeof module !== 'undefined') module.exports = { pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };

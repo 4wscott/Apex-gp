@@ -357,7 +357,14 @@ const App = {
     if (inp.ersPressed) { P.ersMode = (P.ersMode + 1) % 3; Hud.flash(`ERS ${ERS_MODES[P.ersMode].name}`); }
     if (inp.biasFPressed) { P.bias = Math.min(0.62, P.bias + 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     if (inp.biasRPressed) { P.bias = Math.max(0.5, P.bias - 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
-    if (inp.resetPressed && race.phase === 'green') {
+    if (inp.pitPressed && race.mode === 'race' && !race.quali && !P.pit && !P.finished) {
+      // each press cycles: box on Soft -> Medium -> Hard -> cancel
+      const order = ['S', 'M', 'H', null], cur = order.indexOf(P.pitReq ?? null);
+      let next = order[(cur + 1) % 4]; if (next === P.compound && P.pitReq == null) next = order[(order.indexOf(next) + 1) % 3];
+      race.requestPit(P, next);
+      Hud.banner(next ? `Box this lap: ${COMPOUNDS[next].name} tyres` : 'Pit stop cancelled', next ? 'info' : 'warn');
+    }
+    if (inp.resetPressed && race.phase === 'green' && !P.pit) {
       const T = race.track, d0 = P.dist; P.place(P.idx, T.lineO[P.idx], 0); P.dist = d0; P.lastS = P.s; P.lapValid = race.mode === 'race' && P.lapValid;
       if (race.mode === 'trial') P.lapValid = false;
       Hud.flash('Car reset to track');
@@ -369,6 +376,10 @@ const App = {
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
+      else if (e.type === 'pitentry' && e.car === race.player) Hud.banner('Pit lane: limiter on (80 km/h)', 'info');
+      else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(`Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
+      else if (e.type === 'pitexit' && e.car === race.player) Hud.banner('Rejoining the track', 'info');
+      else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(`${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
       else if (e.type === 'lap' && e.car === race.player) {
         Hud.lapDone(e, race);
         if (race.mode === 'trial' && e.valid && S.ghost && e.time < S.ghost.best) {
@@ -713,7 +724,7 @@ const Hud = {
     const tcol = (t) => (t < 80 ? '#4aa3ff' : t > 118 ? '#ff4d4d' : '#2bd46a');
     $('#h-tf').style.background = tcol(P.tempF); $('#h-tr').style.background = tcol(P.tempR);
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
-    $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
+    $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? ` · BOX → ${P.pitReq}` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : '0:00.000';
