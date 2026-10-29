@@ -1,0 +1,17 @@
+const fs=require('fs');const {chromium}=require('playwright');
+const T='/tmp/claude-0/-home-user/08ac67dc-84d5-5534-8a2f-b2fb411fe5b9/scratchpad/t160/package/';
+(async()=>{const br=await chromium.launch({args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const ctx=await br.newContext({viewport:{width:844,height:390},isMobile:true,hasTouch:true});
+await ctx.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(T+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript',headers:{'access-control-allow-origin':'*'}});});
+await ctx.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css',headers:{'access-control-allow-origin':'*'}}));
+const page=await ctx.newPage();const errs=[];page.on('pageerror',e=>errs.push(e.message));
+await page.goto('http://localhost:8765/');await page.waitForTimeout(8000);
+const info=await page.evaluate(async()=>{const r=await navigator.serviceWorker.ready;return {sw:!!r.active,controlled:!!navigator.serviceWorker.controller,manifest:(await (await fetch('manifest.webmanifest')).json()).name,version:document.querySelector('#menu .hint:last-child')?.textContent,menu:!!document.querySelector('#menu'),caches:await caches.keys()};});
+console.log('online',info);
+await page.reload();await page.waitForTimeout(6000);
+console.log('controlled after reload',await page.evaluate(()=>!!navigator.serviceWorker.controller), await page.evaluate(async()=>{const c=await caches.open('apex-libs-v1');return (await c.keys()).length;}));
+await ctx.unroute('https://cdn.jsdelivr.net/npm/three@0.160.0/**');await ctx.unroute('https://fonts.googleapis.com/**');
+await ctx.setOffline(true);await page.reload();await page.waitForTimeout(9000);
+console.log('offline',await page.evaluate(()=>({menu:!!document.querySelector('#menu'),start:!!document.querySelector('#start'),three:!!window.GFX&&!!window.GFX.geo,title:document.title})));
+await page.screenshot({path:'/tmp/claude-0/-home-user/08ac67dc-84d5-5534-8a2f-b2fb411fe5b9/scratchpad/pwa-offline.png'});
+console.log('errs',errs.slice(0,5));await br.close();})();

@@ -1,0 +1,387 @@
+<title>Apex Grand Prix</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700;800&family=Saira+Semi+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: full-bleed 3D view; menus are a cockpit-dark overlay docked left, HUD in broadcast corners. Deliberately single dark theme. */
+:root {
+  --ink: #0d1015; --panel: rgba(18, 22, 29, 0.92); --panel-2: #1b2029; --line: #2b323e; --fg: #eef1f5; --muted: #8e97a7;
+  --accent: #ffd21f; --accent-ink: #1a1500; --purple: #b46bff; --green: #2bd46a; --red: #ff4d4d; --blue: #4aa3ff;
+  --f-display: "Saira Condensed", "Arial Narrow", sans-serif; --f-body: "Saira Semi Condensed", "Segoe UI", system-ui, sans-serif; --f-data: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--ink); color: var(--fg); font-family: var(--f-body); font-size: 15px; overflow: hidden; }
+#app { position: fixed; inset: 0; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+kbd { font-family: var(--f-data); font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+.num, .tg, .td { font-variant-numeric: tabular-nums; }
+
+/* ---------- menu ---------- */
+#menu { position: absolute; inset: 0; overflow-y: auto; background: linear-gradient(90deg, rgba(13,16,21,0.97) 0, rgba(13,16,21,0.9) 46%, rgba(13,16,21,0.25) 100%); }
+.menu-inner { max-width: 760px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 120px; display: grid; gap: 22px; }
+.brand { display: grid; gap: 4px; }
+.brand h1 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 7vw, 64px); line-height: 0.9; letter-spacing: 0.01em; text-transform: uppercase; transform: skewX(-9deg); transform-origin: left; text-wrap: balance; }
+.brand h1 span { color: var(--accent); }
+.brand p { margin: 0; color: var(--muted); max-width: 60ch; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.tab { background: none; border: 0; padding: 10px 14px; font-family: var(--f-display); font-weight: 700; font-size: 17px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.panel { display: grid; gap: 22px; }
+.group { display: grid; gap: 10px; }
+.group > h2 { margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 14px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.row { display: grid; grid-template-columns: minmax(130px, 200px) 1fr; gap: 10px 16px; align-items: center; }
+.row label { color: var(--muted); }
+.row .ctl { display: flex; gap: 12px; align-items: center; min-width: 0; flex-wrap: wrap; }
+input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+output { font-family: var(--f-data); font-size: 13px; min-width: 70px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 65ch; }
+#circuits { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.circuit { display: grid; gap: 2px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 10px; cursor: pointer; min-width: 0; }
+.circuit canvas { width: 100%; height: auto; aspect-ratio: 240 / 150; max-width: 100%; }
+.circuit[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.c-name { font-family: var(--f-display); font-weight: 700; font-size: 17px; line-height: 1.1; }
+.c-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.c-style { font-size: 12px; color: var(--fg); opacity: 0.75; }
+#teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.team { display: grid; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+.team.sel { border-color: var(--accent); }
+.t-car { width: 100%; aspect-ratio: 360 / 150; border-radius: 6px; background: #161a20; display: block; object-fit: cover; }
+.t-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.t-tier { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--fg); white-space: nowrap; }
+.t-tier.tier-front { background: #2f7d4b; color: #fff; } .t-tier.tier-back { background: #5a3a3a; color: #fff; }
+.t-stats { display: grid; gap: 3px; }
+.st { display: grid; grid-template-columns: 72px 1fr 2.4ch; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.st i { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: block; }
+.st s { display: block; height: 100%; background: var(--accent); text-decoration: none; }
+.st b { font-family: var(--f-data); font-weight: 500; color: var(--fg); text-align: right; }
+.drv { display: flex; align-items: baseline; gap: 6px; }
+.drv span { flex: 1; min-width: 0; }
+.drv em { font-style: normal; font-family: var(--f-data); font-size: 12px; opacity: 0.75; }
+.cr-teaminfo { margin: 4px 0 10px; max-width: 420px; }
+.livery { height: 8px; border-radius: 2px; }
+.t-name { font-family: var(--f-display); font-weight: 700; font-size: 17px; }
+.t-drivers { display: grid; gap: 4px; }
+.drv { text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; cursor: pointer; font-size: 14px; }
+.drv b { font-family: var(--f-data); font-weight: 500; color: var(--muted); display: inline-block; min-width: 2.2ch; }
+.drv[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.drv[aria-pressed="true"] b { color: var(--accent-ink); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.bind, .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-family: var(--f-display); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 20px; padding: 10px 28px; }
+.startbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-top: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; z-index: 5; }
+#sum { color: var(--muted); min-width: 0; flex: 1 1 260px; }
+#sum b { color: var(--fg); }
+.note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel-2); border-radius: 0 6px 6px 0; font-size: 13px; color: var(--fg); max-width: 70ch; }
+#menu-error { color: var(--red); }
+#roster summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 6px 0; }
+#roster-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-block: 10px; }
+.roster-team { display: grid; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+.roster-team label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); min-width: 0; }
+.roster-team input { width: 100%; }
+.roster-drv { display: grid; grid-template-columns: 1fr 64px 60px; gap: 6px; }
+.roster-team .livery { height: 6px; border-radius: 2px; }
+input[type=text], input[type=number], select { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: inherit; min-width: 0; max-width: 100%; }
+.career-me { display: grid; gap: 6px; } .career-me .livery { height: 8px; border-radius: 2px; max-width: 320px; }
+.next-race { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; } .next-race canvas { width: 200px; max-width: 100%; height: auto; background: var(--panel-2); border-radius: 8px; }
+.rd { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.rd small { color: var(--muted); } .rd .lvl { color: var(--accent); letter-spacing: 2px; }
+.btn[disabled] { opacity: 0.45; cursor: default; }
+.champ { font-family: var(--f-display); font-size: 26px; font-weight: 800; text-transform: uppercase; margin: 0; }
+
+/* ---------- HUD ---------- */
+#hud { position: absolute; inset: 0; pointer-events: none; font-family: var(--f-display); }
+.hud-pad { position: absolute; inset: 0; padding: max(14px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(14px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+#tower-wrap { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); width: 196px; background: rgba(10, 12, 16, 0.78); border-radius: 6px; overflow: hidden; }
+.tw-head { background: var(--accent); color: var(--accent-ink); font-weight: 800; letter-spacing: 0.08em; font-size: 14px; padding: 3px 8px; text-transform: uppercase; }
+.trow { display: grid; grid-template-columns: 24px 4px 46px 1fr; gap: 6px; align-items: center; padding: 0 8px; font-size: 14px; line-height: 18px; }
+.trow .tp { text-align: right; color: var(--muted); font-weight: 600; }
+.trow .tc { height: 14px; border-radius: 1px; }
+.trow .td { font-weight: 700; letter-spacing: 0.04em; }
+.trow .tg { text-align: right; color: #c8ced8; font-family: var(--f-data); font-size: 12px; }
+.trow.me { background: rgba(255, 210, 31, 0.18); }
+.trow.me .td { color: var(--accent); }
+#timing { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); background: rgba(10, 12, 16, 0.78); border-radius: 6px; padding: 8px 12px; min-width: 228px; display: grid; gap: 2px; }
+.tm-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+#h-pos { font-weight: 800; font-size: 28px; color: var(--accent); }
+.tm-lap { color: var(--muted); font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tm-lap b { color: var(--fg); font-size: 20px; }
+#h-time { font-family: var(--f-data); font-size: 24px; }
+#h-time.invalid { color: var(--red); text-decoration: line-through; }
+#h-delta { font-family: var(--f-data); font-size: 16px; min-height: 20px; }
+#h-delta.good { color: var(--green); } #h-delta.bad { color: var(--red); }
+.tm-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+.tm-row span:last-child { font-family: var(--f-data); color: var(--fg); font-size: 13px; }
+.purple { color: var(--purple) !important; } .green { color: var(--green) !important; }
+.secs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 4px; }
+.sec { height: 5px; background: #2b323e; border-radius: 1px; }
+.sec.live { background: #59606d; } .sec.yellow { background: #f2c94c; } .sec.green { background: var(--green); } .sec.purple { background: var(--purple); }
+#minimap { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(14px, env(safe-area-inset-bottom, 0px)); width: 170px; height: 170px; background: rgba(10, 12, 16, 0.55); border-radius: 8px; }
+#dash { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(14px, env(safe-area-inset-bottom, 0px)); width: 300px; background: rgba(10, 12, 16, 0.8); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.dash-main { display: flex; align-items: flex-end; justify-content: space-between; }
+#h-speed { font-size: 54px; font-weight: 800; line-height: 0.9; font-variant-numeric: tabular-nums; }
+#h-unit { color: var(--muted); font-size: 14px; margin-left: 4px; }
+#h-gear { font-size: 64px; font-weight: 800; line-height: 0.85; color: var(--accent); min-width: 0.7em; text-align: center; }
+.bar { height: 8px; background: #252b35; border-radius: 2px; overflow: hidden; }
+.bar > i { display: block; height: 100%; transform-origin: left; background: var(--green); }
+#h-rpm.shift { background: var(--red); }
+#h-ers { background: var(--accent); } #h-ers.ot { background: var(--purple); }
+.dash-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; font-size: 13px; }
+.dash-grid div { display: grid; }
+.dash-grid small { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.dash-grid b { font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; }
+#h-aero.on { color: var(--green); } #h-aero.avail { color: var(--accent); }
+#h-ot { color: var(--purple); font-weight: 700; letter-spacing: 0.06em; }
+#h-ot.on { background: var(--purple); color: #fff; border-radius: 3px; padding: 0 4px; }
+.tyres { display: flex; gap: 6px; align-items: center; }
+.tyre { width: 12px; height: 18px; border-radius: 3px; }
+#dash.compact { display: none; }
+#h-wing { color: var(--red); font-weight: 700; }
+#banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
+.banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
+.banner.good, .banner.go { color: #c9ffd9; border-left: 4px solid var(--green); }
+.banner.purple { color: #e3ccff; border-left: 4px solid var(--purple); }
+.banner.info { border-left: 4px solid var(--accent); }
+#flash { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); font-family: var(--f-data); font-size: 14px; background: rgba(10, 12, 16, 0.8); padding: 6px 14px; border-radius: 4px; }
+#lightsbar { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); display: flex; gap: 10px; background: #0a0b0d; padding: 10px 14px; border-radius: 8px; }
+.lamp { width: 34px; height: 34px; border-radius: 50%; background: #2a0b0b; box-shadow: inset 0 0 0 3px #150505; }
+.lamp.on { background: radial-gradient(circle at 40% 35%, #ff9a9a, #ff1a1a 45%, #a00000); box-shadow: 0 0 24px #ff2a2a; }
+#h-track { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); color: rgba(238, 241, 245, 0.55); font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* ---------- overlays ---------- */
+.overlay { position: absolute; inset: 0; background: rgba(8, 10, 13, 0.72); display: grid; place-items: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px; overflow-y: auto; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; gap: 14px; max-width: 860px; width: 100%; min-width: 0; }
+.card h2 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 30px; text-transform: uppercase; transform: skewX(-6deg); text-wrap: balance; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+tr.me td { color: var(--accent); }
+.swatch { display: inline-block; width: 4px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 1px; }
+#loading { font-family: var(--f-display); font-size: 22px; letter-spacing: 0.12em; text-transform: uppercase; }
+/* ---------- touch controls ---------- */
+#touch { position: absolute; inset: 0; pointer-events: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+#touch button, #t-steer { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
+#t-steer { position: absolute; left: 0; bottom: 0; width: 46%; height: 70%; display: grid; place-items: end center; padding-bottom: max(14px, env(safe-area-inset-bottom, 0px)); padding-left: env(safe-area-inset-left, 0px); }
+/* split: brake in the bottom-left corner, wheel beside it, throttle bottom-right */
+#touch.tside-split #t-brk { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
+#touch.tside-split #t-steer { left: calc(max(16px, env(safe-area-inset-left, 0px)) + 104px * var(--tb, 1)); width: 40%; }
+#touch.tside-swap #t-steer { left: auto; right: 0; padding-right: env(safe-area-inset-right, 0px); }
+#touch.tside-swap .t-pedals { right: auto; left: max(16px, env(safe-area-inset-left, 0px)); flex-direction: row-reverse; }
+#t-steer.steer-wheel.ghost #t-wheel { opacity: 0; }
+#t-steer.steer-wheel.ghost::after { content: ""; position: absolute; bottom: max(30px, env(safe-area-inset-bottom, 0px)); width: calc(min(150px, 22vw) * var(--tb, 1)); aspect-ratio: 1; border: 2px dashed rgba(255,255,255,0.22); border-radius: 50%; pointer-events: none; }
+#t-wheel { width: calc(min(250px, 34vw) * var(--tb, 1)); height: auto; max-width: 100%; filter: drop-shadow(0 4px 10px rgba(0,0,0,.5)); transition: transform 40ms linear; }
+.t-arrows { display: flex; gap: 14px; padding-bottom: 4px; }
+#t-steer.steer-buttons { width: auto; height: auto; place-items: end start; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); padding: 0; }
+.t-arrows button { width: calc(96px * var(--tb, 1)); height: calc(110px * var(--tb, 1)); border-radius: 16px; border: 1px solid rgba(255,255,255,0.18); background: rgba(10,12,16,0.55); color: #fff; font-size: 34px; }
+.t-arrows button.down { background: var(--accent); color: var(--accent-ink); }
+.t-shift { display: flex; flex-direction: column; gap: 10px; }
+.t-shift button { width: calc(56px * var(--tb, 1)); height: calc(56px * var(--tb, 1)); border-radius: 12px; border: 1px solid var(--line); background: rgba(10,12,16,0.7); font-family: var(--f-display); font-weight: 800; font-size: 24px; }
+.t-shift button.down { background: var(--accent); color: var(--accent-ink); }
+#t-rail { position: absolute; bottom: max(44px, calc(env(safe-area-inset-bottom, 0px) + 18px)); left: 50%; width: min(300px, 28vw); height: 6px; margin-left: calc(min(300px, 28vw) / -2); background: rgba(255,255,255,0.18); border-radius: 3px; }
+#t-knob { position: absolute; bottom: max(26px, env(safe-area-inset-bottom, 0px)); left: 50%; width: 44px; height: 44px; margin-left: -22px; border-radius: 50%; background: rgba(255,210,31,0.85); box-shadow: 0 0 0 3px rgba(0,0,0,0.35); }
+.t-label { position: absolute; bottom: max(80px, calc(env(safe-area-inset-bottom, 0px) + 54px)); font-family: var(--f-display); letter-spacing: 0.1em; text-transform: uppercase; font-size: 12px; color: rgba(255,255,255,0.55); }
+.t-pedals { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); display: flex; gap: 14px; align-items: flex-end; }
+.t-pedals button { border: 0; border-radius: 14px; font-family: var(--f-display); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #fff; }
+#t-brk { width: calc(92px * var(--tb, 1)); height: calc(110px * var(--tb, 1)); background: rgba(255,77,77,0.55); }
+#t-thr { width: calc(104px * var(--tb, 1)); height: calc(160px * var(--tb, 1)); background: rgba(43,212,106,0.55); }
+.t-pedals button.down { filter: brightness(1.5); transform: scale(0.97); }
+.t-top { position: absolute; left: 50%; transform: translateX(-50%); top: max(8px, env(safe-area-inset-top, 0px)); display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 340px); }
+.t-top button { background: rgba(10,12,16,0.7); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-family: var(--f-display); font-weight: 700; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; min-width: 44px; min-height: 40px; }
+.t-top button.down { background: var(--accent); color: var(--accent-ink); }
+body.touch #timing { top: max(60px, calc(env(safe-area-inset-top, 0px) + 56px)); }
+body.touch #dash { right: auto; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom, 0px)); width: auto; padding: 6px 12px; }
+body.touch #dash .dash-grid, body.touch #dash .bar + .bar { display: none; }
+body.touch #dash.compact { display: grid; }
+body.touch[data-tl="split"] #dash { left: auto; transform: none; right: calc(max(16px, env(safe-area-inset-right, 0px)) + 104px * var(--tb, 1) + 20px); }
+body.touch #dash.compact .dash-main { display: flex; gap: 14px; }
+body.touch #minimap { display: none; }
+body.touch #h-track { display: none; }
+#rotate { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ink); font-family: var(--f-display); font-size: 24px; text-transform: uppercase; letter-spacing: 0.08em; padding: 24px; text-align: center; }
+@media (max-width: 640px) {
+  .row { grid-template-columns: 1fr; gap: 4px; }
+  #tower-wrap { width: 150px; } .trow { font-size: 12px; line-height: 16px; } .trow .tg { font-size: 10px; }
+  #dash { width: 220px; } #h-speed { font-size: 38px; } #h-gear { font-size: 44px; }
+  #minimap { width: 120px; height: 120px; }
+}
+@media (max-height: 500px) {
+  #tower-wrap { width: 140px; } .trow { font-size: 11px; line-height: 14px; } .trow .tg { font-size: 9px; } .tw-head { font-size: 11px; }
+  #timing { min-width: 170px; padding: 6px 10px; } #h-pos { font-size: 22px; } #h-time { font-size: 18px; } .tm-row { font-size: 12px; }
+  #banner { font-size: 18px; top: 30%; } #lightsbar { top: 18%; } .lamp { width: 24px; height: 24px; }
+  #h-speed { font-size: 34px; } #h-gear { font-size: 40px; }
+  .t-top { gap: 4px; max-width: calc(100vw - 330px); } .t-top button { min-height: 34px; min-width: 38px; padding: 5px 7px; font-size: 11px; }
+  #lightsbar { top: 26%; }
+}
+@media (prefers-reduced-motion: reduce) { .lamp.on { box-shadow: none; } }
+</style>
+
+<div id="app">
+  <canvas id="view" aria-label="3D race view"></canvas>
+
+  <div id="hud" hidden>
+    <div id="tower-wrap"><div class="tw-head">Lap timing</div><div id="tower"></div></div>
+    <div id="timing">
+      <div class="tm-top"><span id="h-pos">P1</span><span class="tm-lap">Lap <b id="h-lap">1/5</b></span></div>
+      <span id="h-time">0:00.000</span>
+      <span id="h-delta"></span>
+      <div class="tm-row"><span>Last</span><span id="h-last">--:--.---</span></div>
+      <div class="tm-row"><span>Best</span><span id="h-best">--:--.---</span></div>
+      <div class="tm-row" id="h-pb-wrap" hidden><span>Record</span><span id="h-pb"></span></div>
+      <div class="secs"><span class="sec"></span><span class="sec"></span><span class="sec"></span></div>
+    </div>
+    <canvas id="minimap" width="220" height="220"></canvas>
+    <div id="dash">
+      <div class="dash-main"><div><span id="h-speed">0</span><span id="h-unit">km/h</span></div><span id="h-gear">1</span></div>
+      <div class="bar"><i id="h-rpm"></i></div>
+      <div class="bar"><i id="h-ers"></i></div>
+      <div class="dash-grid">
+        <div><small>ERS</small><b id="h-ersmode">BALANCED</b></div>
+        <div><small>Aero</small><b id="h-aero">Z-mode</b></div>
+        <div><small>Brake bias</small><b id="h-bias">56.0%</b></div>
+        <div><small>TC</small><b id="h-tc">Full</b></div>
+        <div><small>ABS</small><b id="h-abs">On</b></div>
+        <div><small>Tyres</small><b class="tyres"><span class="tyre" id="h-tf"></span><span id="h-tft">--</span><span class="tyre" id="h-tr"></span><span id="h-trt">--</span></b></div>
+        <div><small>Tyre life</small><b id="h-wear">100%</b></div>
+        <div><small>Input</small><b id="h-device">Keyboard</b></div>
+        <div><b id="h-ot" hidden>OVERTAKE</b><b id="h-wing" hidden>WING DAMAGE</b></div>
+      </div>
+    </div>
+    <div id="lightsbar"><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span></div>
+    <div id="banner" hidden></div>
+    <div id="flash" hidden></div>
+    <div id="h-track"></div>
+  </div>
+
+  <div id="touch" hidden></div>
+  <div id="rotate" hidden>Turn your phone sideways to race.</div>
+
+  <div id="menu">
+    <div class="menu-inner">
+      <div class="brand">
+        <h1>Apex <span>Grand Prix</span></h1>
+        <p>Eleven teams, twenty-two drivers and eight circuits in a fictional open-wheel championship. 2026-style cars: hybrid power with 350 kW of electric deployment, active aero and an overtake mode.</p>
+        <p id="menu-error" hidden></p>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-panel="p-race" type="button">Race weekend</button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="p-assist" type="button">Driving</button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="p-controls" type="button">Controls</button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="p-gfx" type="button">Graphics &amp; sound</button>
+      </div>
+
+      <section class="panel" id="p-race">
+        <div class="group"><h2>Session</h2>
+          <div class="seg" data-set="mode"><button type="button" data-v="career">Career</button><button type="button" data-v="race">Free play: Grand Prix</button><button type="button" data-v="trial">Free play: Time trial</button></div>
+        </div>
+        <div id="career" hidden></div>
+        <div class="group"><h2>Tyres</h2>
+          <div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button></div>
+        </div>
+        <div class="group free-only"><h2>Circuit</h2><div id="circuits"></div></div>
+        <div class="group free-only"><h2>Team and driver</h2><div id="teams"></div>
+          <details id="roster"><summary>Rename teams and drivers</summary>
+            <p class="hint">Give any team or driver the name you want, plus the three-letter code shown in the timing tower and the race number. Names are saved on this device and used everywhere: menus, timing, results and career.</p>
+            <div id="roster-body"></div>
+            <div class="actions"><button type="button" class="btn primary" id="roster-save">Save names</button><button type="button" class="btn" id="roster-reset">Restore original names</button></div>
+            <p class="hint" id="roster-msg" aria-live="polite"></p>
+          </details></div>
+        <div class="group" id="race-only"><h2>Race settings</h2>
+          <div class="row"><label for="laps">Race distance</label><div class="ctl"><input id="laps" type="range" min="1" max="30" step="1"><output id="laps-out"></output></div></div>
+          <div class="row"><label for="opps">Opponents</label><div class="ctl"><input id="opps" type="range" min="0" max="21" step="1"><output id="opps-out"></output></div></div>
+          <div class="row"><label for="aipace">AI pace</label><div class="ctl"><input id="aipace" type="range" min="80" max="104" step="1"><output id="aipace-out"></output></div></div>
+          <div class="row"><label>Starting position</label><div class="ctl seg" data-set="grid"><button type="button" data-v="pole">Pole</button><button type="button" data-v="mid">Midfield</button><button type="button" data-v="back">Back of grid</button><button type="button" data-v="random">Random</button></div></div>
+        </div>
+      </section>
+
+      <section class="panel" id="p-assist" hidden>
+        <p class="hint">The physics are the same with or without assists: a tyre model with temperature and wear, aero load that builds with speed, weight transfer, and a power unit that deploys and harvests electric energy. Assists help you stay inside the limits.</p>
+        <div class="row"><label>Traction control</label><div class="ctl seg" data-set="tc"><button type="button" data-v="0">Off</button><button type="button" data-v="1">Medium</button><button type="button" data-v="2">Full</button></div></div>
+        <div class="row"><label>Anti-lock brakes</label><div class="ctl seg" data-set="abs"><button type="button" data-v="false">Off</button><button type="button" data-v="true">On</button></div></div>
+        <div class="row"><label>Gearbox</label><div class="ctl seg" data-set="autoGear"><button type="button" data-v="true">Automatic</button><button type="button" data-v="false">Manual paddles</button></div></div>
+        <div class="row"><label>Active aero</label><div class="ctl seg" data-set="aeroAuto"><button type="button" data-v="true">Automatic in zones</button><button type="button" data-v="false">Driver activated</button></div></div>
+        <div class="row"><label>Steering assist</label><div class="ctl seg" data-set="steerAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Off</button></div></div>
+        <div class="row"><label>Racing line</label><div class="ctl seg" data-set="line"><button type="button" data-v="off">Off</button><button type="button" data-v="corners">Braking zones</button><button type="button" data-v="full">Full lap</button></div></div>
+        <p class="hint">Straight-mode zones are marked green on the minimap. In a race you get overtake mode for a lap when you cross the line within one second of the car ahead. Hold it to deploy full electric power at high speed.</p>
+      </section>
+
+      <section class="panel" id="p-controls" hidden>
+        <div class="row"><label>On-screen touch controls</label><div class="ctl seg" data-set="touch"><button type="button" data-v="auto">Auto (phones and tablets)</button><button type="button" data-v="on">Always</button><button type="button" data-v="off">Off</button></div></div>
+        <div class="row"><label>Touch steering</label><div class="ctl seg" data-set="touchSteer"><button type="button" data-v="buttons">Arrows</button><button type="button" data-v="wheel">Turn the wheel</button><button type="button" data-v="pad">Drag pad</button></div></div>
+        <div class="row"><label for="tsens">Touch steering sensitivity</label><div class="ctl"><input id="tsens" type="range" min="5" max="20" step="1"><output id="tsens-out"></output></div></div>
+        <div class="row"><label>Touch steering assist</label><div class="ctl seg" data-set="touchAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Direct</button></div></div>
+        <div class="row"><label>Pedals</label><div class="ctl seg" data-set="analogPedals"><button type="button" data-v="true">Analogue (finger height)</button><button type="button" data-v="false">On / off</button></div></div>
+        <div class="row"><label>Layout</label><div class="ctl seg" data-set="touchLayout"><button type="button" data-v="split">Brake left, throttle right</button><button type="button" data-v="std">Both pedals right</button><button type="button" data-v="swap">Both pedals left</button></div></div>
+        <div class="row"><label>Button size</label><div class="ctl seg" data-set="touchSize"><button type="button" data-v="S">Small</button><button type="button" data-v="M">Medium</button><button type="button" data-v="L">Large</button></div></div>
+        <div class="row"><label>Vibration</label><div class="ctl seg" data-set="haptics"><button type="button" data-v="true">On</button><button type="button" data-v="false">Off</button></div></div>
+        <p class="hint">On a phone, turn it sideways. With the F1 wheel, put your thumb on the wheel and turn it like the real thing. Slide up a pedal for more throttle or brake. Paddle-shift buttons appear when the gearbox is set to manual. Tilt steering isn't available, because the game page can't read the phone's motion sensors.</p>
+        <p class="note" id="pads">No controller detected.</p>
+        <div class="table-wrap"><table><thead><tr><th>Action</th><th>Keyboard</th><th>Controller / wheel</th><th></th></tr></thead><tbody id="binds"></tbody></table></div>
+        <p class="hint" id="bind-msg">Gamepads work straight away. For a wheel and pedals, bind steer left, steer right, throttle and brake: press Bind, then turn or press that control fully.</p>
+        <div class="actions"><button type="button" class="btn" id="bind-reset">Reset controller bindings</button></div>
+        <div class="row"><label for="dz">Steering deadzone</label><div class="ctl"><input id="dz" type="range" min="0" max="20" step="1"><output id="dz-out"></output></div></div>
+        <div class="row"><label for="lin">Steering linearity</label><div class="ctl"><input id="lin" type="range" min="10" max="25" step="1"><output id="lin-out"></output></div></div>
+        <div class="row"><label>Wheel speed sensitivity</label><div class="ctl seg" data-set="wheelAssist"><button type="button" data-v="false">Off (1:1 like a real wheel)</button><button type="button" data-v="true">On</button></div></div>
+        <p class="hint">Browsers cannot drive wheel force feedback, so wheels run without it. Gamepads get rumble on kerbs, lock-ups and impacts.</p>
+      </section>
+
+      <section class="panel" id="p-gfx" hidden>
+        <div class="row"><label>Quality</label><div class="ctl seg" data-set="quality"><button type="button" data-v="0">Low</button><button type="button" data-v="1">Medium</button><button type="button" data-v="2">High</button><button type="button" data-v="3">Ultra</button></div></div>
+        <div class="row"><label>Starting camera</label><div class="ctl seg" data-set="camera"><button type="button" data-v="cockpit">Cockpit</button><button type="button" data-v="tcam">T-cam</button><button type="button" data-v="chase">Chase</button><button type="button" data-v="far">Far chase</button></div></div>
+        <div class="row"><label>Dashboard overlay</label><div class="ctl seg" data-set="hud"><button type="button" data-v="auto">Hide in cockpit</button><button type="button" data-v="full">Always</button></div></div>
+        <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>
+        <div class="row"><label for="fov">Field of view</label><div class="ctl"><input id="fov" type="range" min="45" max="90" step="1"><output id="fov-out"></output></div></div>
+        <div class="row"><label for="vol">Volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
+        <div class="row"><label>Units</label><div class="ctl seg" data-set="units"><button type="button" data-v="kmh">km/h</button><button type="button" data-v="mph">mph</button></div></div>
+      </section>
+    </div>
+    <div class="startbar">
+      <span id="sum"></span>
+      <button type="button" class="btn primary" id="start">Start</button>
+    </div>
+  </div>
+
+  <div id="loading" class="overlay" hidden>Building circuit…</div>
+
+  <div id="pause" class="overlay" hidden>
+    <div class="card">
+      <h2>Paused</h2>
+      <div class="table-wrap"><table><tbody>
+        <tr><td>Throttle / brake / steer</td><td><kbd>W</kbd> <kbd>S</kbd> <kbd>A</kbd> <kbd>D</kbd> or arrow keys</td></tr>
+        <tr><td>Shift up / down (manual)</td><td><kbd>E</kbd> / <kbd>Q</kbd></td></tr>
+        <tr><td>Active aero (driver mode) / overtake (hold)</td><td><kbd>Space</kbd> / <kbd>F</kbd></td></tr>
+        <tr><td>ERS mode / brake bias</td><td><kbd>X</kbd> / <kbd>[</kbd> <kbd>]</kbd></td></tr>
+        <tr><td>Camera / look back / reset to track</td><td><kbd>C</kbd> / <kbd>B</kbd> / <kbd>R</kbd></td></tr>
+      </tbody></table></div>
+      <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
+    </div>
+  </div>
+
+  <div id="results" class="overlay" hidden>
+    <div class="card">
+      <h2 id="res-title">Results</h2>
+      <div class="table-wrap"><table><thead id="res-head"><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr></thead><tbody id="res-body"></tbody></table></div>
+      <div class="actions"><button type="button" class="btn primary" id="r-again">Race again</button><button type="button" class="btn" id="r-menu">Main menu</button></div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+/*__SCRIPTS__*/
+</script>

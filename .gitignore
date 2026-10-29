@@ -1,0 +1,7 @@
+# build output (made by `node build.js`)
+index.html
+site/
+# raw photo-scan downloads; assets/photo.js holds the processed copies
+assets/tex_src/
+demo/
+node_modules/
