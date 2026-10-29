@@ -1045,6 +1045,79 @@ function makeCarGeometries() {
 
 // relative luminance (0..1) of a #rrggbb colour
 const lum = (c) => { const n = parseInt(c.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; };
+// ---- imported driver and helmet (Sketchfab, CC BY 4.0) --------------------------------
+function loadModels() {
+  if (typeof MODEL_DATA === 'undefined') return Promise.resolve();
+  const L = new GLTFLoader();
+  const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no)));
+  return Promise.all([get('helmet'), get('driver')]).then(([h, d]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene) }; })
+    .catch((e) => console.warn('driver models unavailable', e));
+}
+// helmet parts baked into car space: front faces +x, about 0.31 m long, centred on the head pivot
+function prepHelmet(root) {
+  root.updateMatrixWorld(true);
+  const parts = { shell: [], visor: [], metal: [], dark: [], inner: [] };
+  const kind = { Material: 'shell', 'Material.003': 'visor', metalser: 'metal', dershat: 'dark', 'Material.004': 'inner' };
+  root.traverse((o) => { if (o.isMesh) { const g = o.geometry.clone().applyMatrix4(o.matrixWorld); for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); (parts[kind[o.material.name]] || parts.dark).push(g); } });
+  const out = {};
+  for (const [k, list] of Object.entries(parts)) if (list.length) out[k] = mergeGeometries(list.map((g) => (g.index ? g : g)), false);
+  const box = new THREE.Box3(); out.shell.computeBoundingBox(); box.copy(out.shell.boundingBox);
+  const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3()), k = 0.31 / Math.max(size.x, size.z);
+  const front = size.x >= size.z ? 'x' : 'z';
+  for (const g of Object.values(out)) {
+    g.translate(-c.x, -c.y, -c.z).scale(k, k, k);
+    if (front === 'z') g.rotateY(-Math.PI / 2);
+    g.rotateY(Math.PI); // the visor faces -x in the source
+    g.computeVertexNormals(); g.computeBoundingSphere();
+  }
+  return out;
+}
+function prepDriver(root) {
+  root.traverse((o) => { if (o.isSkinnedMesh) { o.frustumCulled = false; o.castShadow = true; } });
+  return root;
+}
+// team race suit: the source suit's shading and seams, recoloured to the team (cached per team)
+function suitFromModel(img, team) {
+  GFX.suitCache = GFX.suitCache || {};
+  if (GFX.suitCache[team.id]) return GFX.suitCache[team.id];
+  const w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, w, h), p = d.data;
+  const rgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
+  const A = rgb(team.c1), B = rgb(lum(team.c2) > 0.18 ? team.c2 : team.c3);
+  for (let i = 0; i < p.length; i += 4) {
+    const r = p[i], gg = p[i + 1], b = p[i + 2], L = (0.3 * r + 0.59 * gg + 0.11 * b) / 255, sat = (Math.max(r, gg, b) - Math.min(r, gg, b)) / 255;
+    const t = sat < 0.25 && L > 0.62 ? 1 : 0, shade = 0.45 + 0.75 * Math.min(1, L * 1.3);   // light neutral panels take the second colour
+    for (let k = 0; k < 3; k++) p[i + k] = Math.min(255, (t ? B[k] : A[k]) * shade);
+  }
+  g.putImageData(d, 0, 0);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.userData.keep = true;
+  return (GFX.suitCache[team.id] = tex);
+}
+// seated driver from the rigged model: reclined in the tub, hands reaching for the wheel (see updateArms)
+function makeAvatar(team, body) {
+  const av = SkeletonUtils.clone(GFX.models.driver), pivot = new THREE.Group(), seat = new THREE.Group();
+  seat.add(av); pivot.add(seat); body.add(pivot);
+  av.rotation.y = Math.PI / 2;            // the model faces +z; the car faces +x
+  seat.rotation.z = 0.95;                 // reclined F1 seating position (lying well back, shoulders below the rim)
+  const bones = {}; av.traverse((o) => { if (o.isBone) bones[o.name.replace(/_\d+$/, '')] = o; });
+  let hands = null;
+  av.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    if (o.material.name === 'Wolf3D_Outfit_Top') o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team), roughness: 0.85 });
+    else { o.material = new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.75 }); hands = o; } // bare hands become race gloves
+  });
+  // put the neck just under the helmet pivot
+  pivot.updateMatrixWorld(true);
+  const neck = (bones.Neck || bones.Head).getWorldPosition(new THREE.Vector3()); body.worldToLocal(neck);
+  pivot.position.set(-0.13 - neck.x, 0.7 - neck.y, -neck.z);
+  // fingers closed around the grips
+  for (const sd of ['Left', 'Right']) for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) for (const j of [1, 2, 3]) {
+    const b = bones[sd + 'Hand' + f + j]; if (b) b.rotateZ((sd === 'Left' ? 1 : -1) * (j === 1 ? 0.9 : 1.1));
+  }
+  const ik = ['Left', 'Right'].map((sd) => ({ up: bones[sd + 'Arm'], fore: bones[sd + 'ForeArm'], hand: bones[sd + 'Hand'] }));
+  ik.forEach((a) => { a.rest = [a.up.quaternion.clone(), a.fore.quaternion.clone()]; });
+  return { root: pivot, ik, hands, bones };
+}
 function liveryTexture(team, num, hi) {
   return canvasTex(hi ? 2048 : 1024, hi ? 1024 : 512, (g, w, h) => {
     if (hi) g.scale(2, 2), (w /= 2), (h /= 2);
@@ -1204,10 +1277,19 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
   mk(G2.rwFlap, wRear, true, flapPivot); flapPivot.rotation.z = -0.45;
   // the head sits on a neck pivot so it can lean with cornering load
   const head = new THREE.Group(); head.position.set(-0.08, 0.86, 0); body.add(head);
-  const helmetMat = new THREE.MeshPhysicalMaterial({ map: helmetTexture(team, num), roughness: 0.18, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 });
-  const helmet = new THREE.Mesh(G2.helmet, helmetMat); helmet.castShadow = true; head.add(helmet);
-  const spoiler = new THREE.Mesh(G2.spoiler, mats.carbon); head.add(spoiler);
-  const visor = new THREE.Mesh(G2.visor, mats.visor); head.add(visor);
+  const M = GFX.models;
+  if (M) {
+    const H = M.helmet, shellCol = lum(team.c2) > 0.18 && lum(team.c2) < 0.9 ? team.c2 : team.c1;
+    const shell = new THREE.Mesh(H.shell, new THREE.MeshPhysicalMaterial({ color: shellCol, roughness: 0.2, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 })); shell.castShadow = true; head.add(shell);
+    if (H.inner) head.add(new THREE.Mesh(H.inner, new THREE.MeshPhysicalMaterial({ color: team.c1, roughness: 0.25, clearcoat: 1 })));
+    if (H.visor) head.add(new THREE.Mesh(H.visor, mats.visor));
+    if (H.metal) head.add(new THREE.Mesh(H.metal, mats.rimLip || mats.rim));
+    if (H.dark) head.add(new THREE.Mesh(H.dark, mats.dark));
+  } else {
+    const helmetMat = new THREE.MeshPhysicalMaterial({ map: helmetTexture(team, num), roughness: 0.18, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 });
+    const helmet = new THREE.Mesh(G2.helmet, helmetMat); helmet.castShadow = true; head.add(helmet);
+    head.add(new THREE.Mesh(G2.spoiler, mats.carbon)); head.add(new THREE.Mesh(G2.visor, mats.visor));
+  }
   const hans = new THREE.Mesh(G2.hans, mats.carbon); hans.position.set(-0.08, 0.86, 0); body.add(hans);
   const shoulders = new THREE.Mesh(G2.shoulders, new THREE.MeshStandardMaterial({ map: suitTexture(team), roughness: 0.9 })); shoulders.position.set(-0.08, 0.86, 0); shoulders.castShadow = true; body.add(shoulders);
   const rainLight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.06, 0.12), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff0000, emissiveIntensity: 0 }));
@@ -1226,7 +1308,7 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     const shoulder = new THREE.Vector3(-0.12, 0.74, 0.19 * sd), elbow = new THREE.Vector3(0.1, 0.6, 0.25 * sd);
     const elb = new THREE.Mesh(G2.elbow, suit); elb.position.copy(elbow); body.add(elb);
     const d = elbow.clone().sub(shoulder); upper.position.copy(shoulder); upper.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()); upper.scale.set(1, d.length(), 1);
-    arms.push({ hand, fore, upper, elbow });
+    arms.push({ hand, fore, upper, elbow, elb, sd });
   }
   const blob = new THREE.Mesh(G2.blob, mats.blob); blob.position.y = 0.01; blob.renderOrder = 1; grp.add(blob);
   const nutMat = new THREE.MeshStandardMaterial({ color: team.style === 'sf25' ? '#d0101e' : team.c2, metalness: 0.8, roughness: 0.3 });
@@ -1245,7 +1327,13 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     const disc = new THREE.Mesh(G2.disc, mats.disc.clone()); disc.position.z = 0.02 * Math.sign(z); piv.add(disc); discs.push(disc);
     wheels.push(wheel); if (front) steer.push(piv);
   });
-  const out = { mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
+  // imported driver replaces the simple shoulders, arms and fists (the fists stay as invisible grip targets)
+  let avatar = null;
+  if (M) {
+    avatar = makeAvatar(team, body); shoulders.visible = false;
+    for (const a of arms) { a.fore.visible = a.upper.visible = false; a.hand.visible = false; if (a.elb) a.elb.visible = false; }
+  }
+  const out = { avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
   return out;
 }

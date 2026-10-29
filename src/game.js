@@ -194,7 +194,7 @@ const App = {
     r.setScissorTest(false); r.setViewport(0, 0, r.domElement.width / pr, r.domElement.height / pr);
     sc.remove(car.grp);
     const shared = new Set(Object.values(GFX.mats));
-    car.grp.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => { if (!shared.has(m)) { if (m.map && !Object.values(GFX.tex).includes(m.map)) m.map.dispose(); m.dispose(); } }); });
+    car.grp.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => { if (!shared.has(m)) { if (m.map && !m.map.userData.keep && !Object.values(GFX.tex).includes(m.map)) m.map.dispose(); m.dispose(); } }); });
     return c.toDataURL('image/jpeg', 0.86);
   },
   preview(trackId) {
@@ -252,7 +252,8 @@ const App = {
     m.swSimple.forEach((o) => (o.visible = false));
     m.swSpin.add(sw.g);
     // forearms run to the wrists of the detailed gloves
-    m.arms.forEach((a, i) => (a.hand = sw.wrists[i]));
+    m.arms.forEach((a, i) => { a.hand = sw.wrists[i]; a.hand.userData.wrist = true; });
+    if (m.avatar && m.avatar.hands) m.avatar.hands.visible = false;
     this.session.wheel = { tilt: m.swTilt, spin: m.swSpin, canvas: sw.canvas, tex: sw.tex, ctx: sw.canvas.getContext('2d'), t: 0, leds: sw.leds, flags: sw.flags, rotaries: sw.rotaries };
     // rear-view mirrors rendered into a texture
     if (settings.mirrors && settings.quality >= 1) {
@@ -511,8 +512,32 @@ const applyAudioSession = () => { try { if (navigator.audioSession) navigator.au
 const raceMusic = () => ({ off: 0, quiet: 0.35, full: 1 }[settings.musicRace] ?? 0.35);
 const dx0 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const _v = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _t = new THREE.Vector3(), _pole = new THREE.Vector3();
+// turn a bone (in world space) so that the point `from` on its chain moves toward `to`
+function aimBone(bone, from, to) {
+  bone.getWorldPosition(_a); _b.copy(from).sub(_a).normalize(); _c.copy(to).sub(_a).normalize();
+  _q1.setFromUnitVectors(_b, _c); bone.getWorldQuaternion(_q2); bone.parent.getWorldQuaternion(_q3);
+  bone.quaternion.copy(_q3.invert().multiply(_q1.multiply(_q2))); bone.updateMatrixWorld(true);
+}
 function updateArms(m) {
   m.body.updateMatrixWorld(true);
+  if (m.avatar) {
+    // two-bone IK: wrist to just behind each grip, elbow bending down and out
+    const down = new THREE.Vector3(0, -1, 0).transformDirection(m.body.matrixWorld);
+    for (const a of m.arms) {
+      const k = m.avatar.ik[a.sd < 0 ? 0 : 1]; // model's left arm is the car's -z side
+      k.up.quaternion.copy(k.rest[0]); k.fore.quaternion.copy(k.rest[1]); k.up.updateMatrixWorld(true);
+      const S = k.up.getWorldPosition(new THREE.Vector3()), E0 = k.fore.getWorldPosition(new THREE.Vector3()), H0 = k.hand.getWorldPosition(new THREE.Vector3());
+      const la = S.distanceTo(E0), lb = E0.distanceTo(H0);
+      a.hand.getWorldPosition(_t); if (!a.hand.userData.wrist) _t.add(_c.set(-0.07, -0.01, 0).transformDirection(m.body.matrixWorld).multiplyScalar(0.07));
+      const d = Math.min(S.distanceTo(_t), (la + lb) * 0.995), n = _t.clone().sub(S).normalize(), T = S.clone().addScaledVector(n, d);
+      const x = (la * la - lb * lb + d * d) / (2 * d), h = Math.sqrt(Math.max(0, la * la - x * x));
+      _pole.copy(down).add(_c.set(0, 0, a.sd * 0.8).transformDirection(m.body.matrixWorld)); _pole.addScaledVector(n, -_pole.dot(n)).normalize();
+      const E = S.clone().addScaledVector(n, x).addScaledVector(_pole, h);
+      aimBone(k.up, E0, E); aimBone(k.fore, k.hand.getWorldPosition(new THREE.Vector3()), T);
+    }
+    return;
+  }
   for (const a of m.arms) {
     a.hand.getWorldPosition(_v); m.body.worldToLocal(_v);
     const dir = _v.sub(a.elbow), len = dir.length();
@@ -923,4 +948,4 @@ function drawMiniMap(canvas, T) {
 
 applyRoster(store.get('roster', null));
 window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music };
-(document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => App.init());
+(document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

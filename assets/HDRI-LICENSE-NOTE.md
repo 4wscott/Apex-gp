@@ -210,3 +210,10 @@ $ make
 `engine.js` holds four short loops cut from "Williams-Cosworth FW32 (2010).ogg" on Wikimedia Commons
 (https://commons.wikimedia.org/wiki/File:Williams-Cosworth_FW32_(2010).ogg), licensed CC BY-SA 3.0.
 The loops are shared under the same licence (CC BY-SA 3.0).
+
+## Driver and helmet models
+
+`models.js` is built by `make_models.py` from the Sketchfab downloads in `models_src/`, both CC BY 4.0:
+- "race driver" by asset_for_games — https://sketchfab.com/3d-models/e4e97df9865d466c8359fbb23e757308
+- "Racing helmet" by mizucorp4 — https://sketchfab.com/3d-models/b92c1426837e47778db2487f2c2d7121
+They are recoloured per team, trimmed and resized for the game.

@@ -1,7 +1,7 @@
 // Joins src/ into a single self-contained index.html
 const fs = require('fs'), path = require('path');
 const src = (f) => fs.readFileSync(path.join(__dirname, 'src', f), 'utf8');
-let js = ['hdri.js', 'photo.js', 'engine.js'].map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')).join('\n') + '\n' + ['data.js', 'sim.js', 'gfx.js', 'audio.js', 'career.js', 'game.js'].map(src).join('\n');
+let js = ['hdri.js', 'photo.js', 'engine.js', 'models.js'].map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')).join('\n') + '\n' + ['data.js', 'sim.js', 'gfx.js', 'audio.js', 'career.js', 'game.js'].map(src).join('\n');
 js = js.replace(/\nif \(typeof module !== 'undefined'\)[^\n]*\n/, '\n');
 const html = src('shell.html').replace('/*__SCRIPTS__*/', () => js);
 fs.writeFileSync(path.join(__dirname, 'index.html'), html);
