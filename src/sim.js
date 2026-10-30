@@ -957,6 +957,7 @@ class Race {
     c.gear = q.v < 1 ? 1 : q.v < 15 ? 1 : q.v < 25 ? 2 : 3; c.rpm = 4200 + (q.v % 15) * 450; c.surface = 'tarmac'; c.slipF = c.slipR = 0;
     c.limiter = q.v > 2 && q.v <= PIT_SPEED + 0.3 && q.s < P.speedLine2;
     c.locate(false);
+    if (q.tp) { q.tp = false; c.lastS = c.s; c.lapValid = false; } // teleported in: no distance credit, and this lap doesn't count
     let dS = c.s - c.lastS; if (dS < -T.length / 2) dS += T.length; else if (dS > T.length / 2) dS -= T.length;
     c.dist += dS; c.lastS = c.s;
     if (q.s >= P.L) { c.pit = null; c.limiter = false; c.vx = q.v; this.emit('pitexit', { car: c }); }
@@ -969,6 +970,15 @@ class Race {
     const service = (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0);
     c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, box: P.boxS(Math.max(0, TEAMS.indexOf(c.team))) };
     c.pitReq = null; this.emit('pitentry', { car: c });
+    return true;
+  }
+  // practice: straight back to the team's box (like "return to garage"); the car rolls the last metres in so the crew are out in time
+  toBox(c, compound) {
+    if (c.pit || c.finished) return false;
+    const P = this.pit, box = P.boxS(Math.max(0, TEAMS.indexOf(c.team)));
+    const service = 2.4 + Math.random() * 0.4;
+    c.pit = { phase: 'queue', s: box - 22, v: 0, d0: 0, compound: compound || c.pitReq || c.compound, service, box, tp: true };
+    c.pitReq = null; c.vx = c.vy = c.r = 0; this.emit('pitentry', { car: c, teleport: true });
     return true;
   }
   emit(type, data) { this.events.push(Object.assign({ type, t: this.time }, data)); }

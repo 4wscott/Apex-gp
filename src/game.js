@@ -408,6 +408,7 @@ const App = {
     $('#pause').hidden = !this.paused;
     $('#pc-btns').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
+    $('#p-garage').hidden = this.session.race.mode !== 'practice' || !!this.session.race.player.pit;
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
   },
@@ -502,7 +503,7 @@ const App = {
       else if (e.type === 'vscending') Hud.banner('VSC ending', 'info');
       else if (e.type === 'vscend') Hud.banner('Green flag: racing resumes', 'go');
       else if (e.type === 'blue') Hud.banner(`Blue flag: let ${e.car.driver.abbr || e.car.driver.code} through`, 'info');
-      else if (e.type === 'pitentry' && e.car === race.player) Hud.banner('Pit lane: limiter on (80 km/h)', 'info');
+      else if (e.type === 'pitentry' && e.car === race.player && !e.teleport) Hud.banner('Pit lane: limiter on (80 km/h)', 'info');
       else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(`Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
       else if (e.type === 'pitexit' && e.car === race.player) Hud.banner('Rejoining the track', 'info');
       else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(`${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
@@ -896,7 +897,7 @@ const Hud = {
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.mode !== 'race' ? 'Out lap' : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the race clock runs from lights out
-    $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid);
+    $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid && P.lap >= 1);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
     $('#h-delta').className = this.delta === null ? '' : this.delta < 0 ? 'good' : 'bad';
     $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : race.quali ? 'Qualifying' : race.mode === 'practice' ? 'Practice' : 'Time trial';
@@ -1230,6 +1231,7 @@ const Menu = {
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
     $('#p-settings').onclick = () => this.raceSettings(true);
+    $('#p-garage').onclick = () => { const r = App.session.race, P = r.player, cmp = P.pitReq || P.compound; if (r.toBox(P, cmp)) { App.togglePause(false); Hud.banner(`In the pit box: ${COMPOUNDS[cmp].name} tyres going on`, 'info'); } };
     // PC race buttons drive the same actions as the keys: held while the mouse is down, a press when released
     $$('#pc-btns [data-act]').forEach((b) => {
       const a = b.dataset.act, st = App.input.touch.btn;
