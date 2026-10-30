@@ -50,7 +50,7 @@ const Career = {
       season: 1, round: 0, calendar: TRACKS.map((t) => t.id), laps: form.laps, points: {}, teamPoints: {}, results: [],
       rd: { points: 20, power: 0, aero: 0, grip: 0 }, history: [], last: null,
     };
-    this.save(); this.render();
+    this.save(); this.render(); if (window.App && !App.session) App.preview(this.track().id);
   },
   upgrade(key) {
     const rd = this.data.rd, lvl = rd[key], cost = (lvl + 1) * 20;
@@ -130,7 +130,7 @@ const Career = {
       <div class="group career-head">
         <h2>Season ${d.season} · ${done ? 'complete' : `Round ${d.round + 1} of ${d.calendar.length}`}</h2>
         <div class="career-me"><span class="livery" style="background:linear-gradient(100deg, ${tm.c1} 0 58%, ${tm.c2} 58% 74%, ${tm.c3} 74% 100%)"></span>
-          <b>#${d.num} ${d.name}</b> · ${tm.name} · ${d.round === 0 ? 'the season starts at round 1' : `P${myPos} in the championship, ${d.points[d.code] || 0} pts`}</div>
+          <b>#${d.num} ${d.name}</b> ${tm.name} · ${d.round === 0 ? 'the season starts at round 1' : `P${myPos} in the championship, ${d.points[d.code] || 0} pts`}</div>
         ${d.last ? `<p class="hint">Last race: ${TRACKS.find((t) => t.id === d.last.track).name}, ${d.last.pos ? 'P' + d.last.pos : 'did not finish'}, ${d.last.pts} pts, +${d.last.earned} development points.</p>` : ''}
         <p class="hint" id="career-sync">Career saved on this device.</p>
       </div>

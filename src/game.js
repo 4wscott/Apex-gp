@@ -209,8 +209,10 @@ const App = {
     const T = this.getTrack(trackId);
     this.buildScene(T);
     if (this.previewCar) this.worldRoot.remove(this.previewCar.grp);
-    const team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
-    this.previewCar = makeCar(team, dr.num, GFX.geo, GFX.mats);
+    // in career the showroom shows your career car
+    const car = settings.mode === 'career' && Career.data;
+    const team = car ? Career.team() : TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
+    this.previewCar = makeCar(team, car ? Career.data.num : dr.num, GFX.geo, GFX.mats);
     this.worldRoot.add(this.previewCar.grp);
     // showroom spot: on the start/finish line, with the main grandstand across the track behind it
     const st = GFX.mainStand, off = st ? ((st.mid > T.n / 2 ? st.mid - T.n : st.mid) * T.ds) : 0;
@@ -1175,7 +1177,12 @@ const Menu = {
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     // stepped menu
     // career and online need their own panel; the other modes race straight from the showroom
-    $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => this.drawer(settings.mode === 'career' || settings.mode === 'online' ? settings.mode : null), 0)));
+    $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => {
+      const wasCareer = this.lastMode === 'career', isCareer = settings.mode === 'career'; this.lastMode = settings.mode;
+      if (wasCareer !== isCareer && Career.data) App.preview(isCareer && Career.track() ? Career.track().id : settings.track);
+      this.drawer(isCareer || settings.mode === 'online' ? settings.mode : null);
+    }, 0)));
+    this.lastMode = settings.mode;
     $('#m-gear').onclick = () => this.drawer($('#menu').dataset.drawer === 'settings' ? null : 'settings');
     $('#drawer-close').onclick = () => this.drawer(null);
     $$('.pick-body').forEach((b) => (b.onclick = () => this.drawer(b.dataset.open)));
@@ -1283,7 +1290,7 @@ const Menu = {
     const st = teamStats(team);
     $('#pt-stats').innerHTML = [['PWR', st.power], ['AERO', st.aero], ['DRV', st.drivers]].map(([k, v]) => `<i><em>${k}</em><u><s style="width:${Math.max(0, (v - 40) / 59 * 100).toFixed(0)}%"></s></u></i>`).join('') + `<i class="ovr"><em>OVR</em><b>${st.overall}</b></i>`;
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
-    $('#pickers').hidden = career || online;
+    $('#pickers').hidden = career; $('.startbar').hidden = career;
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },
   buildBinds() {

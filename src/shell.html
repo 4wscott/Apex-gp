@@ -125,6 +125,8 @@ body.race-settings .menu-inner { top: 16px; bottom: 16px; }
 #menu[data-drawer="teams"] #teams > .team { width: 100%; }
 #menu[data-drawer="opts"] #race-opts > summary { display: none; }
 #race-opts[open], #race-only { display: grid; gap: 16px; }
+#menu[data-drawer] .menu-inner, #menu[data-drawer] #p-race { align-content: start; }
+#menu[data-drawer="online"] #online > h2 { display: none; }
 #menu[data-drawer="opts"] #race-opts { background: none; border: 0; padding: 0; }
 #menu[data-drawer="opts"] .row { grid-template-columns: 1fr; gap: 8px; }
 #menu[data-drawer="opts"] .row label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
@@ -385,7 +387,7 @@ body.touch #h-track { display: none; }
       <section class="panel" id="p-race">
         <div id="career" hidden></div>
         <div class="group" id="online" hidden><h2>Online race</h2>
-          <p class="hint">Race your friends. One person creates a room and shares the 5-letter code; everyone else joins with it. The host's circuit, race distance and weather are used. Pick your team and driver below first.</p>
+          <p class="hint">Race your friends. One person creates a room and shares the 5-letter code; everyone else joins with it. The host's circuit, race distance and weather are used. Pick your team and driver at the bottom first.</p>
           <div class="row"><label for="on-name">Your name</label><div class="ctl"><input id="on-name" type="text" maxlength="20" autocomplete="off"></div></div>
           <div class="actions"><button type="button" class="btn primary" id="on-create">Create room</button></div>
           <div class="row"><label for="on-code">Room code</label><div class="ctl"><input id="on-code" type="text" maxlength="5" autocomplete="off" style="text-transform:uppercase;max-width:9ch"> <button type="button" class="btn" id="on-join">Join</button></div></div>
