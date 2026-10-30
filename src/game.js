@@ -1300,7 +1300,7 @@ const Menu = {
     const desc = (b) => !b ? 'Not set' : b.type === 'axis' ? `Axis ${b.index} ${b.full > b.rest ? '+' : '−'}` : `Button ${b.index}`;
     ACTIONS.forEach(([a, label]) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${label}</td><td class="keys">${(KEYMAP[a] || []).map((k) => `<kbd>${k.replace('Key', '').replace('Arrow', '').replace('Bracket', '').replace('Right', ' R')}</kbd>`).join(' ')}</td><td class="pad">${desc(App.input.binds.map[a])}</td><td><button type="button" class="bind" data-a="${a}">Bind</button></td>`;
+      tr.innerHTML = `<td>${label}</td><td class="keys">${(KEYMAP[a] || []).map((k) => `<kbd>${k.startsWith('Arrow') ? { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓' }[k] : k.replace('Key', '').replace('Bracket', '').replace(/(Shift|Control|Alt)Right/, '$1 R').replace(/(Shift|Control|Alt)Left/, '$1 L')}</kbd>`).join(' ')}</td><td class="pad">${desc(App.input.binds.map[a])}</td><td><button type="button" class="bind" data-a="${a}">Bind</button></td>`;
       tb.appendChild(tr);
     });
     $$('.bind', tb).forEach((b) => (b.onclick = () => {
