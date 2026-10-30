@@ -9,6 +9,6 @@ await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',content
 await page.addInitScript(()=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:3,mode:location.hash.slice(1)||'race'}))});
 await page.goto('http://local/#'+(process.argv[2]||'race'));await page.waitForTimeout(6000);
 await page.screenshot({path:SP+`menu-${name}.png`,timeout:120000});
-await page.evaluate(()=>document.querySelector('.modes [data-v="practice"]').click());await page.waitForTimeout(800);await page.screenshot({path:SP+`menu-${name}-setup.png`,timeout:120000});await page.evaluate(()=>{document.querySelector('#m-back').click();document.querySelector('#m-gear').click();});await page.waitForTimeout(800);await page.screenshot({path:SP+`menu-${name}-settings.png`,timeout:120000});
+await page.evaluate(()=>{document.querySelector('.modes [data-v="practice"]').click();document.querySelector('#pick-team .arr[data-d="1"]').click();document.querySelector('#pick-circuit .pick-body').click();});await page.waitForTimeout(800);await page.screenshot({path:SP+`menu-${name}-setup.png`,timeout:120000});await page.evaluate(()=>{document.querySelector('#m-gear').click();});await page.waitForTimeout(800);await page.screenshot({path:SP+`menu-${name}-settings.png`,timeout:120000});
 console.log(name,'scroll height',await page.evaluate(()=>document.querySelector('#menu').scrollHeight),errs);await ctx.close();}
 await br.close();})();

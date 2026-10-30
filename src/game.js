@@ -926,13 +926,27 @@ const Results = {
 
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
-  step(st) {
-    const m = $('#menu'); m.dataset.step = st;
-    $('#m-back').hidden = st === 'home'; $('#m-gear').hidden = st !== 'home';
-    const names = { career: 'Career', race: 'Grand Prix', practice: 'Practice', trial: 'Time trial', online: 'Online' };
-    $('#m-mode').hidden = st === 'home'; $('#m-mode').textContent = st === 'settings' ? 'Settings' : names[settings.mode] || '';
-    const panel = st === 'settings' ? ($$('.tab').find((t) => t.getAttribute('aria-selected') === 'true' && t.dataset.panel !== 'p-race') || $$('.tab')[1]) : $$('.tab')[0];
-    panel.click(); m.scrollTop = 0;
+  // side panels over the showroom: circuits | teams | opts | career | online | settings (null closes)
+  drawer(d) {
+    const m = $('#menu');
+    if (!d) { delete m.dataset.drawer; return; }
+    m.dataset.drawer = d;
+    $('#drawer-title').textContent = { circuits: 'Circuit', teams: 'Team and driver', opts: 'Race settings', career: 'Career', online: 'Online race', settings: 'Settings' }[d];
+    if (d === 'opts') $('#race-opts').open = true;
+    const tab = d === 'settings' ? ($$('.tab').find((t) => t.getAttribute('aria-selected') === 'true' && t.dataset.panel !== 'p-race') || $$('.tab')[1]) : $$('.tab')[0];
+    tab.click(); $('.menu-inner').scrollTop = 0;
+  },
+  // ‹ › on the bottom-bar pickers
+  cycle(kind, dir) {
+    if (kind === 'circuit') {
+      const k = TRACKS.findIndex((t) => t.id === settings.track), spec = TRACKS[(k + dir + TRACKS.length) % TRACKS.length];
+      settings.track = spec.id; App.preview(spec.id);
+    } else {
+      const all = TEAMS.flatMap((t) => t.drivers.map((d) => [t.id, d.code]));
+      const k = all.findIndex(([t, c]) => t === settings.team && c === settings.driver), [t, c] = all[(Math.max(0, k) + dir + all.length) % all.length];
+      settings.team = t; settings.driver = c; App.preview(settings.track);
+    }
+    saveSettings(); this.sync();
   },
   // YouTube music panel
   initYouTube() {
@@ -963,7 +977,7 @@ const Menu = {
     $('#sp-prev').onclick = act(() => Spotify.prev()); $('#sp-next').onclick = act(() => Spotify.next());
     $('#sp-pp').onclick = act(() => Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())));
     $('#sp-playlist').onclick = act(() => Spotify.play($('#sp-list').value || undefined));
-    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); this.step('settings'); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
+    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); this.drawer('settings'); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
     setInterval(() => { if (Spotify.connected() && settings.musicSource === 'spotify' && !$('#menu').hidden) this.spotifyNow(); }, 8000);
   },
   spotifyUI() {
@@ -1007,7 +1021,7 @@ const Menu = {
       const b = document.createElement('button'); b.className = 'circuit'; b.dataset.id = spec.id; b.type = 'button';
       b.innerHTML = `<canvas width="240" height="150"></canvas><span class="c-name">${spec.name}</span><span class="c-meta">${spec.country} · ${(T.length / 1000).toFixed(3)} km · ${T.corners} corners</span><span class="c-style">${spec.style}</span>`;
       drawMiniMap(b.querySelector('canvas'), T);
-      b.onclick = () => { settings.track = spec.id; settings.laps = Math.max(1, Math.min(settings.laps, 60)); saveSettings(); this.sync(); App.preview(spec.id); };
+      b.onclick = () => { settings.track = spec.id; settings.laps = Math.max(1, Math.min(settings.laps, 60)); saveSettings(); this.sync(); App.preview(spec.id); this.drawer(null); };
       grid.appendChild(b);
     });
     this.buildTeams();
@@ -1034,12 +1048,23 @@ const Menu = {
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     // stepped menu
-    $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => this.step('setup'), 0))); // after the mode itself has been set
-    $('#m-back').onclick = () => this.step('home');
-    $('#m-gear').onclick = () => this.step('settings');
-    this.step('home');
+    // career and online need their own panel; the other modes race straight from the showroom
+    $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => this.drawer(settings.mode === 'career' || settings.mode === 'online' ? settings.mode : null), 0)));
+    $('#m-gear').onclick = () => this.drawer($('#menu').dataset.drawer === 'settings' ? null : 'settings');
+    $('#drawer-close').onclick = () => this.drawer(null);
+    $$('.pick-body').forEach((b) => (b.onclick = () => this.drawer(b.dataset.open)));
+    $$('.pick .arr').forEach((b) => (b.onclick = () => this.cycle(b.closest('.pick').id === 'pick-circuit' ? 'circuit' : 'team', +b.dataset.d)));
+    $('#open-opts').onclick = () => this.drawer('opts');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
     $('#start').onclick = () => App.start();
+    // showroom keys, like the bumpers in console racers: Q/E change mode, Enter starts, Esc closes a panel
+    addEventListener('keydown', (e) => {
+      if ($('#menu').hidden || App.session || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+      const modes = $$('.modes button');
+      if (e.code === 'KeyQ' || e.code === 'KeyE') { const k = modes.findIndex((b) => b.dataset.v === settings.mode); modes[(k + (e.code === 'KeyE' ? 1 : -1) + modes.length) % modes.length].click(); }
+      else if (e.code === 'Escape' && $('#menu').dataset.drawer) this.drawer(null);
+      else if (e.code === 'Enter' && !$('#menu').dataset.drawer && !$('#start').hidden && document.activeElement === document.body) App.start();
+    });
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
     $('#p-quit').onclick = () => App.quit();
@@ -1077,7 +1102,7 @@ const Menu = {
       d.querySelectorAll('.drv').forEach((b, k) => { b.querySelector('b').textContent = tm.drivers[k].num; b.querySelector('span').textContent = tm.drivers[k].name; });
       tg.appendChild(d);
     });
-    $$('.drv').forEach((b) => (b.onclick = () => { settings.team = b.dataset.team; settings.driver = b.dataset.code; saveSettings(); this.sync(); App.preview(settings.track); }));
+    $$('.drv').forEach((b) => (b.onclick = () => { settings.team = b.dataset.team; settings.driver = b.dataset.code; saveSettings(); this.sync(); App.preview(settings.track); this.drawer(null); }));
     this.sync && this.sync();
     this.fillCarImages(tg);
   },
@@ -1120,6 +1145,10 @@ const Menu = {
     const cmp = { S: 'Soft', M: 'Medium', H: 'Hard', I: 'Inters', W: 'Wets' }[settings.compound] || 'Medium', wx = { dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[settings.weather];
     $('#opts-sum').textContent = settings.mode === 'race' ? `${settings.laps} laps · ${settings.opponents} rivals · ${wx} · ${cmp} tyres` : prac ? `${settings.traffic ? settings.traffic + ' cars on track' : 'Track to yourself'} · ${wx} · ${cmp} tyres` : online ? `${settings.laps} laps · ${wx} · ${cmp} tyres` : `${cmp} tyres`;
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
+    $('#pc-name').textContent = spec.name; $('#pc-meta').textContent = spec.country;
+    $('#pt-name').textContent = dr.name; $('#pt-meta').textContent = team.name;
+    $('#opts-sum2').textContent = $('#opts-sum').textContent;
+    $('#pickers').hidden = career || online;
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },
   buildBinds() {

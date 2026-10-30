@@ -83,22 +83,48 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.0
 #sum b { color: var(--fg); }
 .note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel-2); border-radius: 0 6px 6px 0; font-size: 13px; color: var(--fg); max-width: 70ch; }
 #menu-error { color: var(--red); }
-/* stepped menu: home (mode tiles) -> setup (circuit, car, options, start) | settings (tabs) */
-.menu-head { display: flex; align-items: center; gap: 12px; }
-.menu-head h1 { flex: 1; }
-.iconbtn { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); font-size: 24px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
-#m-mode { font-family: var(--f-display); font-size: 28px; text-transform: uppercase; color: var(--accent); flex: 1; }
-#menu[data-step="home"] #p-race > :not(.modes), #menu[data-step="home"] .tabs, #menu[data-step="home"] .startbar { display: none !important; }
-#menu[data-step="home"] .modes { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 8px; }
-#menu[data-step="home"] .modes button { padding: 26px 20px 22px; border-radius: 14px; }
-#menu[data-step="home"] .modes button b { font-size: 30px; }
-#menu[data-step="home"] .modes button span { display: block; font-size: 14px; }
-#menu[data-step="home"] .modes button[aria-pressed="true"] { background: var(--panel-2); color: var(--fg); border-color: var(--line); }
-#menu[data-step="home"] .modes button[aria-pressed="true"] span { color: var(--muted); opacity: 1; }
-#menu[data-step="home"] .modes button:hover { border-color: var(--accent); }
-#menu:not([data-step="home"]) .menu-head h1 { display: none; }
-#menu[data-step="setup"] .tabs, #menu[data-step="setup"] .modes, #menu[data-step="settings"] .startbar, #menu[data-step="settings"] .tab[data-panel="p-race"] { display: none !important; }
-@media (max-height: 500px) { #menu[data-step="home"] .modes button { padding: 16px 14px; } #menu[data-step="home"] .modes button b { font-size: 22px; } #menu[data-step="home"] .modes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
+#menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
+#topbar { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 18px; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+#topbar .logo { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 26px; text-transform: uppercase; transform: skewX(-9deg); white-space: nowrap; }
+#topbar .logo span { color: var(--accent); }
+#topbar .modes { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#topbar .modes button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 8px 12px 6px; color: var(--muted); display: block; white-space: nowrap; }
+#topbar .modes button b { font-size: 17px; }
+#topbar .modes button span { display: none; }
+#topbar .modes button[aria-pressed="true"] { background: none; color: var(--fg); border-bottom-color: var(--accent); }
+#topbar .modes button:hover { color: var(--fg); }
+.iconbtn { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: rgba(27,32,41,0.85); color: var(--fg); font-size: 20px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.menu-inner { position: absolute; z-index: 6; top: 64px; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 86px; width: min(560px, calc(100% - 24px)); max-width: none !important; overflow-y: auto; background: rgba(13,16,21,0.96); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 20px !important; gap: 14px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+#menu:not([data-drawer]) .menu-inner { display: none !important; }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; position: sticky; top: -14px; margin: -14px -16px 0; padding: 12px 16px; background: rgba(13,16,21,0.98); z-index: 2; }
+.drawer-head b { font-family: var(--f-display); font-size: 22px; text-transform: uppercase; color: var(--accent); }
+.brand { display: contents; }
+#menu[data-drawer] .tabs { display: none; }
+#menu[data-drawer="settings"] .tabs { display: flex; }
+#menu[data-drawer="settings"] .tab[data-panel="p-race"] { display: none; }
+#menu[data-drawer="settings"] #p-race { display: none !important; }
+#menu[data-drawer]:not([data-drawer="settings"]) .panel:not(#p-race) { display: none !important; }
+#menu[data-drawer]:not([data-drawer="settings"]) #p-race { display: grid !important; }
+#menu[data-drawer="circuits"] #p-race > :not(#grp-circuits), #menu[data-drawer="teams"] #p-race > :not(#grp-teams), #menu[data-drawer="opts"] #p-race > :not(#race-opts),
+#menu[data-drawer="career"] #p-race > :not(#career), #menu[data-drawer="online"] #p-race > :not(#online) { display: none !important; }
+#menu[data-drawer="circuits"] #circuits, #menu[data-drawer="teams"] #teams { flex-wrap: wrap; overflow: visible; }
+#menu[data-drawer="circuits"] #circuits > .circuit { width: calc(50% - 5px); }
+#menu[data-drawer="teams"] #teams > .team { width: 100%; }
+#menu[data-drawer="opts"] #race-opts > summary { display: none; }
+.startbar { z-index: 5; gap: 12px !important; }
+#pickers { display: flex; gap: 10px; flex: 1; min-width: 0; align-items: stretch; }
+.pick { display: flex; align-items: stretch; background: rgba(27,32,41,0.88); border: 1px solid var(--line); border-radius: 10px; min-width: 0; flex: 1 1 0; max-width: 340px; }
+.pick .arr { background: none; border: 0; color: var(--fg); font-size: 26px; padding: 0 10px; cursor: pointer; }
+.pick .arr:hover { color: var(--accent); }
+.pick-body { flex: 1; min-width: 0; display: grid; text-align: left; background: none; border: 0; color: var(--fg); padding: 6px 2px; cursor: pointer; }
+.pick-body small, #open-opts small { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.pick-body b { font-family: var(--f-display); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-body span, #open-opts span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#open-opts { display: grid; text-align: left; padding: 6px 14px; min-width: 0; max-width: 260px; background: rgba(27,32,41,0.88); }
+#start { min-width: 150px; font-size: 20px; }
+@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span, #open-opts span { display: none; } #start { min-width: 110px; } }
+@media (max-width: 760px) { #open-opts { display: none; } #topbar .logo { display: none; } }
 
 .modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .modes button { display: grid; gap: 2px; text-align: left; padding: 12px 12px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; min-width: 0; }
@@ -307,14 +333,20 @@ body.touch #h-track { display: none; }
   <div id="rotate" hidden>Turn your phone sideways to race.</div>
 
   <div id="menu">
+    <header id="topbar">
+      <h1 class="logo">Apex <span>GP</span></h1>
+      <nav class="modes" data-set="mode" aria-label="Game mode">
+        <button type="button" data-v="career"><b>Career</b><span>Seasons, points, upgrades</span></button>
+        <button type="button" data-v="race"><b>Grand Prix</b><span>One race, your rules</span></button>
+        <button type="button" data-v="practice"><b>Practice</b><span>Any circuit, unlimited laps</span></button>
+        <button type="button" data-v="trial"><b>Time trial</b><span>Beat your ghost</span></button>
+        <button type="button" data-v="online"><b>Online</b><span>Race friends</span></button>
+      </nav>
+      <button type="button" class="iconbtn" id="m-gear" aria-label="Settings">⚙</button>
+    </header>
     <div class="menu-inner">
+      <div class="drawer-head"><b id="drawer-title"></b><button type="button" class="iconbtn" id="drawer-close" aria-label="Close">✕</button></div>
       <div class="brand">
-        <div class="menu-head">
-          <button type="button" class="iconbtn" id="m-back" aria-label="Back" hidden>‹</button>
-          <h1>Apex <span>Grand Prix</span></h1>
-          <b id="m-mode" hidden></b>
-          <button type="button" class="iconbtn" id="m-gear" aria-label="Settings">⚙</button>
-        </div>
         <p id="menu-error" hidden></p>
       </div>
       <div class="tabs" role="tablist">
@@ -325,13 +357,6 @@ body.touch #h-track { display: none; }
       </div>
 
       <section class="panel" id="p-race">
-        <div class="modes" data-set="mode" role="group" aria-label="Game mode">
-          <button type="button" data-v="career"><b>Career</b><span>Seasons, points, upgrades</span></button>
-          <button type="button" data-v="race"><b>Grand Prix</b><span>One race, your rules</span></button>
-          <button type="button" data-v="practice"><b>Practice</b><span>Any circuit, unlimited laps</span></button>
-          <button type="button" data-v="trial"><b>Time trial</b><span>Beat your ghost</span></button>
-          <button type="button" data-v="online"><b>Online</b><span>Race friends</span></button>
-        </div>
         <div id="career" hidden></div>
         <div class="group" id="online" hidden><h2>Online race</h2>
           <p class="hint">Race your friends. One person creates a room and shares the 5-letter code; everyone else joins with it. The host's circuit, race distance and weather are used. Pick your team and driver below first.</p>
@@ -342,8 +367,8 @@ body.touch #h-track { display: none; }
           <ol id="on-players"></ol>
           <div class="actions"><button type="button" class="btn primary" id="on-start" hidden>Start race for everyone</button><button type="button" class="btn" id="on-leave" hidden>Leave room</button></div>
         </div>
-        <div class="group free-only"><h2>Circuit</h2><div id="circuits" class="strip"></div></div>
-        <div class="group free-only"><h2>Team and driver</h2><div id="teams" class="strip"></div>
+        <div class="group free-only" id="grp-circuits"><div id="circuits" class="strip"></div></div>
+        <div class="group free-only" id="grp-teams"><div id="teams" class="strip"></div>
           <details id="roster"><summary>Rename teams and drivers</summary>
             <p class="hint">Give any team or driver the name you want, plus the three-letter code shown in the timing tower and the race number. Names are saved on this device and used everywhere: menus, timing, results and career.</p>
             <div id="roster-body"></div>
@@ -430,7 +455,12 @@ body.touch #h-track { display: none; }
       </section>
     </div>
     <div class="startbar">
-      <span id="sum"></span>
+      <div id="pickers">
+        <div class="pick" id="pick-circuit"><button type="button" class="arr" data-d="-1" aria-label="Previous circuit">‹</button><button type="button" class="pick-body" data-open="circuits"><small>Circuit</small><b id="pc-name"></b><span id="pc-meta"></span></button><button type="button" class="arr" data-d="1" aria-label="Next circuit">›</button></div>
+        <div class="pick" id="pick-team"><button type="button" class="arr" data-d="-1" aria-label="Previous driver">‹</button><button type="button" class="pick-body" data-open="teams"><small>Team · driver</small><b id="pt-name"></b><span id="pt-meta"></span></button><button type="button" class="arr" data-d="1" aria-label="Next driver">›</button></div>
+        <button type="button" class="btn" id="open-opts"><small>Race settings</small><span id="opts-sum2"></span></button>
+      </div>
+      <span id="sum" hidden></span>
       <button type="button" class="btn primary" id="start">Start</button>
     </div>
   </div>
