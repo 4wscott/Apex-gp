@@ -123,6 +123,27 @@ body.touch #pc-btns { display: none; }
 #perf b { font-size: 14px; min-width: 50px; }
 #perf b.ok { color: #2bd46a; } #perf b.meh { color: #ffd21f; } #perf b.bad { color: #ff4d4d; }
 body.touch #perf { bottom: auto; top: max(54px, calc(env(safe-area-inset-top, 0px) + 50px)); }
+/* replays: badge top-left, control bar at the bottom; the race HUD and touch controls step aside */
+#replay { position: absolute; inset: 0; pointer-events: none; z-index: 8; font-family: var(--f-display); }
+#rp-badge { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); display: flex; align-items: center; gap: 8px; background: rgba(10,12,16,0.8); padding: 6px 12px; border-radius: 6px; font-weight: 800; letter-spacing: 0.12em; font-size: 14px; }
+#rp-badge i { width: 10px; height: 10px; border-radius: 50%; background: #ff3b3b; animation: rpblink 1s steps(2) infinite; }
+@keyframes rpblink { 50% { opacity: 0.2; } }
+#rp-bar { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom, 0px)); width: min(860px, calc(100% - 24px)); background: rgba(10,12,16,0.86); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; display: grid; gap: 8px; pointer-events: auto; }
+.rp-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+#rp-time { font-family: var(--f-mono, ui-monospace, monospace); font-size: 12px; color: var(--muted); min-width: 92px; }
+#rp-scrub { flex: 1; accent-color: var(--accent); min-width: 120px; }
+#rp-bar button { min-width: 44px; min-height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer; }
+#rp-bar button:hover:not(:disabled) { border-color: var(--accent); }
+#rp-bar button.big { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 58px; font-size: 16px; }
+#rp-car { border-left-width: 4px !important; min-width: 150px !important; cursor: default !important; opacity: 1 !important; }
+.rp-sep { width: 1px; height: 26px; background: var(--line); margin: 0 4px; }
+body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replaying #perf { display: none !important; }
+@media (max-width: 900px), (max-height: 500px) {
+  #rp-bar { padding: 6px 8px; gap: 5px; bottom: max(6px, env(safe-area-inset-bottom, 0px)); }
+  #rp-bar button { min-height: 38px; padding: 0 9px; font-size: 13px; }
+  #rp-car { min-width: 110px !important; }
+  .rp-sep { display: none; }
+}
 /* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
 #menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
 /* below the iPhone status bar / notch: the app draws under it, and iOS keeps taps in that strip for itself */
@@ -576,7 +597,30 @@ body.touch #h-track { display: none; }
         <tr><td>Camera / look back / reset to track</td><td><kbd>C</kbd> / <kbd>B</kbd> / <kbd>R</kbd></td></tr>
         <tr><td>Pause / music next track, play-pause</td><td><kbd>Esc</kbd> or <kbd>P</kbd> / <kbd>N</kbd>, <kbd>K</kbd></td></tr>
       </tbody></table></div>
-      <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-garage" hidden>Return to pit box</button><button type="button" class="btn" id="p-settings">Settings</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
+      <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-replay">Replay</button><button type="button" class="btn" id="p-garage" hidden>Return to pit box</button><button type="button" class="btn" id="p-settings">Settings</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
+    </div>
+  </div>
+
+  <div id="replay" hidden>
+    <div id="rp-badge"><i></i><span id="rp-tag">REPLAY</span></div>
+    <div id="rp-bar" role="toolbar" aria-label="Replay controls">
+      <div class="rp-row">
+        <span id="rp-time">0:00 / 0:00</span>
+        <input id="rp-scrub" type="range" min="0" max="100" value="0" aria-label="Replay position">
+      </div>
+      <div class="rp-row">
+        <button type="button" id="rp-back" aria-label="Back 5 seconds" title="Back 5 s (←)">−5s</button>
+        <button type="button" id="rp-play" class="big" aria-label="Pause replay" title="Play / pause (Space)">❚❚</button>
+        <button type="button" id="rp-fwd" aria-label="Forward 5 seconds" title="Forward 5 s (→)">+5s</button>
+        <button type="button" id="rp-speed" aria-label="Playback speed" title="Slow motion (S)">1×</button>
+        <span class="rp-sep"></span>
+        <button type="button" id="rp-prev" aria-label="Previous car" title="Previous car ([)">‹</button>
+        <button type="button" id="rp-car" aria-label="Car followed" disabled>—</button>
+        <button type="button" id="rp-next" aria-label="Next car" title="Next car (])">›</button>
+        <button type="button" id="rp-cam" aria-label="Camera" title="Camera (C)">Auto</button>
+        <span class="rp-sep"></span>
+        <button type="button" id="rp-exit" aria-label="Exit replay" title="Exit (Esc)">✕ Exit</button>
+      </div>
     </div>
   </div>
 
@@ -584,7 +628,7 @@ body.touch #h-track { display: none; }
     <div class="card">
       <h2 id="res-title">Results</h2>
       <div class="table-wrap"><table><thead id="res-head"><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr></thead><tbody id="res-body"></tbody></table></div>
-      <div class="actions"><button type="button" class="btn primary" id="r-again">Race again</button><button type="button" class="btn" id="r-menu">Main menu</button></div>
+      <div class="actions"><button type="button" class="btn primary" id="r-again">Race again</button><button type="button" class="btn" id="r-high">Highlights</button><button type="button" class="btn" id="r-replay">Full replay</button><button type="button" class="btn" id="r-menu">Main menu</button></div>
     </div>
   </div>
 </div>

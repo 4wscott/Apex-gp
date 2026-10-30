@@ -388,6 +388,7 @@ const App = {
       this.buildRacingLine(T);
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
+      Replay.reset(race);
       Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
       $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
@@ -475,6 +476,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    if (Replay.on) { Replay.on = false; $('#replay').hidden = true; document.body.classList.remove('replaying'); }
     $('#perf').hidden = true;
     if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; } this.flare = null;
     document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
@@ -512,6 +514,11 @@ const App = {
     const race = S.race, P = race.player;
     const portrait = this.touchOn && innerHeight > innerWidth;
     $('#rotate').hidden = !portrait;
+    if (Replay.on) { // replay: the live race stays frozen underneath
+      this.input.poll(dt, P.vx, settings);
+      Replay.frame(dt); this.updateVisuals(dt, S, {}); Replay.camera(this.camera); this.render(); Hud.update(dt, S, {});
+      return;
+    }
     const inp = this.input.poll(dt, P.vx, settings);
     if (inp.pausePressed && $('#results').hidden) this.togglePause();
     if (S.online && this.paused) { const h = 1 / 360; S.acc += dt; let k = 0; while (S.acc >= h && k < 40) { race.step(h, { steer: 0, throttle: 0, brake: 1 }); S.acc -= h; k++; } }
@@ -521,6 +528,7 @@ const App = {
       while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
+      Replay.sample(race);
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
       if (race.mode === 'race' && P.finished && !S.finishedAt) { S.finishedAt = performance.now(); if (S.online) Net.send({ t: 'fin', k: Net.me, time: P.finishTime }); }
@@ -1072,6 +1080,7 @@ const Hud = {
 const Results = {
   show(race) {
     const rows = race.results(), P = race.player, winner = rows[0];
+    $('#r-high').hidden = race.mode !== 'race' || race.quali;
     const body = $('#res-body'); body.innerHTML = '';
     rows.forEach((r, i) => {
       const tr = document.createElement('tr'); if (r.car === P) tr.className = 'me';
@@ -1343,6 +1352,10 @@ const Menu = {
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
     $('#p-settings').onclick = () => this.raceSettings(true);
+    $('#p-replay').onclick = () => Replay.open('pause');
+    $('#r-replay').onclick = () => Replay.open('results');
+    $('#r-high').onclick = () => Replay.open('highlights');
+    Replay.init();
     $('#p-garage').onclick = () => { const r = App.session.race, P = r.player, cmp = P.pitReq || P.compound; if (r.toBox(P, cmp)) { App.togglePause(false); Hud.banner(`In the pit box: ${COMPOUNDS[cmp].name} tyres going on`, 'info'); } };
     // PC race buttons drive the same actions as the keys: held while the mouse is down, a press when released
     $$('#pc-btns [data-act]').forEach((b) => {
@@ -1498,5 +1511,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
