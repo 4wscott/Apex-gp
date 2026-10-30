@@ -317,13 +317,15 @@ function crowdMaterial(tex) {
   return m;
 }
 // stepped stand with roof on columns, its crowd facing local -z (toward the track)
-function cornerStand(L, rows, white, steel, crowdMat) {
+function cornerStand(L, rows, white, steel, crowdMat, rng, quality) {
   const depth = 0.85, rise = 0.5, shape = new THREE.Shape(); shape.moveTo(0, 0);
   for (let r = 0; r < rows; r++) { shape.lineTo(-r * depth, (r + 1) * rise); shape.lineTo(-(r + 1) * depth, (r + 1) * rise); }
   shape.lineTo(-rows * depth, 0); shape.lineTo(0, 0);
   const sg = new THREE.ExtrudeGeometry(shape, { depth: L, bevelEnabled: false }); sg.translate(0, 0, -L / 2);
   const uv = sg.attributes.uv, p = sg.attributes.position; for (let i = 0; i < uv.count; i++) uv.setXY(i, p.getZ(i) / 30, p.getY(i) / (rise * 16));
-  const g = new THREE.Group(), stand = new THREE.Mesh(sg, crowdMat); stand.rotation.y = -Math.PI / 2; stand.castShadow = stand.receiveShadow = true; g.add(stand);
+  const fans3d = quality >= 1 && rng;
+  const g = new THREE.Group(), stand = new THREE.Mesh(sg, fans3d ? Crowd.seatMaterial() : crowdMat); stand.rotation.y = -Math.PI / 2; stand.castShadow = stand.receiveShadow = true; g.add(stand);
+  if (fans3d) g.userData.fill = () => Crowd.populate(stand, L, rows, depth, rise, rng, quality);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 1.02, 0.4, rows * depth + 3), white); roof.position.set(0, rows * rise + 4, -(rows * depth) / 2 - 0.5); roof.castShadow = true; g.add(roof);
   for (let k = -3; k <= 3; k++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.4, rows * rise + 4, 0.4), steel); c.position.set(k * L / 7, (rows * rise + 4) / 2, -rows * depth - 0.3); g.add(c); }
   return g;
@@ -430,6 +432,7 @@ function buildWorld(T, themeKey, quality) {
   const add = (geo, mat, o = {}) => { const m = new THREE.Mesh(geo, mat); m.receiveShadow = o.rs !== false; m.castShadow = !!o.cs; world.add(m); return m; };
   const desert = themeKey === 'desert', street = themeKey === 'street';
   // animated crowd: the texture's people bob and wave (two frames offset per column), more when cars pass
+  Crowd.spots = [];
   const crowdMat = crowdMaterial(tx.crowd);
   GFX.crowdMat = crowdMat;
   const groundAlb = desert ? tx.sand : tx.grass, groundN = desert ? tx.sandN : tx.grassN;
@@ -601,12 +604,13 @@ function buildWorld(T, themeKey, quality) {
     const sg = new THREE.ExtrudeGeometry(shape, { depth: L * 0.85, bevelEnabled: false }); sg.translate(0, 0, -L * 0.425);
     const suv = sg.attributes.uv, spos = sg.attributes.position;
     for (let i = 0; i < suv.count; i++) suv.setXY(i, spos.getZ(i) / 30, spos.getY(i) / (rise * 16));
-    const stand = new THREE.Mesh(sg, crowdMat); stand.castShadow = stand.receiveShadow = true;
+    const stand = new THREE.Mesh(sg, quality >= 1 ? Crowd.seatMaterial() : crowdMat); stand.castShadow = stand.receiveShadow = true;
     stand.rotation.y = -Math.PI / 2;
     const standG = new THREE.Group(); standG.add(stand);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 0.88, 0.5, rows * depth + 4), white); roof.position.set(0, rows * rise + 5, -(rows * depth) / 2 - 1); roof.castShadow = true; standG.add(roof);
     for (let k = -4; k <= 4; k++) { const col2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, rows * rise + 5, 0.5), steel); col2.position.set(k * L * 0.1, (rows * rise + 5) / 2, -rows * depth - 0.5); standG.add(col2); }
     place(standG, T.wallL[mid] + 7, 0);
+    if (quality >= 1) { world.updateMatrixWorld(true); Crowd.populate(stand, L * 0.85, rows, depth, rise, rng, quality); }
     // flags on poles along the grandstand roof line
     for (let k = -5; k <= 5; k++) {
       const i = (mid + Math.round((k * L * 0.08) / T.ds) + n) % n, tm = TEAMS[(k + 5) % TEAMS.length];
@@ -633,8 +637,8 @@ function buildWorld(T, themeKey, quality) {
       const side = T.kapW[apex] > 0 ? -1 : 1, off = (side > 0 ? T.wallL : T.wallR)[apex] + 10;
       const x = T.px[apex] + T.nx[apex] * off * side, y = T.py[apex] + T.ny[apex] * off * side;
       if (trackDistance(T, x, y, -1, 0, 2).d > off - 3 && !pitArea(x, y)) {
-        const st = cornerStand(64, 12, white, steel, crowdMat);
-        st.position.copy(W(x, y, 0)); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st);
+        const st = cornerStand(64, 12, white, steel, crowdMat, rng, quality);
+        st.position.copy(W(x, y, 0)); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st); world.updateMatrixWorld(true); if (st.userData.fill) st.userData.fill();
         if (quality >= 1) {
           // TV camera tower beside the stand
           const tw = new THREE.Group(), leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 0.3), steel); leg.position.y = 4; tw.add(leg);

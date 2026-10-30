@@ -368,7 +368,7 @@ const App = {
     const S = this.session;
     if (this.sky && this.sky.userData.clouds) this.sky.userData.clouds.uniforms.t.value += dt;
     if (GFX.wind) GFX.wind.value += dt;
-    if (!S) { this.menuFrame(dt); this.render(); return; }
+    if (!S) { Crowd.update(dt, null); this.menuFrame(dt); this.render(); return; }
     const race = S.race, P = race.player;
     const portrait = this.touchOn && innerHeight > innerWidth;
     $('#rotate').hidden = !portrait;
@@ -514,6 +514,7 @@ const App = {
     this.particles.update(dt);
     PitCrew.update(dt, race, this.audio, this.camera.position);
     this.weatherVisuals(dt, race);
+    Crowd.update(dt, race, P);
     // crowd: always a little movement, jumping when cars are close to the camera or at the start
     if (GFX.crowdMat) {
       const u = GFX.crowdMat.userData; u.time.value += dt;
@@ -582,7 +583,7 @@ const App = {
     // audio: player + the closest other car
     let other = null, best = 60;
     for (const c of race.cars) { if (c === P) continue; const d = Math.hypot(c.x - P.x, c.y - P.y); if (d < best) { best = d; other = c; } }
-    const st = { rain: race.env.rain, player: P, inCockpit: mode === 'cockpit', crowd: race.phase !== 'green' ? 0.06 : 0.015 };
+    const st = { rain: race.env.rain, player: P, inCockpit: mode === 'cockpit', crowd: Crowd.noise(race, P) };
     if (other) {
       const rx = other.x - P.x, ry = other.y - P.y, side = -(rx * -Math.sin(P.h) + ry * Math.cos(P.h)) / (best + 1);
       st.other = { car: other, gain: 0.5 * (1 - best / 60), pan: clamp(side, -1, 1) };
@@ -1097,5 +1098,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew;
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
