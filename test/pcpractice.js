@@ -17,6 +17,11 @@ const st=()=>page.evaluate(()=>({mode:App.session&&App.session.race.mode,cam:App
 console.log('started',JSON.stringify(await st()));
 const key=async(k)=>{await page.keyboard.down(k);await page.waitForTimeout(200);await page.keyboard.up(k);await page.waitForTimeout(1500);};
 await key('c');console.log('after C',JSON.stringify(await st()));
+const clk=async(sel)=>{await page.mouse.click(...await page.$eval(sel,e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(1500);};
+await page.screenshot({path:SP0+'pcprac-btns.png',timeout:120000});
+await clk('#pc-btns [data-act="camera"]');console.log('after Camera button',JSON.stringify(await st()));
+await clk('#pc-btns [data-act="settings"]');console.log('after Settings button',JSON.stringify(await st()),await page.evaluate(()=>document.body.classList.contains('race-settings')));
+await clk('#drawer-close');await clk('#p-resume');console.log('resumed',JSON.stringify(await st()));
 // steal focus into an iframe, as the YouTube player can
 await page.evaluate(()=>{const f=document.createElement('iframe');f.id='thief';f.srcdoc='<input id=i>';document.body.appendChild(f);});await page.waitForTimeout(500);
 await page.frameLocator('#thief').locator('#i').focus();await page.waitForTimeout(2500);
@@ -24,7 +29,7 @@ console.log('after iframe stole focus',JSON.stringify(await st()));
 await key('c');console.log('after C',JSON.stringify(await st()));
 await key('Escape');console.log('after Esc',JSON.stringify(await st()));
 await page.mouse.click(...await page.$eval('#p-resume',e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(1500);
-await page.mouse.click(...await page.$eval('#h-pause',e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(1500);
+await page.mouse.click(...await page.$eval('#pc-btns [data-act="pause"]',e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(1500);
 console.log('after pause button',JSON.stringify(await st()));
 await page.screenshot({path:SP0+'pcprac-pause.png',timeout:120000});
 await page.mouse.click(...await page.$eval('#p-quit',e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(2000);

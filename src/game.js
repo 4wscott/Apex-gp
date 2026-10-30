@@ -120,9 +120,26 @@ const App = {
     this.smaa = new SMAAPass(innerWidth * r.getPixelRatio(), innerHeight * r.getPixelRatio()); comp.addPass(this.smaa);
     this.composer = comp;
   },
+  // keep driving smooth: lower the render resolution when frames run slow (and raise it again with headroom);
+  // if that is not enough, step the graphics quality down once and say so
+  perf(dt) {
+    const S = this.session; if (!S || this.paused || document.hidden) { this.pf = null; return; }
+    const now = performance.now(), pf = (this.pf = this.pf || { t0: now + 2000, n: 0, slow: 0 }); // the first 2 s of a session don't count
+    if (now < pf.t0) return;
+    pf.n++; if (now - pf.t0 < 1500) return;
+    const fps = (pf.n * 1000) / (now - pf.t0); pf.t0 = now; pf.n = 0;
+    const sc = this.resScale || 1;
+    if (fps < 50 && sc > 0.6) { this.resScale = Math.max(0.6, sc - 0.1); this.resize(); }
+    else if (fps > 58 && sc < 1) { this.resScale = Math.min(1, sc + 0.05); this.resize(); }
+    pf.slow = fps < 38 && sc <= 0.61 ? pf.slow + 1 : 0;
+    if (pf.slow >= 3 && settings.quality > 0) {
+      settings.quality--; saveSettings(); this.resScale = 0.8; this.setupComposer(); this.resize(); pf.slow = 0;
+      Hud.flash(`Graphics set to ${['Low', 'Medium', 'High', 'Ultra'][settings.quality]} to keep it smooth`);
+    }
+  },
   resize() {
     const w = innerWidth, h = innerHeight;
-    const pr = Math.min(devicePixelRatio || 1, [1, 1, 1.25, 1.75][settings.quality]);
+    const pr = Math.min(devicePixelRatio || 1, [1, 1, 1.25, 1.75][settings.quality]) * (this.resScale || 1);
     this.renderer.setPixelRatio(pr); this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setPixelRatio(pr); this.composer.setSize(w, h); }
@@ -284,6 +301,8 @@ const App = {
       if (mode === 'trial' && !(cfg && cfg.quali)) this.setupGhost(T, team);
       $('#p-finishq').hidden = !(cfg && cfg.quali);
       this.buildRacingLine(T);
+      try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
+      this.pf = null; this.resScale = this.resScale || 1;
       Hud.show(race); $('#loading').hidden = true;
       this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
       $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
@@ -387,7 +406,7 @@ const App = {
     if (!this.session) return;
     this.paused = force !== undefined ? force : !this.paused;
     $('#pause').hidden = !this.paused;
-    $('#h-pause').hidden = this.paused;
+    $('#pc-btns').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
@@ -395,7 +414,8 @@ const App = {
 
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
+    const dt = Math.min(0.1, (now - this.last) / 1000); this.last = now; // stays real time down to 10 fps instead of turning into slow motion
+    this.perf(dt);
     this.input.tickCapture();
     const S = this.session;
     if (this.sky && this.sky.userData.clouds) this.sky.userData.clouds.uniforms.t.value += dt;
@@ -596,7 +616,7 @@ const App = {
       S.pitCam = false;
       const dist = mode === 'chase' ? 7.2 : 11.5, hgt = mode === 'chase' ? 2.3 : 3.6;
       if (!S.camSmooth) S.camSmooth = { h: P.h };
-      S.camSmooth.h += angleDiff(P.h + look, S.camSmooth.h) * Math.min(1, dt * 6);
+      S.camSmooth.h += angleDiff(P.h + look, S.camSmooth.h) * Math.min(1, dt * 8);
       const ch = S.camSmooth.h, back = new THREE.Vector3(-Math.cos(ch), 0, Math.sin(ch));
       cam.position.copy(base).addScaledVector(back, dist).add(new THREE.Vector3(0, hgt, 0));
       cam.up.set(0, 1, 0);
@@ -1210,7 +1230,17 @@ const Menu = {
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
     $('#p-settings').onclick = () => this.raceSettings(true);
-    $('#h-pause').onclick = (e) => { e.currentTarget.blur(); App.togglePause(true); };
+    // PC race buttons drive the same actions as the keys: held while the mouse is down, a press when released
+    $$('#pc-btns [data-act]').forEach((b) => {
+      const a = b.dataset.act, st = App.input.touch.btn;
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (a === 'settings') { App.togglePause(true); Menu.raceSettings(true); return; }
+        st[a] = 2; b.classList.add('down');
+      });
+      const up = () => { if (a !== 'settings') st[a] = st[a] === 2 ? 1 : 0; b.classList.remove('down'); };
+      b.addEventListener('pointerup', up); b.addEventListener('pointerleave', up); b.addEventListener('pointercancel', up);
+    });
     // the hidden YouTube player can take keyboard focus (a click on it, or it starting up): while driving,
     // hand focus straight back so Esc, C, steering and everything else keep reaching the game
     const reclaim = () => { const a = document.activeElement; if (App.session && !App.paused && a && (a.tagName === 'IFRAME' || a.closest?.('#menu'))) { a.blur(); window.focus(); } };
