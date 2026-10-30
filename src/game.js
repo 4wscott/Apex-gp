@@ -926,6 +926,14 @@ const Results = {
 
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
+  step(st) {
+    const m = $('#menu'); m.dataset.step = st;
+    $('#m-back').hidden = st === 'home'; $('#m-gear').hidden = st !== 'home';
+    const names = { career: 'Career', race: 'Grand Prix', practice: 'Practice', trial: 'Time trial', online: 'Online' };
+    $('#m-mode').hidden = st === 'home'; $('#m-mode').textContent = st === 'settings' ? 'Settings' : names[settings.mode] || '';
+    const panel = st === 'settings' ? ($$('.tab').find((t) => t.getAttribute('aria-selected') === 'true' && t.dataset.panel !== 'p-race') || $$('.tab')[1]) : $$('.tab')[0];
+    panel.click(); m.scrollTop = 0;
+  },
   // YouTube music panel
   initYouTube() {
     const sel = $('#yt-list');
@@ -955,7 +963,7 @@ const Menu = {
     $('#sp-prev').onclick = act(() => Spotify.prev()); $('#sp-next').onclick = act(() => Spotify.next());
     $('#sp-pp').onclick = act(() => Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())));
     $('#sp-playlist').onclick = act(() => Spotify.play($('#sp-list').value || undefined));
-    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
+    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); this.step('settings'); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
     setInterval(() => { if (Spotify.connected() && settings.musicSource === 'spotify' && !$('#menu').hidden) this.spotifyNow(); }, 8000);
   },
   spotifyUI() {
@@ -1025,6 +1033,11 @@ const Menu = {
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
+    // stepped menu
+    $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => this.step('setup'), 0))); // after the mode itself has been set
+    $('#m-back').onclick = () => this.step('home');
+    $('#m-gear').onclick = () => this.step('settings');
+    this.step('home');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
     $('#start').onclick = () => App.start();
     $('#p-resume').onclick = () => App.togglePause(false);

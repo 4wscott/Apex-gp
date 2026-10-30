@@ -83,6 +83,23 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.0
 #sum b { color: var(--fg); }
 .note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel-2); border-radius: 0 6px 6px 0; font-size: 13px; color: var(--fg); max-width: 70ch; }
 #menu-error { color: var(--red); }
+/* stepped menu: home (mode tiles) -> setup (circuit, car, options, start) | settings (tabs) */
+.menu-head { display: flex; align-items: center; gap: 12px; }
+.menu-head h1 { flex: 1; }
+.iconbtn { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); font-size: 24px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+#m-mode { font-family: var(--f-display); font-size: 28px; text-transform: uppercase; color: var(--accent); flex: 1; }
+#menu[data-step="home"] #p-race > :not(.modes), #menu[data-step="home"] .tabs, #menu[data-step="home"] .startbar { display: none !important; }
+#menu[data-step="home"] .modes { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 8px; }
+#menu[data-step="home"] .modes button { padding: 26px 20px 22px; border-radius: 14px; }
+#menu[data-step="home"] .modes button b { font-size: 30px; }
+#menu[data-step="home"] .modes button span { display: block; font-size: 14px; }
+#menu[data-step="home"] .modes button[aria-pressed="true"] { background: var(--panel-2); color: var(--fg); border-color: var(--line); }
+#menu[data-step="home"] .modes button[aria-pressed="true"] span { color: var(--muted); opacity: 1; }
+#menu[data-step="home"] .modes button:hover { border-color: var(--accent); }
+#menu:not([data-step="home"]) .menu-head h1 { display: none; }
+#menu[data-step="setup"] .tabs, #menu[data-step="setup"] .modes, #menu[data-step="settings"] .startbar, #menu[data-step="settings"] .tab[data-panel="p-race"] { display: none !important; }
+@media (max-height: 500px) { #menu[data-step="home"] .modes button { padding: 16px 14px; } #menu[data-step="home"] .modes button b { font-size: 22px; } #menu[data-step="home"] .modes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
 .modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .modes button { display: grid; gap: 2px; text-align: left; padding: 12px 12px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; min-width: 0; }
 .modes button b { font-family: var(--f-display); font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
@@ -292,7 +309,12 @@ body.touch #h-track { display: none; }
   <div id="menu">
     <div class="menu-inner">
       <div class="brand">
-        <h1>Apex <span>Grand Prix</span></h1>
+        <div class="menu-head">
+          <button type="button" class="iconbtn" id="m-back" aria-label="Back" hidden>‹</button>
+          <h1>Apex <span>Grand Prix</span></h1>
+          <b id="m-mode" hidden></b>
+          <button type="button" class="iconbtn" id="m-gear" aria-label="Settings">⚙</button>
+        </div>
         <p id="menu-error" hidden></p>
       </div>
       <div class="tabs" role="tablist">
