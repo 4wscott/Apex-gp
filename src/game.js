@@ -212,9 +212,14 @@ const App = {
     const team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     this.previewCar = makeCar(team, dr.num, GFX.geo, GFX.mats);
     this.worldRoot.add(this.previewCar.grp);
-    const i = Math.round(30 / T.ds);
-    this.previewCar.grp.position.copy(W(T.px[i] + T.nx[i] * T.lineO[i], T.py[i] + T.ny[i] * T.lineO[i], 0));
+    // showroom spot: on the start/finish line, with the main grandstand across the track behind it
+    const st = GFX.mainStand, off = st ? ((st.mid > T.n / 2 ? st.mid - T.n : st.mid) * T.ds) : 0;
+    const i = (Math.round((st && Math.abs(off) > st.L * 0.35 ? off : -3) / T.ds) + T.n) % T.n;
+    this.previewCar.grp.position.copy(W(T.px[i], T.py[i], 0));
     this.previewCar.grp.rotation.y = Math.atan2(T.ty[i], T.tx[i]);
+    this.previewSpot = i;
+    if (this.fireworks) this.fireworks.dispose();
+    this.fireworks = new Fireworks(this.worldRoot, T, GFX.mainStand);
     this.previewT = 0; this.previewTrack = T; this.previewYaw = this.previewCar.grp.rotation.y; this.previewSpin = this.previewSpin || 0;
     this.teamAccent(team);
   },
@@ -248,10 +253,10 @@ const App = {
     this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); document.body.classList.remove('yt-tap');
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
-    $('#loading').hidden = false; $('#menu').hidden = true;
+    $('#loading').hidden = false; $('#menu').hidden = true; document.activeElement?.blur?.(); // menu focus must not hold on to keys in the car
     setTimeout(() => {
       this.buildScene(T);
-      this.previewCar = null;
+      this.previewCar = null; this.fireworks = null;
       const team = cfg ? cfg.team : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
       const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
@@ -359,6 +364,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
     this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1); setTimeout(() => YTMusic.ready && YTMusic.checkTap(), 1500);
@@ -369,11 +375,13 @@ const App = {
     if (wasCareer) Career.render();
     this.preview(wasCareer && Career.data && Career.track() ? Career.track().id : settings.track);
   },
-  restart() { $('#pause').hidden = true; $('#results').hidden = true; this.session = null; this.start(this.cfg); },
+  restart() { Menu.raceSettings(false); $('#pause').hidden = true; $('#results').hidden = true; this.session = null; this.start(this.cfg); },
   togglePause(force) {
     if (!this.session) return;
     this.paused = force !== undefined ? force : !this.paused;
     $('#pause').hidden = !this.paused;
+    $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
+    if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
   },
 
@@ -412,10 +420,17 @@ const App = {
     // turntable: the camera holds still while the car turns; a drag spins it by hand and it carries on after a pause
     if (!this.spinDrag && performance.now() - (this.spinTouched || 0) > 2500) this.previewSpin += dt * 0.22;
     this.previewCar.grp.rotation.y = this.previewYaw + this.previewSpin;
-    const c = this.previewCar.grp.position, a = 0.55;
-    this.camera.fov = 38; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
+    const c = this.previewCar.grp.position, T = this.previewTrack, i = this.previewSpot;
+    this.camera.fov = 52; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
+    if (this.fireworks) this.fireworks.update(dt, this.audio);
     if (window.DEBUG_CAM) { const d = window.DEBUG_CAM; this.camera.position.set(c.x + d[0], d[1], c.z + d[2]); this.camera.lookAt(c.x + (d[3] || 0), d[4] ?? 0.5, c.z + (d[5] || 0)); }
-    else { this.camera.position.set(c.x + Math.cos(a) * 7.5, 1.6 + Math.sin(a * 0.7) * 0.4, c.z + Math.sin(a) * 7.5); this.camera.lookAt(c.x, 0.55, c.z); }
+    else {
+      // stand on the pit-wall side of the track, a little ahead of the line, looking back across at the car and the grandstand
+      // low and tilted up a touch: car in the lower half, grandstand and the fireworks above it
+      const k = 5.6, f = -7.8, wide = Math.max(0, 1.3 - this.camera.aspect) * 4;
+      const p = W(T.px[i] - T.nx[i] * (k + wide) + T.tx[i] * f, T.py[i] - T.ny[i] * (k + wide) + T.ty[i] * f, 0);
+      this.camera.position.set(p.x, 1.25, p.z); this.camera.lookAt(c.x + (c.x - p.x) * 0.0, 2.3, c.z);
+    }
     if (this.sun) { this.sun.target.position.copy(c); this.sun.position.copy(c).addScaledVector(this.sunDir, 150); }
   },
   applyPlayerControls(inp, P, race) {
@@ -937,11 +952,101 @@ const Results = {
   },
 };
 
+
+// ---- showroom fireworks: shells rise behind the main grandstand and burst into coloured stars ----
+class Fireworks {
+  constructor(root, T, stand) {
+    this.T = T; this.stand = stand; this.root = root; this.t = 1.2; this.N = 3200;
+    const g = new THREE.BufferGeometry();
+    this.pos = new Float32Array(this.N * 3); this.col = new Float32Array(this.N * 3); this.vel = new Float32Array(this.N * 3); this.life = new Float32Array(this.N); this.max = new Float32Array(this.N); this.base = new Float32Array(this.N * 3);
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.alpha = new Float32Array(this.N); g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
+    // soft round sparks with their own fade; normal blending keeps the colours rich against a daytime sky
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { scale: { value: innerHeight * 0.5 } }, transparent: true, depthWrite: false, toneMapped: false,
+      vertexShader: 'attribute float alpha; attribute vec3 color; varying vec3 vC; varying float vA; uniform float scale; void main(){ vC = color; vA = alpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = clamp(1.25 * scale / -mv.z, 2.0, 24.0) * (0.6 + 0.4 * alpha); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'varying vec3 vC; varying float vA; void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; if (d > 1.0 || vA <= 0.0) discard; float core = smoothstep(1.0, 0.0, d); vec3 c = mix(vC, vec3(1.0), smoothstep(0.45, 0.0, d) * 0.55); gl_FragColor = vec4(c, vA * core); }',
+    });
+    this.pts = new THREE.Points(g, this.mat); this.pts.frustumCulled = false; root.add(this.pts);
+    this.shells = []; this.next = 0;
+    for (let k = 0; k < this.N; k++) this.life[k] = 0;
+  }
+  // a launch point behind the grandstand (or beside the start line where a circuit has no main stand)
+  origin() {
+    const T = this.T, n = T.n, st = this.stand;
+    const mid = App.previewSpot ?? (st ? st.mid : 0), spread = st ? 70 : 60, lat = st ? st.lat - 4 : T.wallL[0] + 25;
+    const i = (mid + Math.round(((Math.random() * 1.6 - 0.3) * spread) / T.ds) + n) % n;
+    return W(T.px[i] + T.nx[i] * lat, T.py[i] + T.ny[i] * lat, 0);
+  }
+  launch() {
+    const o = this.origin(), top = (this.stand ? this.stand.top : 10) + 3 + Math.random() * 9;
+    this.shells.push({ p: o.setY(this.stand ? this.stand.top * 0.6 : 2), v: new THREE.Vector3((Math.random() - 0.5) * 3, Math.sqrt(2 * 9.8 * top) * 0.92, (Math.random() - 0.5) * 3), fuse: 0 });
+  }
+  burst(p, audio) {
+    const pal = [[1, 0.12, 0.1], [1, 0.78, 0.1], [0.15, 0.55, 1], [0.2, 0.95, 0.35], [0.95, 0.2, 0.85], [1, 1, 1], [1, 0.45, 0.05]];
+    const c1 = pal[Math.floor(Math.random() * pal.length)], c2 = Math.random() < 0.4 ? pal[Math.floor(Math.random() * pal.length)] : c1;
+    const count = 220 + Math.floor(Math.random() * 160), speed = 13 + Math.random() * 9, ring = Math.random() < 0.2;
+    for (let j = 0; j < count; j++) {
+      const k = this.next; this.next = (this.next + 1) % this.N;
+      let dx, dy, dz;
+      if (ring) { const a = (j / count) * Math.PI * 2; dx = Math.cos(a); dy = Math.sin(a) * 0.35 + 0.1; dz = Math.sin(a); }
+      else { const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u); dx = r * Math.cos(a); dy = u; dz = r * Math.sin(a); }
+      const sp = speed * (ring ? 1 : 0.75 + Math.random() * 0.25), c = j % 2 ? c1 : c2;
+      this.pos.set([p.x, p.y, p.z], k * 3); this.vel.set([dx * sp, dy * sp, dz * sp], k * 3); this.base.set(c, k * 3);
+      this.max[k] = this.life[k] = 1.6 + Math.random() * 0.9;
+    }
+    if (audio && audio.ctx && audio.ctx.state === 'running') this.boom(audio, p);
+  }
+  // a distant thump with a crackle tail
+  boom(audio, p) {
+    const ctx = audio.ctx, out = audio.master || ctx.destination, t0 = ctx.currentTime + 0.25, len = 1.4;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate), d = buf.getChannelData(0);
+    for (let k = 0; k < d.length; k++) { const t = k / ctx.sampleRate; d[k] = (Math.random() * 2 - 1) * (Math.exp(-t * 9) + (Math.random() < 0.004 ? 0.6 : 0) * Math.exp(-t * 2)); }
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    const g = ctx.createGain(); g.gain.value = 0.35;
+    src.connect(lp).connect(g).connect(out); src.start(t0);
+  }
+  update(dt, audio) {
+    dt = Math.min(dt, 0.05);
+    if ((this.t -= dt) <= 0) { this.launch(); if (Math.random() < 0.35) this.launch(); this.t = 0.7 + Math.random() * 1.6; }
+    for (let s = this.shells.length - 1; s >= 0; s--) {
+      const sh = this.shells[s]; sh.v.y -= 9.8 * dt; sh.p.addScaledVector(sh.v, dt);
+      // the rising shell leaves a faint gold trail
+      const k = this.next; this.next = (this.next + 1) % this.N;
+      this.pos.set([sh.p.x, sh.p.y, sh.p.z], k * 3); this.vel.set([0, -1, 0], k * 3); this.base.set([1, 0.75, 0.3], k * 3); this.max[k] = this.life[k] = 0.4;
+      if (sh.v.y < 2) { this.burst(sh.p, audio); this.shells.splice(s, 1); }
+    }
+    const P = this.pos, V = this.vel, C = this.col;
+    for (let k = 0; k < this.N; k++) {
+      if (this.life[k] <= 0) { this.alpha[k] = 0; continue; }
+      this.life[k] -= dt;
+      const drag = Math.exp(-1.6 * dt);
+      V[k * 3] *= drag; V[k * 3 + 1] = V[k * 3 + 1] * drag - 6 * dt; V[k * 3 + 2] *= drag;
+      P[k * 3] += V[k * 3] * dt; P[k * 3 + 1] += V[k * 3 + 1] * dt; P[k * 3 + 2] += V[k * 3 + 2] * dt;
+      // fade out, with a crackle of twinkling as the stars burn down
+      const f = Math.max(0, this.life[k] / this.max[k]), tw = f < 0.3 ? (Math.random() < 0.55 ? 1 : 0.15) : 1;
+      this.alpha[k] = Math.min(1, f * 2.2) * tw;
+      C[k * 3] = this.base[k * 3]; C[k * 3 + 1] = this.base[k * 3 + 1]; C[k * 3 + 2] = this.base[k * 3 + 2];
+    }
+    const ga = this.pts.geometry.attributes; ga.position.needsUpdate = ga.color.needsUpdate = ga.alpha.needsUpdate = true; this.mat.uniforms.scale.value = innerHeight * 0.5;
+  }
+  dispose() { this.root.remove(this.pts); this.pts.geometry.dispose(); this.mat.dispose(); }
+}
+
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
   // side panels over the showroom: circuits | teams | opts | career | online | settings (null closes)
+  // the settings panel over a paused session; closing it returns to the pause card
+  raceSettings(on) {
+    if (!on && !document.body.classList.contains('race-settings')) return;
+    document.body.classList.toggle('race-settings', on);
+    $('#menu').hidden = !on; $('#pause').hidden = on || !App.paused;
+    if (on) this.drawer('settings'); else delete $('#menu').dataset.drawer;
+  },
   drawer(d) {
     const m = $('#menu');
+    if (!d && App.session) { this.raceSettings(false); return; }
     if (!d) { delete m.dataset.drawer; return; }
     m.dataset.drawer = d;
     $('#drawer-title').textContent = { circuits: 'Circuit', teams: 'Team and driver', opts: 'Race settings', career: 'Career', online: 'Online race', settings: 'Settings' }[d];
@@ -1048,6 +1153,7 @@ const Menu = {
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
+        if (key === 'camera' && App.session) App.session.camMode = v;
         if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'youtube') YTMusic.play().catch(() => {}); else YTMusic.stop(); if (v === 'spotify') this.spotifyUI(); }
       });
     });
@@ -1086,6 +1192,7 @@ const Menu = {
     });
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
+    $('#p-settings').onclick = () => this.raceSettings(true);
     $('#p-quit').onclick = () => App.quit();
     $('#r-again').onclick = () => {
       if (App.cfg && App.cfg.quali) { const g = Career.pendingGrid; App.quit(); setTimeout(() => Career.startRace(g), 50); return; }

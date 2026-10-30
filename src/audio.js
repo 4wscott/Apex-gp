@@ -290,7 +290,9 @@ class Input {
     this.binds = store.get('binds', null) || { pad: null, map: JSON.parse(JSON.stringify(PAD_DEFAULT)) };
     this.kbSteer = 0; this.kbThr = 0; this.kbBrk = 0; this.lastDevice = 'keyboard';
     addEventListener('keydown', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+      // only text fields keep their keys; a slider or switch left focused from the menu must not swallow driving keys
+      const t = e.target;
+      if (t && (t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(t.type)))) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
       this.keys.add(e.code); this.hits.add(e.code); this.lastDevice = 'keyboard';
     });

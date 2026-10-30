@@ -513,6 +513,9 @@ function buildWorld(T, themeKey, quality) {
   // keep trees, grass, posts and buildings out of the pit lane and the pit building
   const pitArea = (x, y) => {
     const q = trackDistance(T, x, y, -1, 0, 2); if (q.i < 0) return false;
+    // and out of the main grandstand
+    const ms = GFX.mainStand;
+    if (ms) { let d = q.i - ms.mid; if (d > n / 2) d -= n; if (d < -n / 2) d += n; const lt = (x - T.px[q.i]) * T.nx[q.i] + (y - T.py[q.i]) * T.ny[q.i]; if (Math.abs(d) * T.ds < ms.L / 2 + 8 && lt > 0 && lt < ms.lat + 14) return true; }
     const sa = pitS(q.i); if (sa > PL.L + 15 && sa < T.length - 15) return false;
     const lat = (x - T.px[q.i]) * T.nx[q.i] + (y - T.py[q.i]) * T.ny[q.i]; if (lat > -T.hw + 1) return false;
     return -lat < PL.path(Math.min(sa, PL.L)) + 9 + PL.mainFactor(Math.min(sa, PL.L)) * 34;
@@ -587,10 +590,11 @@ function buildWorld(T, themeKey, quality) {
   // ---- pit lane, garages, pit wall ----
   GFX.pit = buildPitComplex(T, PL, world, add, tx, steel, white, quality);
   // ---- pit complex and main grandstand along the start straight ----
-  let iA = 0, iB = 0;
-  while (iA > -n / 3 && Math.abs(T.kapW[(iA - 1 + n) % n]) < 1 / 1500) iA--;
-  while (iB < n / 3 && Math.abs(T.kapW[(iB + 1) % n]) < 1 / 1500) iB++;
-  iA += 8; iB -= 8;
+  GFX.mainStand = null;
+  // the straight through the line; where the line sits in a kink, the nearest proper straight to it
+  const straightAt = (i0) => { let a = i0, b = i0; while (a > i0 - n / 3 && Math.abs(T.kapW[(a - 1 + n) % n]) < 1 / 1500) a--; while (b < i0 + n / 3 && Math.abs(T.kapW[(b + 1) % n]) < 1 / 1500) b++; return [a + 8, b - 8]; };
+  let [iA, iB] = straightAt(0);
+  for (let d = 1; iB - iA <= 40 && d < Math.round(400 / T.ds); d++) for (const j of [d, -d]) { const [a, b] = straightAt(j); if (b - a > 40 && iB - iA <= 40) [iA, iB] = [a, b]; }
   if (iB - iA > 40) {
     const L = Math.min((iB - iA) * T.ds, 360), mid = (Math.round((iA + iB) / 2) + n) % n, hd = Math.atan2(T.ty[mid], T.tx[mid]);
     const place = (obj, lat, h) => { obj.position.copy(W(T.px[mid] + T.nx[mid] * lat, T.py[mid] + T.ny[mid] * lat, h)); obj.rotation.y = hd; world.add(obj); return obj; };
@@ -610,6 +614,7 @@ function buildWorld(T, themeKey, quality) {
     const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 0.88, 0.5, rows * depth + 4), white); roof.position.set(0, rows * rise + 5, -(rows * depth) / 2 - 1); roof.castShadow = true; standG.add(roof);
     for (let k = -4; k <= 4; k++) { const col2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, rows * rise + 5, 0.5), steel); col2.position.set(k * L * 0.1, (rows * rise + 5) / 2, -rows * depth - 0.5); standG.add(col2); }
     place(standG, T.wallL[mid] + 7, 0);
+    GFX.mainStand = { mid, lat: T.wallL[mid] + 7 + rows * depth / 2, L: L * 0.85, top: rows * rise + 5 };
     if (quality >= 1) { world.updateMatrixWorld(true); Crowd.populate(stand, L * 0.85, rows, depth, rise, rng, quality); }
     // flags on poles along the grandstand roof line
     for (let k = -5; k <= 5; k++) {
