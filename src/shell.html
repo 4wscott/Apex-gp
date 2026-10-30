@@ -112,6 +112,17 @@ body.touch #pc-btns { display: none; }
 #m-gear { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: 20px; border: 1px solid var(--accent); background: rgba(13,16,21,0.85); color: var(--fg); font-family: var(--f-display); font-weight: 700; font-size: 15px; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
 #m-gear:hover { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 600px) { #m-gear { padding: 0 11px; height: 36px; } #m-gear span { display: none; } }
+/* presets: two-line buttons */
+.seg.preset button { display: grid; text-align: left; gap: 1px; padding: 7px 12px; }
+.seg.preset button small { font-size: 11px; color: var(--muted); font-weight: 400; }
+.seg.preset button[aria-pressed="true"] small { color: inherit; opacity: 0.8; }
+.seg.preset button[data-v="custom"]:not([aria-pressed="true"]) { display: none; }
+.seg.preset button:disabled { cursor: default; }
+/* performance meter: frames per second, frame time and a 2 s graph */
+#perf { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(22px, calc(env(safe-area-inset-bottom, 0px) + 18px)); display: flex; align-items: center; gap: 8px; background: rgba(10,12,16,0.72); border-radius: 6px; padding: 3px 8px; font-family: var(--f-mono, ui-monospace, monospace); font-size: 12px; color: #cfd6de; pointer-events: none; z-index: 3; }
+#perf b { font-size: 14px; min-width: 50px; }
+#perf b.ok { color: #2bd46a; } #perf b.meh { color: #ffd21f; } #perf b.bad { color: #ff4d4d; }
+body.touch #perf { bottom: auto; top: max(54px, calc(env(safe-area-inset-top, 0px) + 50px)); }
 /* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
 #menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
 /* below the iPhone status bar / notch: the app draws under it, and iOS keeps taps in that strip for itself */
@@ -404,6 +415,7 @@ body.touch #h-track { display: none; }
     <div id="lightsbar"><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span></div>
     <div id="banner" hidden></div>
     <div id="flash" hidden></div>
+    <div id="perf" hidden><b id="perf-fps">--</b><span id="perf-ms"></span><canvas id="perf-g" width="120" height="28"></canvas></div>
     <div id="h-track"></div>
   </div>
 
@@ -504,8 +516,10 @@ body.touch #h-track { display: none; }
       </section>
 
       <section class="panel" id="p-gfx" hidden>
+        <div class="row"><label>Preset</label><div class="ctl seg preset" data-set="preset"><button type="button" data-v="smooth"><b>Smooth</b><small>Steadiest frame rate</small></button><button type="button" data-v="balanced"><b>Balanced</b><small>Recommended</small></button><button type="button" data-v="beautiful"><b>Beautiful</b><small>Most realistic, needs a strong PC</small></button><button type="button" data-v="custom" disabled><b>Custom</b><small>Your own mix</small></button></div></div>
         <div class="row"><label>Quality</label><div class="ctl seg" data-set="quality"><button type="button" data-v="0">Low</button><button type="button" data-v="1">Medium</button><button type="button" data-v="2">High</button><button type="button" data-v="3">Ultra</button></div></div>
         <div class="row"><label>Resolution</label><div class="ctl seg" data-set="autoRes"><button type="button" data-v="false">Sharp (full resolution)</button><button type="button" data-v="true">Auto (lowers it to stay smooth)</button></div></div>
+        <div class="row"><label>Performance meter</label><div class="ctl seg" data-set="showPerf"><button type="button" data-v="false">Hidden</button><button type="button" data-v="true">Show frame rate</button></div></div>
         <div class="row"><label>Starting camera</label><div class="ctl seg" data-set="camera"><button type="button" data-v="cockpit">Cockpit</button><button type="button" data-v="tcam">T-cam</button><button type="button" data-v="chase">Chase</button><button type="button" data-v="far">Far chase</button></div></div>
         <div class="row"><label>Dashboard overlay</label><div class="ctl seg" data-set="hud"><button type="button" data-v="auto">Hide in cockpit</button><button type="button" data-v="full">Always</button></div></div>
         <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>

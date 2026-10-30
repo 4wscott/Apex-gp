@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -388,7 +388,7 @@ const App = {
       this.buildRacingLine(T);
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
-      Hud.show(race); $('#loading').hidden = true;
+      Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
       $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
       if (this.touchOn) { this.input.buildTouch($('#touch'), settings); this.input.lastDevice = 'touch'; const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {}); }
@@ -475,6 +475,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    $('#perf').hidden = true;
     if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; } this.flare = null;
     document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
     if (this.session && this.session.online) { Net.racing = false; }
@@ -501,8 +502,8 @@ const App = {
 
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const dt = Math.min(0.1, (now - this.last) / 1000); this.last = now; // stays real time down to 10 fps instead of turning into slow motion
-    this.perf(dt);
+    const raw = now - this.last, dt = Math.min(0.1, raw / 1000); this.last = now; // stays real time down to 10 fps instead of turning into slow motion
+    this.perf(dt); this.meter(raw);
     this.input.tickCapture();
     const S = this.session;
     if (this.sky && this.sky.userData.clouds) this.sky.userData.clouds.uniforms.t.value += dt;
@@ -517,7 +518,7 @@ const App = {
     if (!this.paused) {
       this.applyPlayerControls(inp, P, race);
       const h = 1 / 360; S.acc += dt; let steps = 0;
-      while (S.acc >= h && steps < 40) { race.step(h, inp); S.acc -= h; steps++; }
+      while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
       this.ghostUpdate(dt, P, race);
@@ -525,9 +526,31 @@ const App = {
       if (race.mode === 'race' && P.finished && !S.finishedAt) { S.finishedAt = performance.now(); if (S.online) Net.send({ t: 'fin', k: Net.me, time: P.finishTime }); }
       if (S.finishedAt && performance.now() - S.finishedAt > 6000 && $('#results').hidden) Results.show(race);
     }
+    // draw the cars where they are between the last two physics steps, so uneven frame times don't show as judder
+    const a = this.paused ? 1 : Math.min(1, S.acc * 360), real = [];
+    for (const c of race.cars) {
+      if (c._px === undefined || (c.x - c._px) ** 2 + (c.y - c._py) ** 2 > 400) continue; // skip teleports (reset, pit box)
+      real.push(c, c.x, c.y, c.h);
+      c.x = c._px + (c.x - c._px) * a; c.y = c._py + (c.y - c._py) * a; c.h = c._ph + angleDiff(c.h, c._ph) * a;
+    }
     this.updateVisuals(dt, S, inp);
     this.render();
+    for (let k = 0; k < real.length; k += 4) { const c = real[k]; c.x = real[k + 1]; c.y = real[k + 2]; c.h = real[k + 3]; }
     Hud.update(dt, S, inp);
+  },
+  // performance meter: fps and frame time over the last half second, plus a 2 s graph of frame times
+  meter(ms) {
+    if (!settings.showPerf || !this.session) return;
+    const M = (this.pm = this.pm || { buf: new Float32Array(120), i: 0, t: 0 });
+    M.buf[M.i++ % 120] = ms; M.t += ms;
+    const g = $('#perf-g').getContext('2d'), W = 120, H = 28;
+    g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(0, H - (16.7 / 50) * H, W, 1); g.fillRect(0, H - (33.3 / 50) * H, W, 1);
+    for (let k = 0; k < 120; k++) { const v = M.buf[(M.i + k) % 120], hgt = Math.min(H, (v / 50) * H); g.fillStyle = v > 34 ? '#ff4d4d' : v > 20 ? '#ffd21f' : '#2bd46a'; g.fillRect(k, H - hgt, 1, hgt); }
+    if (M.t < 500) return;
+    let n = 0, sum = 0, worst = 0; for (let k = 1; k <= 30; k++) { const v = M.buf[(M.i - k + 1200) % 120]; if (v > 0) { n++; sum += v; worst = Math.max(worst, v); } }
+    M.t = 0; const fps = n ? 1000 / (sum / n) : 0, el = $('#perf-fps');
+    el.textContent = Math.round(fps) + ' fps'; el.className = fps >= 55 ? 'ok' : fps >= 35 ? 'meh' : 'bad';
+    $('#perf-ms').textContent = `${(sum / Math.max(1, n)).toFixed(1)} ms · worst ${worst.toFixed(0)}`;
   },
   menuFrame(dt) {
     if (!this.previewCar || !this.previewTrack) return;
@@ -703,7 +726,7 @@ const App = {
       S.pitCam = false;
       const dist = mode === 'chase' ? 7.2 : 11.5, hgt = mode === 'chase' ? 2.3 : 3.6;
       if (!S.camSmooth) S.camSmooth = { h: P.h };
-      S.camSmooth.h += angleDiff(P.h + look, S.camSmooth.h) * Math.min(1, dt * 8);
+      S.camSmooth.h += angleDiff(P.h + look, S.camSmooth.h) * (1 - Math.exp(-dt * 7)); // same feel at any frame rate
       const ch = S.camSmooth.h, back = new THREE.Vector3(-Math.cos(ch), 0, Math.sin(ch));
       cam.position.copy(base).addScaledVector(back, dist).add(new THREE.Vector3(0, hgt, 0));
       cam.up.set(0, 1, 0);
@@ -1270,6 +1293,7 @@ const Menu = {
         const btn = e.target.closest('button[data-v]'); if (!btn) return;
         const key = el.dataset.set; let v = btn.dataset.v;
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
+        if (key === 'preset') { this.applyPreset(v); this.sync(); return; }
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
@@ -1402,6 +1426,7 @@ const Menu = {
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
+    settings.preset = this.presetOf(); $('#perf').hidden = !settings.showPerf || !App.session;
     $$('[data-set]').forEach((el) => $$('button[data-v]', el).forEach((b) => b.setAttribute('aria-pressed', String(settings[el.dataset.set]) === b.dataset.v)));
     const spec = TRACKS.find((t) => t.id === settings.track), team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     const career = settings.mode === 'career';
@@ -1422,6 +1447,23 @@ const Menu = {
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
     $('#pickers').hidden = career; $('.startbar').hidden = career; $('#start').textContent = { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
+  },
+  // graphics presets: each sets the options that matter most for smoothness vs looks; any other mix shows as Custom
+  presets() {
+    return {
+      smooth: { quality: 1, mirrors: false, autoRes: true },
+      balanced: { quality: 2, mirrors: !IS_TOUCH, autoRes: IS_TOUCH },
+      beautiful: { quality: 3, mirrors: true, autoRes: false },
+    };
+  },
+  presetOf() {
+    const P = this.presets();
+    return Object.keys(P).find((k) => Object.entries(P[k]).every(([o, v]) => settings[o] === v)) || 'custom';
+  },
+  applyPreset(name) {
+    const p = this.presets()[name]; if (!p) return;
+    Object.assign(settings, p); saveSettings();
+    App.setupComposer(); App.resScale = 1; App.resize(); App.preview(settings.track); App.loadHQ();
   },
   buildBinds() {
     const tb = $('#binds'); tb.innerHTML = '';
