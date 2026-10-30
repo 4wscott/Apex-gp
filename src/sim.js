@@ -712,15 +712,42 @@ class AIDriver {
 function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
 // ---- Race / session manager ----------------------------------------------
-// pit lane: runs beside the start straight on the right, between the pit wall and the garages
+// pit lane geometry, shared by the simulation and the 3D scenery. Distances are measured to the right of the
+// track centreline (lateral = -dist). Layout across the main section, from the track outward:
+//   pit wall (at wallR) | fast lane (centre wr+4) | white line (wr+7.5) | working lane / boxes (wr+11.5) | garages (wr+16)
+// An entry road leaves the track edge before the straight and an exit road rejoins after it.
 function pitLane(T) {
-  const n = T.n; let iA = 0, iB = 0;
+  const n = T.n, ds = T.ds; let iA = 0, iB = 0;
   while (iA > -n / 3 && Math.abs(T.kapW[(iA - 1 + n) % n]) < 1 / 1500) iA--;
   while (iB < n / 3 && Math.abs(T.kapW[(iB + 1) % n]) < 1 / 1500) iB++;
   iA += 8; iB -= 8;
-  if (iB - iA < 30) { iA = -Math.round(260 / T.ds); iB = Math.round(220 / T.ds); } // twisty start: use a fixed stretch either side of the line
-  const a = (iA + n) % n, L = (iB - iA) * T.ds;
-  return { a, L, box: L * 0.55, laneLat: (i) => -(T.wallR[i] + 7) };
+  if (iB - iA < 30) { iA = -Math.round(260 / ds); iB = Math.round(220 / ds); } // twisty start: use a fixed stretch either side of the line
+  const entryLen = 150, exitLen = 120, eI = Math.round(entryLen / ds);
+  const a = (iA - eI + n * 2) % n, mainLen = (iB - iA) * ds, L = entryLen + mainLen + exitLen;
+  const idx = (sAlong) => (a + Math.floor(Math.max(0, sAlong) / ds)) % n;
+  const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  // the wall offset is smoothed over the main section so the lanes run straight
+  let wrSum = 0, wrN = 0; for (let k = iA; k <= iB; k++) { wrSum += T.wallR[(k + n) % n]; wrN++; }
+  const WR = wrSum / wrN, edge = T.hw - 1.6;
+  const P = {
+    a, L, entryLen, exitLen, mainLen, WR, idx,
+    fastDist: WR + 4, workDist: WR + 11.5, lineDist: WR + 7.5, garageDist: WR + 16, wallDist: WR,
+    mainStart: entryLen, mainEnd: entryLen + mainLen,
+    speedLine1: entryLen - 25, speedLine2: entryLen + mainLen + 25,
+    // distance of the fast-lane path from the centreline at a point along the pit road
+    path(sAlong) {
+      if (sAlong < entryLen) return edge + (P.fastDist - edge) * sm(sAlong / entryLen);
+      if (sAlong > entryLen + mainLen) return P.fastDist + (edge - P.fastDist) * sm((sAlong - entryLen - mainLen) / exitLen);
+      return P.fastDist;
+    },
+    // 0 outside the main section, 1 inside (smooth over 30 m), for the garage-side apron
+    mainFactor(sAlong) { return sm((sAlong - entryLen) / 30) * sm((entryLen + mainLen - sAlong) / 30); },
+  };
+  // one box per team in front of its garage, centred on the main section in team order
+  const sp = Math.min(32, (mainLen - 40) / 11);
+  P.boxSpacing = sp;
+  P.boxS = (k) => entryLen + mainLen / 2 + (k - 5) * sp;
+  return P;
 }
 const PIT_SPEED = 80 / 3.6;
 class Race {
@@ -889,35 +916,54 @@ class Race {
   // pit stop: the lane is driven on rails at the limiter; laps keep counting as the lane runs beside the line
   pitStep(c, dt) {
     const T = this.track, P = this.pit, q = c.pit;
-    // speed profile: brake to the limiter, hold it, stop on the box, service, leave at the limiter
-    if (q.phase === 'in') {
-      const toBox = P.box - q.s, vStop = Math.sqrt(Math.max(0, 2 * 9 * toBox));
-      q.v = Math.min(Math.max(PIT_SPEED, q.v - 14 * dt), vStop);
-      if (toBox <= 0.05 || q.v < 0.2) { q.phase = 'stop'; q.v = 0; q.t = 0; this.emit('pitstop', { car: c, service: q.service }); }
+    const box = q.box, sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+    // a teammate still being serviced in the box: wait just behind it (double stack)
+    const busy = this.cars.some((o) => o !== c && o.team === c.team && o.pit && (o.pit.phase === 'stop' || o.pit.phase === 'jack') && o.pit.box === box);
+    const target = busy ? box - 7 : box;
+    if (q.phase === 'in' || q.phase === 'queue') {
+      const lim = q.s >= P.speedLine1 ? PIT_SPEED : Math.max(PIT_SPEED, q.v - 16 * dt);           // brake to the limiter by the speed line
+      const vStop = Math.sqrt(Math.max(0, 2 * 7 * (target - q.s)));
+      q.v = Math.min(lim, Math.max(q.v - 16 * dt, 0), vStop);
+      if (target - q.s < 0.03 || q.v < 0.15) {
+        q.v = 0;
+        if (!busy) { q.phase = 'stop'; q.t = 0; this.emit('pitstop', { car: c, service: q.service }); } else q.phase = 'queue';
+      }
     } else if (q.phase === 'stop') {
       q.t += dt;
-      if (q.t >= q.service) { c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.wingHealth = 1; c.stops++; q.phase = 'out'; this.emit('pitdone', { car: c, compound: q.compound, time: q.service }); }
-    } else q.v = Math.min(PIT_SPEED, q.v + 7 * dt);
+      if (q.t >= q.service) {
+        c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.wingHealth = 1; c.stops++;
+        q.phase = 'out'; q.v = 0; this.emit('pitdone', { car: c, compound: q.compound, time: q.service });
+      }
+    } else {
+      // leave the box, hold the limiter to the speed line, then accelerate down the exit road
+      const cap = q.s < P.speedLine2 ? PIT_SPEED : PIT_SPEED + (q.s - P.speedLine2) * 0.45;
+      q.v = Math.min(cap, q.v + (q.s < P.speedLine2 ? 6 : 9) * dt);
+    }
     q.s += q.v * dt;
-    const i = (P.a + Math.floor(q.s / T.ds)) % T.n, f = (q.s % T.ds) / T.ds, j = (i + 1) % T.n;
-    const sm = (x) => x * x * (3 - 2 * x);
-    const lane = P.laneLat(i), exitLat = -(T.hw - 1.6);
-    const lat = q.s < 70 ? q.d0 + (lane - q.d0) * sm(q.s / 70) : q.s > P.L - 70 ? lane + (exitLat - lane) * sm(Math.min(1, (q.s - (P.L - 70)) / 70)) : lane;
+    // lateral path: fast lane, swinging into the working lane for the box and back out again
+    const dist = (sAlong) => P.path(sAlong) + (P.workDist - P.fastDist) * (sAlong < box ? sm((sAlong - (box - 24)) / 19) : q.phase === 'out' ? sm((box + 22 - sAlong) / 19) : 1) * (P.mainFactor(sAlong) > 0.5 ? 1 : 0);
+    const startBlend = (sAlong) => sm(sAlong / 45), distB = (sAlong) => -q.d0 + (dist(sAlong) + q.d0) * startBlend(sAlong); // from where the car left the racing line
+    const d0 = distB(q.s), d1 = distB(q.s + 0.5);
+    const i = P.idx(q.s), j = (i + 1) % T.n, f = (q.s % T.ds) / T.ds;
     const px = T.px[i] + (T.px[j] - T.px[i]) * f, py = T.py[i] + (T.py[j] - T.py[i]) * f;
-    c.x = px + T.nx[i] * lat; c.y = py + T.ny[i] * lat; c.h = Math.atan2(T.ty[i], T.tx[i]);
-    c.vx = q.v; c.vy = 0; c.r = 0; c.delta = 0; c.throttle = q.phase === 'out' ? 0.4 : 0; c.brake = q.phase === 'in' && q.v > PIT_SPEED ? 0.6 : 0;
-    c.gear = q.v < 1 ? 1 : 2; c.rpm = 4200 + q.v * 180; c.surface = 'tarmac'; c.slipF = c.slipR = 0;
+    c.x = px - T.nx[i] * d0; c.y = py - T.ny[i] * d0;
+    c.h = Math.atan2(T.ty[i], T.tx[i]) - Math.atan2(d1 - d0, 0.5); // turn with the path
+    c.vx = q.v; c.vy = 0; c.r = 0; c.delta = clamp(-(d1 - d0) * 1.4, -0.3, 0.3);
+    c.throttle = q.phase === 'out' ? 0.45 : 0; c.brake = (q.phase === 'in' && q.v > PIT_SPEED + 0.5) || (q.phase === 'in' && box - q.s < 20) ? 0.6 : 0;
+    c.gear = q.v < 1 ? 1 : q.v < 15 ? 1 : q.v < 25 ? 2 : 3; c.rpm = 4200 + (q.v % 15) * 450; c.surface = 'tarmac'; c.slipF = c.slipR = 0;
+    c.limiter = q.v > 2 && q.v <= PIT_SPEED + 0.3 && q.s < P.speedLine2;
     c.locate(false);
     let dS = c.s - c.lastS; if (dS < -T.length / 2) dS += T.length; else if (dS > T.length / 2) dS -= T.length;
     c.dist += dS; c.lastS = c.s;
-    if (q.s >= P.L) { c.pit = null; c.vx = PIT_SPEED; this.emit('pitexit', { car: c }); }
+    if (q.s >= P.L) { c.pit = null; c.limiter = false; c.vx = q.v; this.emit('pitexit', { car: c }); }
   }
   pitEntry(c) {
     if (!c.pitReq || c.pit || this.phase !== 'green' || c.finished) return false;
     const P = this.pit, n = this.track.n, k = (c.idx - P.a + n) % n;
     if (k > 4) return false;
-    const service = c === this.player ? 2.4 + Math.random() * 0.4 : 2.2 + Math.random() * 1.2;
-    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service };
+    // a good stop is ~2.3 s; now and then a wheel nut sticks
+    const service = (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0);
+    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, box: P.boxS(Math.max(0, TEAMS.indexOf(c.team))) };
     c.pitReq = null; this.emit('pitentry', { car: c });
     return true;
   }

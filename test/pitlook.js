@@ -14,8 +14,8 @@ await page.evaluate(()=>{const r=App.session.race,P=r.player,T=r.track;const d0=
 await page.keyboard.press('m');
 await page.waitForFunction(()=>{const P=App.session.race.player;return P.pit&&P.pit.phase==='in';},null,{timeout:120000});
 await page.screenshot({path:SP+'pl-entry.png',timeout:120000});
-await page.evaluate(()=>{const r=App.session.race,q=r.player.pit;q.s=r.pit.box-25;q.v=22;});await page.waitForTimeout(1500);await page.screenshot({path:SP+'pl-lane.png',timeout:120000});
-await page.evaluate(()=>{const r=App.session.race,q=r.player.pit;q.s=r.pit.box-0.5;q.v=0.3;});
+await page.evaluate(()=>{const r=App.session.race,q=r.player.pit;q.s=q.box-30;q.v=22;});await page.waitForTimeout(1500);await page.screenshot({path:SP+'pl-lane.png',timeout:120000});
+await page.evaluate(()=>{const r=App.session.race,q=r.player.pit;q.s=q.box-0.5;q.v=0.3;});
 await page.waitForFunction(()=>{const P=App.session.race.player;return P.pit&&P.pit.phase==='stop';},null,{timeout:60000});
 await page.evaluate(()=>{App.session.race.player.pit.service=999;});await page.screenshot({path:SP+'pl-stop-chase.png',timeout:120000});
 await page.evaluate(()=>{App.session.camMode='cockpit';});await page.waitForTimeout(800);await page.screenshot({path:SP+'pl-stop-cockpit.png',timeout:120000});

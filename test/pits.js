@@ -7,7 +7,7 @@ const race=new S.Race(T,{mode:'race',laps,opponents:11,team:S.TEAMS[3],driver:S.
 const pai=new S.AIDriver(race.player,0.98,99);let rec=0;
 race.ais.concat([pai]).forEach(a=>{const o=a.recover.bind(a);a.recover=()=>{rec++;console.log('recover',a.car.driver.code,'t',race.time.toFixed(0),'pit?',!!a.car.pit,'since exit',(race.time-(a.car.lastExit||-99)).toFixed(1),'d',a.car.d.toFixed(1),'v',a.car.vx.toFixed(1));o();}});
 const dt=1/360;let t=0,asked=false;
-console.log('pit lane',JSON.stringify({a:race.pit.a,L:race.pit.L.toFixed(0),box:race.pit.box.toFixed(0)}),'wearMul',race.wearMul.toFixed(1));
+console.log('pit lane',JSON.stringify({a:race.pit.a,L:race.pit.L.toFixed(0),boxes:[0,5,10].map(k=>race.pit.boxS(k).toFixed(0)).join('/')}),'wearMul',race.wearMul.toFixed(1));
 while(t<1500){
   if(!asked&&race.player.lap===Math.ceil(laps/2)){race.requestPit(race.player,'H');asked=true;}
   race.step(dt,pai.control(dt,race.cars,race));t+=dt;race.events.forEach(e=>{if(e.type==='pitexit')e.car.lastExit=e.t;});if(race.finishOrder.length>=race.cars.length)break;}

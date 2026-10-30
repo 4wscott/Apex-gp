@@ -126,6 +126,17 @@ class AudioEngine {
       src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t, Math.random()); src.stop(t + 0.07);
     }
   }
+  // pneumatic wheel gun: a rattling burst
+  wheelGun(vol = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime, n = 10 + ((Math.random() * 5) | 0);
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.022, src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+      const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 1500 + Math.random() * 700; fl.Q.value = 3;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5 * vol, t + 0.003); g.gain.exponentialRampToValueAtTime(0.001, t + 0.018);
+      src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t, Math.random()); src.stop(t + 0.03);
+    }
+  }
   beep(freq, dur = 0.12, vol = 0.25) {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();

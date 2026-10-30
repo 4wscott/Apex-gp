@@ -251,6 +251,7 @@ const App = {
         const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player);
         this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m;
       });
+      PitCrew.reset(this.worldRoot);
       this.setupCockpit(race.player);
       if (mode === 'trial' && !(cfg && cfg.quali)) this.setupGhost(T, team);
       $('#p-finishq').hidden = !(cfg && cfg.quali);
@@ -511,6 +512,7 @@ const App = {
       if (dx * dx + dy * dy < 160 * 160) this.particles.emitFor(c, dt);
     }
     this.particles.update(dt);
+    PitCrew.update(dt, race, this.audio, this.camera.position);
     this.weatherVisuals(dt, race);
     // crowd: always a little movement, jumping when cars are close to the camera or at the start
     if (GFX.crowdMat) {
@@ -537,7 +539,12 @@ const App = {
       cam.up.set(0, 1, 0); cam.lookAt(tgt);
       cam.rotateZ(-P.mesh.body.rotation.x * 0.6);
       cam.fov = settings.fov; cam.near = mode === 'cockpit' ? 0.06 : 0.12;
+    } else if (P.pit && GFX.pit && (P.pit.phase === 'stop' || P.pit.phase === 'queue' || (P.pit.phase === 'in' && P.pit.box - P.pit.s < 30) || (P.pit.phase === 'out' && P.pit.s < P.pit.box + 12))) {
+      // TV angle on the pit box: from the fast-lane side, ahead of the car, looking back across the crew at the garage
+      const G = GFX.pit, b = P.pit.box, eye = G.at(b + 7.5, G.P.workDist - 5.5, 2.4), tgt = G.at(b - 0.4, G.P.workDist + 0.8, 0.6);
+      cam.position.lerp(eye, S.pitCam ? Math.min(1, dt * 3) : 1); S.pitCam = true; cam.up.set(0, 1, 0); cam.lookAt(tgt); cam.fov = 50; cam.near = 0.1;
     } else {
+      S.pitCam = false;
       const dist = mode === 'chase' ? 7.2 : 11.5, hgt = mode === 'chase' ? 2.3 : 3.6;
       if (!S.camSmooth) S.camSmooth = { h: P.h };
       S.camSmooth.h += angleDiff(P.h + look, S.camSmooth.h) * Math.min(1, dt * 6);
@@ -1090,5 +1097,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify;
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

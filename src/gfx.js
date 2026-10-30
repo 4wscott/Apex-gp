@@ -267,14 +267,14 @@ function ribbon(T, from, to, opts) {
   g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
-function wallRibbon(T, off, side, h0, h1, vScale) {
+function wallRibbon(T, off, side, h0, h1, vScale, include = null) {
   const pos = [], uv = [], idx = [];
   let s = 0;
   for (let k = 0; k <= T.n; k++) {
     const i = k % T.n, o = off[i] * side, x = T.px[i] + T.nx[i] * o, y = T.py[i] + T.ny[i] * o;
     const u = (side > 0 ? s : -s) / vScale; // the right wall is seen from the other side: run its texture backwards so text reads
     pos.push(x, h0, -y, x, h1, -y); uv.push(u, 0, u, 1);
-    if (k) { const b = k * 2; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
+    if (k && (!include || (include(i) && include((i - 1 + T.n) % T.n)))) { const b = k * 2; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
     s += T.ds;
   }
   const g = new THREE.BufferGeometry();
@@ -327,6 +327,102 @@ function cornerStand(L, rows, white, steel, crowdMat) {
   const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 1.02, 0.4, rows * depth + 3), white); roof.position.set(0, rows * rise + 4, -(rows * depth) / 2 - 0.5); roof.castShadow = true; g.add(roof);
   for (let k = -3; k <= 3; k++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.4, rows * rise + 4, 0.4), steel); c.position.set(k * L / 7, (rows * rise + 4) / 2, -rows * depth - 0.3); g.add(c); }
   return g;
+}
+// ---- pit lane, team garages, pit wall stands, release lights (layout from pitLane in sim.js) ----------
+function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
+  const n = T.n, sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  const pitS = (i) => ((i - P.a + n) % n) * T.ds, inPit = (i) => pitS(i) <= P.L;
+  const at = (sa, dist, h = 0) => { const i = P.idx(sa), j = (i + 1) % n, f = (sa % T.ds) / T.ds; return W(T.px[i] + (T.px[j] - T.px[i]) * f - T.nx[i] * dist, T.py[i] + (T.py[j] - T.py[i]) * f - T.ny[i] * dist, h); };
+  const hd = (sa) => { const i = P.idx(sa); return Math.atan2(T.ty[i], T.tx[i]); };
+  const place = (obj, sa, dist, h = 0) => { obj.position.copy(at(sa, dist, h)); obj.rotation.y = hd(sa); world.add(obj); return obj; }; // local +x along the lane, +z toward the garages
+  const outer = (sa) => P.path(sa) + 4 + P.mainFactor(sa) * (P.garageDist + 16 - P.path(sa) - 4);
+  // road surface (asphalt) from the pit wall / entry edge out to (and into) the garages
+  const road = new THREE.MeshStandardMaterial({ map: rep(tx.asphalt, 1, 1), normalMap: rep(tx.asphaltN, 1, 1), roughnessMap: rep(tx.asphaltR, 1, 1), normalScale: new THREE.Vector2(0.3, 0.3), roughness: 1, color: 0xc4c6ca });
+  add(ribbon(T, (i) => -(P.path(pitS(i)) - 4), (i) => -outer(pitS(i)), { vScale: 6, uScale: 6, include: inPit }), decal(road, 4));
+  // white lines: road edges on the entry/exit roads, pit wall line, fast/working lane divider (dashed), speed lines
+  const paint = decal(new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 }), 5), yellow = decal(new THREE.MeshStandardMaterial({ color: 0xf4c20d, roughness: 0.6 }), 5);
+  const line = (dist, inc, mat = paint, wdt = 0.14) => add(ribbon(T, (i) => -(dist(pitS(i)) - wdt / 2), (i) => -(dist(pitS(i)) + wdt / 2), { vScale: 4, include: inc }), mat);
+  line((sa) => P.path(sa) - 3.8, (i) => inPit(i) && (pitS(i) < P.mainStart + 5 || pitS(i) > P.mainEnd - 5), paint, 0.2);
+  line((sa) => P.path(sa) + 3.8, (i) => inPit(i) && (pitS(i) < P.mainStart + 5 || pitS(i) > P.mainEnd - 5), paint, 0.2);
+  line(() => P.wallDist + 0.9, (i) => pitS(i) > P.mainStart && pitS(i) < P.mainEnd, paint, 0.2);
+  line(() => P.lineDist, (i) => pitS(i) > P.mainStart && pitS(i) < P.mainEnd && Math.floor(pitS(i) / 3) % 2 === 0, paint, 0.16);
+  line(() => P.garageDist - 0.4, (i) => pitS(i) > P.mainStart && pitS(i) < P.mainEnd, yellow, 0.18);
+  const across = (sa, mat) => { const g = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 7.4).rotateX(-Math.PI / 2), mat); place(g, sa, P.path(sa), 0.03); g.material.polygonOffset = true; };
+  across(P.speedLine1, paint); across(P.speedLine2, paint);
+  // concrete walls along the outside of the entry/exit roads, and the inner wall that leads into the pit wall
+  const conc = new THREE.MeshStandardMaterial({ map: rep(tx.concrete, 1, 1), roughness: 0.9, side: THREE.DoubleSide });
+  const wallAlong = (dist, s0, s1, hgt = 1.0) => {
+    const pos = [], idx = []; let k = 0;
+    for (let sa = s0; sa <= s1; sa += T.ds) { const a = at(sa, dist(sa), 0), b = at(sa, dist(sa), hgt); pos.push(a.x, a.y, a.z, b.x, b.y, b.z); if (k) idx.push(k * 2 - 2, k * 2, k * 2 - 1, k * 2 - 1, k * 2, k * 2 + 1); k++; }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const uv = []; for (let q = 0; q < k; q++) uv.push(q * T.ds / 4, 0, q * T.ds / 4, 1); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); add(g, conc);
+  };
+  wallAlong((sa) => P.path(sa) + 4.6, 20, P.mainStart + 4); wallAlong((sa) => P.path(sa) + 4.6, P.mainEnd - 4, P.L - 15);
+  wallAlong((sa) => P.path(sa) - 4.4, P.mainStart * 0.5, P.mainStart + 2); wallAlong((sa) => P.path(sa) - 4.4, P.mainEnd - 2, P.mainEnd + P.exitLen * 0.5);
+  // signs: pit entry, speed limit start and end
+  const sign = (sa, dist, draw) => {
+    const g = new THREE.Group(), pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.2, 8).translate(0, 1.1, 0), steel); g.add(pole);
+    const t = canvasTex(256, 256, draw, { clamp: true }), b = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 })); b.position.y = 2.4; b.rotation.y = -Math.PI / 2; g.add(b);
+    place(g, sa, dist);
+  };
+  const ring = (txt, cross) => (g, w, h) => { g.fillStyle = '#fff'; g.beginPath(); g.arc(w / 2, h / 2, w * 0.48, 0, 7); g.fill(); g.lineWidth = w * 0.09; g.strokeStyle = cross ? '#222' : '#d50000'; g.beginPath(); g.arc(w / 2, h / 2, w * 0.42, 0, 7); g.stroke(); g.fillStyle = '#111'; g.font = `800 ${w * 0.36}px "Saira Condensed", Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, w / 2, h / 2 + 4); if (cross) { g.strokeStyle = '#222'; g.lineWidth = w * 0.05; g.beginPath(); g.moveTo(w * 0.22, h * 0.78); g.lineTo(w * 0.78, h * 0.22); g.stroke(); } };
+  sign(P.speedLine1 - 2, P.path(P.speedLine1) + 4.4, ring('80')); sign(P.speedLine2 + 2, P.path(P.speedLine2) + 4.4, ring('80', true));
+  sign(8, P.path(8) + 4.4, (g, w, h) => { g.fillStyle = '#0b3d91'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.font = `800 ${w * 0.4}px "Saira Condensed", Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT', w / 2, h * 0.42); g.font = `700 ${w * 0.15}px Arial`; g.fillText('ENTRY →', w / 2, h * 0.78); });
+
+  // ---- garages: one bay per team behind its box, with white façade blocks between ----
+  const sp = P.boxSpacing, bw = Math.min(sp - 2, 15), D = 18, Hb = 10, front = P.garageDist;
+  const first = P.boxS(0) - sp / 2 - 12, last = P.boxS(10) + sp / 2 + 12;
+  const block = (s0, s1, h0, h1) => { if (s1 - s0 < 0.2) return; const m = new THREE.Mesh(new THREE.BoxGeometry(s1 - s0, h1 - h0, D), white); m.castShadow = m.receiveShadow = true; place(m, (s0 + s1) / 2, front + D / 2, (h0 + h1) / 2); };
+  let prev = first;
+  const lights = [];
+  TEAMS.forEach((tm, k) => {
+    const c = P.boxS(k), s0 = c - bw / 2, s1 = c + bw / 2;
+    block(prev, s0, 0, Hb); prev = s1;
+    block(s0, s1, 7, Hb); // above the door
+    const g = new THREE.Group(); place(g, c, front, 0);
+    // interior: epoxy floor, team-coloured back wall with the team name, light ceiling, side walls
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.25, metalness: 0.1 })); floor.position.set(0, 0.04, D / 2); g.add(floor);
+    const backTex = canvasTex(1024, 512, (q, w, h) => { q.fillStyle = tm.c1; q.fillRect(0, 0, w, h); q.fillStyle = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3; q.fillRect(0, h * 0.62, w, h * 0.08); q.fillStyle = lum(tm.c1) > 0.55 ? '#121417' : '#fff'; q.font = `800 ${h * 0.2}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w / 2, h * 0.42); });
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(bw, 7), new THREE.MeshStandardMaterial({ map: backTex, roughness: 0.6 })); back.position.set(0, 3.5, D - 0.3); back.rotation.y = Math.PI; g.add(back);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.6 })); ceil.position.set(0, 7, D / 2); g.add(ceil);
+    for (const sd of [-1, 1]) { const w2 = new THREE.Mesh(new THREE.PlaneGeometry(D, 7), new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.7 })); w2.position.set(sd * bw / 2, 3.5, D / 2); w2.rotation.y = -sd * Math.PI / 2; g.add(w2); }
+    // name board over the door
+    const signTex = canvasTex(1024, 160, (q, w, h) => { q.fillStyle = '#16181c'; q.fillRect(0, 0, w, h); q.fillStyle = tm.c1; q.fillRect(0, 0, w * 0.06, h); q.fillStyle = '#fff'; q.font = `800 ${h * 0.55}px "Saira Condensed", Arial`; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w * 0.09, h * 0.54); q.textAlign = 'right'; q.fillStyle = '#aab'; q.fillText(tm.drivers.map((d) => d.num).join(' · '), w * 0.97, h * 0.54); });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(bw * 0.9, bw * 0.9 * 160 / 1024), new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.4, emissive: 0xffffff, emissiveMap: signTex, emissiveIntensity: 0.35 })); board.position.set(0, 8.4, -0.05); board.rotation.y = Math.PI; g.add(board);
+    if (quality >= 1) {
+      // tyre racks with tyres in blankets along the back wall, tool trolleys
+      const blanket = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.9 }), tyreGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.34, 18);
+      for (let r = 0; r < 4; r++) for (let st = 0; st < 4; st++) { const ty = new THREE.Mesh(tyreGeo, blanket); ty.position.set(-bw / 2 + 1.4 + r * 0.85 + (r > 1 ? bw - 5.6 : 0), 0.2 + st * 0.36, D - 1.4); g.add(ty); }
+      for (const x of [-2.5, 2.5]) { const tr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.0, 0.6), new THREE.MeshStandardMaterial({ color: lum(tm.c2) > 0.18 ? tm.c2 : tm.c1, roughness: 0.4, metalness: 0.3 })); tr.position.set(x, 0.55, D - 4); g.add(tr); }
+      const scr = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.08), new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x1d3b5a, emissiveIntensity: 0.8 })); scr.position.set(0, 4.6, D - 0.5); g.add(scr);
+    }
+    // painted box on the working lane: outline in team colour with yellow front-wheel marks
+    const boxTex = canvasTex(512, 256, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#888' : tm.c1; q.lineWidth = 14; q.strokeRect(8, 8, w - 16, h - 16); q.fillStyle = '#f4c20d'; for (const y of [h * 0.18, h * 0.82]) { q.fillRect(w * 0.79, y - 6, w * 0.12, 12); q.fillRect(w * 0.84, y - 22, 12, 44); } q.fillStyle = 'rgba(255,255,255,0.85)'; q.font = `800 ${h * 0.3}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.save(); q.translate(w * 0.42, h / 2); q.fillText(tm.name.split(' ')[0].toUpperCase(), 0, 0); q.restore(); }, { clamp: true });
+    const bx = new THREE.Mesh(new THREE.PlaneGeometry(7, 3.4).rotateX(-Math.PI / 2), decal(new THREE.MeshStandardMaterial({ map: boxTex, transparent: true, roughness: 0.7 }), 6)); place(bx, c, P.workDist, 0.035);
+    // release light hanging over the nose of the stopped car
+    const rig = new THREE.Group(), post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 5, 0.15).translate(0, 2.5, 0), steel); rig.add(post);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, front - P.workDist).translate(0, 4.9, -(front - P.workDist) / 2), steel); rig.add(arm);
+    const lampBox = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.6, 0.3), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 })); lampBox.position.set(0, 4.5, -(front - P.workDist)); rig.add(lampBox);
+    const red = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff2020, emissiveIntensity: 0 }), green = new THREE.MeshStandardMaterial({ color: 0x003300, emissive: 0x20ff40, emissiveIntensity: 0 });
+    for (const [m, y] of [[red, 4.65], [green, 4.35]]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8), m); l.position.set(-0.13, y, -(front - P.workDist)); rig.add(l); }
+    place(rig, c + 3.6, front - 0.6, 0);
+    // pit wall stand: desk, screens and a canopy in team colours
+    const st = new THREE.Group(), tcol = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.5 });
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(5, 0.9, 1.2), tcol); desk.position.set(0, 1.5, 0.3); st.add(desk);
+    const plat = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.15, 2.4), steel); plat.position.set(0, 1.05, 0.6); st.add(plat);
+    for (let q2 = -1.5; q2 <= 1.5; q2 += 1) { const sc = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.06), new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x1b3550, emissiveIntensity: 0.9 })); sc.position.set(q2, 2.3, -0.05); sc.rotation.x = -0.2; st.add(sc); }
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.12, 2.6), tcol); roof.position.set(0, 3.4, 0.5); roof.castShadow = true; st.add(roof);
+    for (const x of [-2.6, 2.6]) { const pp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.4, 0.1), steel); pp.position.set(x, 2.25, 1.6); st.add(pp); }
+    place(st, c, P.wallDist + 0.5, 0);
+    lights.push({ red, green, s: c });
+  });
+  block(prev, last, 0, Hb);
+  // upper floor (team hospitality glass) and roof over the whole pit building
+  const Lb = last - first, mid = (first + last) / 2;
+  const glassMat = new THREE.MeshPhysicalMaterial({ map: rep(tx.glass, Lb / 8, 1), roughness: 0.05, metalness: 0.6, clearcoat: 1 });
+  const upper = new THREE.Mesh(new THREE.BoxGeometry(Lb * 0.98, 6, 15), [glassMat, glassMat, white, white, glassMat, glassMat]); upper.castShadow = true; place(upper, mid, front + 9.5, Hb + 3);
+  const roofP = new THREE.Mesh(new THREE.BoxGeometry(Lb, 0.6, 21), white); roofP.castShadow = true; place(roofP, mid, front + 8.5, Hb + 6.3);
+  return { P, lights, at, hd };
 }
 function buildWorld(T, themeKey, quality) {
   const th = THEMES[themeKey], tx = GFX.tex, world = new THREE.Group();
@@ -409,11 +505,22 @@ function buildWorld(T, themeKey, quality) {
   const wallMat = new THREE.MeshStandardMaterial({ map: rep(tx.wall, 1, 1), roughness: 0.55, side: THREE.DoubleSide });
   const concMat = new THREE.MeshStandardMaterial({ map: rep(tx.concrete, 1, 1), roughness: 0.9, side: THREE.DoubleSide });
   const capMat = new THREE.MeshStandardMaterial({ color: 0x9a9da2, roughness: 0.8, side: THREE.DoubleSide });
+  // pit lane: the right-hand barrier opens where the pit entry and exit roads cross it
+  const PL = pitLane(T), pitS = (i) => ((i - PL.a + n) % n) * T.ds;
+  // keep trees, grass, posts and buildings out of the pit lane and the pit building
+  const pitArea = (x, y) => {
+    const q = trackDistance(T, x, y, -1, 0, 2); if (q.i < 0) return false;
+    const sa = pitS(q.i); if (sa > PL.L + 15 && sa < T.length - 15) return false;
+    const lat = (x - T.px[q.i]) * T.nx[q.i] + (y - T.py[q.i]) * T.ny[q.i]; if (lat > -T.hw + 1) return false;
+    return -lat < PL.path(Math.min(sa, PL.L)) + 9 + PL.mainFactor(Math.min(sa, PL.L)) * 34;
+  };
+  const keepWall = (side) => (i) => side > 0 || (() => { const sa = pitS(i); return sa > PL.L + 4 || (sa > PL.mainStart - 2 && sa < PL.mainEnd + 2); })();
   for (const [off, side] of [[T.wallL, 1], [T.wallR, -1]]) {
-    add(wallRibbon(T, off, side, -0.2, 1.05, 160), wallMat, { cs: quality >= 3 });
-    add(wallRibbon(T, off.map((v) => v + 0.35), side, -0.2, 1.05, 12), concMat);
+    const inc = keepWall(side);
+    add(wallRibbon(T, off, side, -0.2, 1.05, 160, inc), wallMat, { cs: quality >= 3 });
+    add(wallRibbon(T, off.map((v) => v + 0.35), side, -0.2, 1.05, 12, inc), concMat);
     const capPos = [], capIdx = [];
-    for (let k = 0; k <= n; k++) { const i = k % n; for (const o2 of [off[i], off[i] + 0.35]) { const o = o2 * side; capPos.push(T.px[i] + T.nx[i] * o, 1.05, -(T.py[i] + T.ny[i] * o)); } if (k) { const bb = k * 2; capIdx.push(bb - 2, bb - 1, bb, bb - 1, bb + 1, bb); } }
+    for (let k = 0; k <= n; k++) { const i = k % n; for (const o2 of [off[i], off[i] + 0.35]) { const o = o2 * side; capPos.push(T.px[i] + T.nx[i] * o, 1.05, -(T.py[i] + T.ny[i] * o)); } if (k && inc(i) && inc((i - 1 + n) % n)) { const bb = k * 2; capIdx.push(bb - 2, bb - 1, bb, bb - 1, bb + 1, bb); } }
     const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3)); cg.setIndex(capIdx); cg.computeVertexNormals();
     add(cg, capMat);
   }
@@ -422,10 +529,10 @@ function buildWorld(T, themeKey, quality) {
     const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.06, 3.6, 6).translate(0, 2.85, 0), new THREE.MeshStandardMaterial({ color: 0x6d7278, metalness: 0.8, roughness: 0.4 }), Math.ceil(n / 2) * 2 + 8);
     let pk = 0;
     for (const [off, side] of [[T.wallL, 1], [T.wallR, -1]]) {
-      const fg = wallRibbon(T, off.map((v) => v + 0.18), side, 1.05, 4.6, 1.1);
+      const fg = wallRibbon(T, off.map((v) => v + 0.18), side, 1.05, 4.6, 1.1, keepWall(side));
       const uv = fg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 3.2);
       add(fg, fenceMat, { rs: false });
-      for (let i = 0; i < n; i += 2) { const o = (off[i] + 0.18) * side; m4.makeTranslation(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); posts.setMatrixAt(pk++, m4); }
+      for (let i = 0; i < n; i += 2) { if (!keepWall(side)(i)) continue; const o = (off[i] + 0.18) * side; m4.makeTranslation(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); posts.setMatrixAt(pk++, m4); }
     }
     posts.count = pk; world.add(posts);
   }
@@ -474,6 +581,8 @@ function buildWorld(T, themeKey, quality) {
   const ig = Math.round(14 / T.ds);
   gantry.position.copy(W(T.px[ig], T.py[ig], 0)); gantry.rotation.y = Math.atan2(T.ty[ig], T.tx[ig]); world.add(gantry);
 
+  // ---- pit lane, garages, pit wall ----
+  GFX.pit = buildPitComplex(T, PL, world, add, tx, steel, white, quality);
   // ---- pit complex and main grandstand along the start straight ----
   let iA = 0, iB = 0;
   while (iA > -n / 3 && Math.abs(T.kapW[(iA - 1 + n) % n]) < 1 / 1500) iA--;
@@ -484,17 +593,6 @@ function buildWorld(T, themeKey, quality) {
     const place = (obj, lat, h) => { obj.position.copy(W(T.px[mid] + T.nx[mid] * lat, T.py[mid] + T.ny[mid] * lat, h)); obj.rotation.y = hd; world.add(obj); return obj; };
     const near = (i) => { let d = i - mid; if (d > n / 2) d -= n; if (d < -n / 2) d += n; return Math.abs(d) * T.ds < L / 2 + 30; };
     const wr = T.wallR[mid];
-    add(ribbon(T, (i) => -(T.wallR[i] + 16), (i) => -T.wallR[i] - 0.4, { vScale: 8, include: near }), decal(new THREE.MeshStandardMaterial({ map: rep(tx.runoff, 1, 1), roughness: 0.85, color: 0x9ea2a8 }), 2));
-    // garages face the pit lane (local -z is track-left, i.e. toward the track from the right side)
-    const pit = new THREE.Mesh(new THREE.BoxGeometry(L, 10, 18), [white, white, white, white, white, new THREE.MeshStandardMaterial({ map: rep(tx.garage, Math.max(1, Math.round(L / 160)), 1), roughness: 0.6 })]);
-    pit.castShadow = pit.receiveShadow = true; place(pit, -(wr + 16 + 9), 5);
-    const glassMat = new THREE.MeshPhysicalMaterial({ map: rep(tx.glass, L / 8, 1), roughness: 0.05, metalness: 0.6, clearcoat: 1 });
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(L * 0.94, 7, 15), [glassMat, glassMat, white, white, glassMat, glassMat]); upper.castShadow = true; place(upper, -(wr + 16 + 9.5), 13.5);
-    const roofP = new THREE.Mesh(new THREE.BoxGeometry(L * 0.98, 0.6, 20), white); roofP.castShadow = true; place(roofP, -(wr + 16 + 8.5), 17.3);
-    for (let k = -3; k <= 3; k++) {
-      const pw = new THREE.Mesh(new THREE.BoxGeometry(4, 2.4, 1.6), steel); pw.castShadow = true;
-      const i = (mid + Math.round((k * L / 8) / T.ds) + n) % n; pw.position.copy(W(T.px[i] - T.nx[i] * (T.wallR[i] + 1.2), T.py[i] - T.ny[i] * (T.wallR[i] + 1.2), 1.2)); pw.rotation.y = hd; world.add(pw);
-    }
     // stepped grandstand: profile rises away from the track
     const rows = 22, depth = 0.85, rise = 0.48, shape = new THREE.Shape();
     shape.moveTo(0, 0);
@@ -534,7 +632,7 @@ function buildWorld(T, themeKey, quality) {
     if (bzk % 2 === 0) {
       const side = T.kapW[apex] > 0 ? -1 : 1, off = (side > 0 ? T.wallL : T.wallR)[apex] + 10;
       const x = T.px[apex] + T.nx[apex] * off * side, y = T.py[apex] + T.ny[apex] * off * side;
-      if (trackDistance(T, x, y, -1, 0, 2).d > off - 3) {
+      if (trackDistance(T, x, y, -1, 0, 2).d > off - 3 && !pitArea(x, y)) {
         const st = cornerStand(64, 12, white, steel, crowdMat);
         st.position.copy(W(x, y, 0)); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st);
         if (quality >= 1) {
@@ -571,6 +669,7 @@ function buildWorld(T, themeKey, quality) {
       const x = T.px[i] + T.nx[i] * off * side + (rng() - 0.5) * 30, y = T.py[i] + T.ny[i] * off * side + (rng() - 0.5) * 30;
       const q = trackDistance(T, x, y, -1, 0, 2);
       if (q.i >= 0 && q.d < Math.max(T.wallL[q.i], T.wallR[q.i]) + minExtra) continue;
+      if (pitArea(x, y)) continue;
       if (fn(x, y, i)) placed++;
     }
   };
@@ -609,6 +708,7 @@ function buildWorld(T, themeKey, quality) {
       const off = onVerge ? lerp(hw + 1.8, wall - 0.4, rng()) : wall + 0.8 + Math.pow(rng(), 1.8) * 26;
       if (onVerge && wall - 0.4 < hw + 1.8) continue;
       const x = T.px[i] + T.nx[i] * off * side + (rng() - 0.5) * 2, y = T.py[i] + T.ny[i] * off * side + (rng() - 0.5) * 2;
+      if (pitArea(x, y)) continue;
       const q = trackDistance(T, x, y, i, 0, 1);
       if (q.i >= 0 && q.d < hw + 1.7) continue;
       const sc = 0.6 + rng() * 0.9;
@@ -635,7 +735,7 @@ function buildWorld(T, themeKey, quality) {
     for (let i = 0; i < n && k < 64; i += Math.round(380 / T.ds)) {
       const side = k % 2 ? 1 : -1, off = ((side > 0 ? T.wallL : T.wallR)[i] + 2.4) * side;
       const x = T.px[i] + T.nx[i] * off, y = T.py[i] + T.ny[i] * off;
-      if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 0.5) continue;
+      if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 0.5 || pitArea(x, y)) continue;
       q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(x, 0, -y); m4.compose(p4, q4, s1); post.setMatrixAt(k++, m4);
     }
     post.count = k; post.castShadow = true; world.add(post);
@@ -675,7 +775,7 @@ function buildWorld(T, themeKey, quality) {
     for (let i = 0; i < n && k < 500; i += Math.round(60 / T.ds)) {
       const side = (k % 2) ? 1 : -1, off = ((side > 0 ? T.wallL : T.wallR)[i] + 6) * side;
       const x = T.px[i] + T.nx[i] * off, y = T.py[i] + T.ny[i] * off;
-      if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 1) continue;
+      if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 1 || pitArea(x, y)) continue;
       q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i]) + Math.PI / 2);
       p4.set(x, 0, -y); m4.compose(p4, q4, s1); poles.setMatrixAt(k, m4);
       p4.y = 24; m4.compose(p4, q4, s1); heads.setMatrixAt(k, m4); k++;
@@ -1096,7 +1196,7 @@ function loadModels() {
   if (typeof MODEL_DATA === 'undefined') return Promise.resolve();
   const L = new GLTFLoader(); L.setMeshoptDecoder(MeshoptDecoder);
   const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no)));
-  return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null, MODEL_DATA.carhq ? get('carhq') : null]).then(([h, d, c, hq]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null, carhq: hq ? prepCar(hq.scene) : null }; })
+  return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null, MODEL_DATA.carhq ? get('carhq') : null, MODEL_DATA.crew ? get('crew') : null]).then(([h, d, c, hq, cr]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null, carhq: hq ? prepCar(hq.scene) : null, crew: cr ? prepDriver(cr.scene) : null }; })
     .catch((e) => console.warn('driver models unavailable', e));
 }
 // helmet parts baked into car space: front faces +x, about 0.31 m long, centred on the head pivot
@@ -1205,9 +1305,9 @@ function prepDriver(root) {
   return root;
 }
 // team race suit: the source suit's shading and seams, recoloured to the team (cached per team)
-function suitFromModel(img, team) {
+function suitFromModel(img, team, part = '') {
   GFX.suitCache = GFX.suitCache || {};
-  if (GFX.suitCache[team.id]) return GFX.suitCache[team.id];
+  if (GFX.suitCache[team.id + part]) return GFX.suitCache[team.id + part];
   const w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, w, h), p = d.data;
   const rgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
@@ -1219,7 +1319,7 @@ function suitFromModel(img, team) {
   }
   g.putImageData(d, 0, 0);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.userData.keep = true;
-  return (GFX.suitCache[team.id] = tex);
+  return (GFX.suitCache[team.id + part] = tex);
 }
 // seated driver from the rigged model: reclined in the tub, hands reaching for the wheel (see updateArms)
 function makeAvatar(team, body) {
