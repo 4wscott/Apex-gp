@@ -32,6 +32,7 @@ await click('.modes [data-v="career"]');await wait(700);await shot('career-new')
 await ev(()=>document.querySelector('#cr-start')&&document.querySelector('#cr-start').click());await wait(1500);await shot('career-hub');
 await click('.modes [data-v="online"]');await wait(700);await shot('online');
 await click('#drawer-close');await click('.modes [data-v="race"]');await wait(400);
+if(process.argv[4]==='menu'){console.log('errors',errs.length?errs:'none');await br.close();return;}
 // ---- grand prix ----
 await click('#start');await wait(1500);await shot('loading');await wait(5000);
 await shot('grid-lights','phase '+await ev(()=>App.session.race.phase));
