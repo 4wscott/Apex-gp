@@ -434,7 +434,7 @@ const App = {
     else {
       // stand on the pit-wall side of the track, a little ahead of the line, looking back across at the car and the grandstand
       // low and tilted up a touch: car in the lower half, grandstand and the fireworks above it
-      const k = 5.6, f = -7.8, wide = Math.max(0, 1.3 - this.camera.aspect) * 4;
+      const k = 5.6, f = -7.8, wide = Math.max(0, 1.3 - this.camera.aspect) * 11; // tall screens step back to fit the whole car
       const p = W(T.px[i] - T.nx[i] * (k + wide) + T.tx[i] * f, T.py[i] - T.ny[i] * (k + wide) + T.ty[i] * f, 0);
       this.camera.position.set(p.x, 1.25, p.z); this.camera.lookAt(c.x + (c.x - p.x) * 0.0, 2.3, c.z);
     }

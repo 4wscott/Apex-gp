@@ -114,7 +114,7 @@ body.touch #pause .table-wrap { display: none; }
 #topbar .modes button[aria-pressed="true"] { background: none; color: var(--fg); border-bottom-color: var(--accent); }
 #topbar .modes button:hover { color: var(--fg); }
 .iconbtn { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: rgba(27,32,41,0.85); color: var(--fg); font-size: 20px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
-.menu-inner { position: absolute; z-index: 6; top: 64px; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 86px; width: min(560px, calc(100% - 24px)); max-width: none !important; overflow-y: auto; background: rgba(13,16,21,0.96); border: 1px solid var(--line); border-radius: 14px; padding: 0 16px 20px !important; gap: 14px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+.menu-inner { box-sizing: border-box; position: absolute; z-index: 6; top: 64px; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 86px; width: min(560px, calc(100% - 24px)); max-width: none !important; overflow-y: auto; background: rgba(13,16,21,0.96); border: 1px solid var(--line); border-radius: 14px; padding: 0 16px 20px !important; gap: 14px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
 #menu:not([data-drawer]) .menu-inner { display: none !important; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; margin: 0 -16px; padding: 12px 16px; background: rgb(13,16,21); border-radius: 14px 14px 0 0; z-index: 2; }
 .drawer-head b { font-family: var(--f-display); font-size: 22px; text-transform: uppercase; color: var(--accent); }
@@ -159,8 +159,27 @@ body.touch #pause .table-wrap { display: none; }
 #pt-stats .ovr b { font-size: 14px; color: var(--fg); font-family: var(--f-display); }
 #menu { touch-action: none; }
 #menu .menu-inner, #menu .strip { touch-action: pan-y pan-x; }
-@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span, #open-opts span { display: none; } #start { min-width: 110px; } #pt-stats { grid-template-columns: auto; gap: 1px; padding-block: 3px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 34px; } }
-@media (max-width: 760px) { #open-opts { display: none; } #topbar .logo { display: none; } }
+@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span { display: none; } #open-opts span { font-size: 11px; } #start { min-width: 110px; } #pt-stats { grid-template-columns: auto; gap: 1px; padding-block: 3px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 34px; } }
+@media (max-width: 760px) { #topbar .logo { display: none; } }
+#topbar .modes button { flex: 0 0 auto; }
+/* phone held upright: short tab names, pickers stacked full width, settings + start side by side */
+@media (max-width: 600px) {
+  #topbar { gap: 8px; }
+  #topbar .modes { gap: 0; }
+  #topbar .modes button { padding: 8px 5px 6px; }
+  #topbar .modes button b { font-size: 13px; letter-spacing: 0; }
+  #topbar .iconbtn { width: 36px; height: 36px; font-size: 18px; }
+  #pt-stats { grid-template-columns: auto; gap: 1px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 40px; }
+  #topbar .modes b[data-short] { font-size: 0; }
+  #topbar .modes b[data-short]::after { content: attr(data-short); font-size: 13px; }
+  .startbar { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; padding-top: 10px !important; }
+  #pickers { display: contents; }
+  .pick { grid-column: 1 / -1; max-width: none; }
+  #pick-team { max-width: none; }
+  #open-opts { display: grid; max-width: none; }
+  #start { min-width: 0; width: 100%; }
+  .menu-inner { bottom: 12px; z-index: 7; }
+}
 
 .modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .modes button { display: grid; gap: 2px; text-align: left; padding: 12px 12px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; min-width: 0; }
@@ -373,9 +392,9 @@ body.touch #h-track { display: none; }
       <h1 class="logo">Apex <span>GP</span></h1>
       <nav class="modes" data-set="mode" aria-label="Game mode">
         <button type="button" data-v="career"><b>Career</b><span>Seasons, points, upgrades</span></button>
-        <button type="button" data-v="race"><b>Grand Prix</b><span>One race, your rules</span></button>
+        <button type="button" data-v="race"><b data-short="GP">Grand Prix</b><span>One race, your rules</span></button>
         <button type="button" data-v="practice"><b>Practice</b><span>Any circuit, unlimited laps</span></button>
-        <button type="button" data-v="trial"><b>Time trial</b><span>Beat your ghost</span></button>
+        <button type="button" data-v="trial"><b data-short="Trial">Time trial</b><span>Beat your ghost</span></button>
         <button type="button" data-v="online"><b>Online</b><span>Race friends</span></button>
       </nav>
       <button type="button" class="iconbtn" id="m-gear" aria-label="Settings">⚙</button>
