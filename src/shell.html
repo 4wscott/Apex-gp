@@ -125,6 +125,7 @@ body.race-settings .menu-inner { top: 16px; bottom: 16px; }
 #menu[data-drawer="circuits"] #circuits, #menu[data-drawer="teams"] #teams { flex-wrap: wrap; overflow: visible; }
 #menu[data-drawer="circuits"] #circuits > .circuit { width: calc(50% - 5px); }
 #menu[data-drawer="teams"] #teams > .team { width: 100%; }
+@media (max-height: 500px), (max-width: 700px) { #menu[data-drawer="teams"] #teams { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px; } #menu[data-drawer="teams"] #teams > .team { width: auto; padding: 8px; } }
 #menu[data-drawer="opts"] #race-opts > summary { display: none; }
 #race-opts[open], #race-only { display: grid; gap: 16px; }
 #menu[data-drawer] .menu-inner, #menu[data-drawer] #p-race { align-content: start; }

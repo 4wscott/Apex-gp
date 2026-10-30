@@ -1323,7 +1323,7 @@ function suitFromModel(img, team, part = '') {
   const A = rgb(team.c1), B = rgb(lum(team.c2) > 0.18 ? team.c2 : team.c3);
   for (let i = 0; i < p.length; i += 4) {
     const r = p[i], gg = p[i + 1], b = p[i + 2], L = (0.3 * r + 0.59 * gg + 0.11 * b) / 255, sat = (Math.max(r, gg, b) - Math.min(r, gg, b)) / 255;
-    const t = sat < 0.25 && L > 0.62 ? 1 : 0, shade = 0.45 + 0.75 * Math.min(1, L * 1.3);   // light neutral panels take the second colour
+    const t = sat < 0.12 && L > 0.86 ? 1 : 0, shade = 0.84 + 0.2 * Math.min(1, L * 1.2);   // only the brightest trim takes the second colour; the rest is the team colour with soft shading
     for (let k = 0; k < 3; k++) p[i + k] = Math.min(255, (t ? B[k] : A[k]) * shade);
   }
   g.putImageData(d, 0, 0);

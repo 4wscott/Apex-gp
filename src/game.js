@@ -874,11 +874,11 @@ const Hud = {
     $('#h-wing').hidden = P.wingHealth > 0.85;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
-    $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the clock runs from lights out
+    $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.mode !== 'race' ? 'Out lap' : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the race clock runs from lights out
     $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
     $('#h-delta').className = this.delta === null ? '' : this.delta < 0 ? 'good' : 'bad';
-    $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : race.quali ? 'Qualifying' : 'Time trial';
+    $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : race.quali ? 'Qualifying' : race.mode === 'practice' ? 'Practice' : 'Time trial';
     // sectors in progress
     const secs = $$('.sec');
     secs.forEach((el, i) => {
