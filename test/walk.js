@@ -9,7 +9,7 @@ const ctx=await br.newContext(phone?{viewport:{width:844,height:390},hasTouch:tr
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP0+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('**/iframe_api',r=>r.fulfill({body:'',contentType:'text/javascript'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
 const q=+(process.argv[3]||0);
-await page.addInitScript((q)=>{if(!localStorage.getItem('apexgp.settings'))localStorage.setItem('apexgp.settings',JSON.stringify({quality:q,v:4,mode:'race',track:'silver',opponents:7,laps:3,camera:'cockpit'}))},q);
+await page.addInitScript((q)=>{if(!localStorage.getItem('apexgp.settings'))localStorage.setItem('apexgp.settings',JSON.stringify({quality:q,v:5,mode:'race',track:'silver',opponents:7,laps:3,camera:'cockpit'}))},q);
 await page.goto('http://local/');await page.waitForTimeout(7000);
 const ev=(f,a)=>page.evaluate(f,a);let n=0;
 const shot=async(name,note)=>{n++;const f=OUT+part+'-'+String(n).padStart(2,'0')+'-'+name+'.png';await page.screenshot({path:f,timeout:180000});

@@ -78,6 +78,7 @@ const App = {
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
     this.preview(settings.track);
+    setTimeout(() => this.loadHQ(), 2500);
   },
   // post-processing chain per quality: AO (High+), bloom, filmic output, SMAA
   setupComposer() {
@@ -123,6 +124,28 @@ const App = {
     comp.addPass(grade); this.grade = grade;
     this.smaa = new SMAAPass(innerWidth * r.getPixelRatio(), innerHeight * r.getPixelRatio()); comp.addPass(this.smaa);
     this.composer = comp;
+  },
+  // high-resolution pack (site hq/ folder) for PCs on High or Ultra: 2K ground textures, and 1K lighting images that
+  // replace the 512 px ones once downloaded; everything keeps working with the bundled versions until then, or offline
+  hqOn() { return !IS_TOUCH && settings.quality >= 2 && location.protocol.startsWith('http'); },
+  loadHQ() {
+    if (this.hqLoaded || !this.hqOn()) return;
+    this.hqLoaded = true;
+    applyHQTextures(GFX.tex);
+    if (this.hdriName) this.hqHDRI(this.hdriName);
+  },
+  hqHDRI(name) {
+    if (!this.hqLoaded || !this.hqOn()) return;
+    const C = this.hdriCache[name]; if (!C || C.hq || C.hqLoading) return;
+    C.hqLoading = true;
+    new RGBELoader().setDataType(THREE.FloatType).load('hq/' + name + '.hdr', (tex) => {
+      const d = tex.image.data; for (let i = 0; i < d.length; i++) if (d[i] > 6) d[i] = 6; // same sun-hotspot cap as the bundled ones
+      tex.mapping = THREE.EquirectangularReflectionMapping; tex.needsUpdate = true;
+      const pm = new THREE.PMREMGenerator(this.renderer), env = pm.fromEquirectangular(tex).texture; pm.dispose(); tex.dispose();
+      const old = C.env; C.env = env; C.hq = true;
+      if (this.scene.environment === old) this.scene.environment = env;
+      old.dispose();
+    }, undefined, () => { C.hqLoading = false; C.hq = true; /* not on this host: keep the bundled one */ });
   },
   // High and Ultra: the player's paint reflects the real surroundings (a cube camera riding with the car) and the sun flares the lens
   setupRealism(P) {
@@ -220,6 +243,7 @@ const App = {
       this.hdriCache[hdriName] = { env: pm.fromEquirectangular(h.tex).texture, sunDir: h.sunDir }; h.tex.dispose(); pm.dispose();
     }
     const H = this.hdriCache[hdriName];
+    this.hdriName = hdriName; this.hqHDRI(hdriName);
     // keep the HDRI's sun but never let it sit too low for readable shadows
     const sunDir = night ? new THREE.Vector3(0.15, 1, 0.2).normalize() : H.sunDir.clone();
     if (!night && sunDir.y < 0.35) { sunDir.y = 0.35; sunDir.normalize(); }
@@ -1234,7 +1258,7 @@ const Menu = {
         const key = el.dataset.set; let v = btn.dataset.v;
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
         settings[key] = v; saveSettings(); this.sync();
-        if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
+        if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
         if (key === 'camera' && App.session) App.session.camMode = v;

@@ -72,6 +72,18 @@ function applyPhotoTextures(tx) {
   }
 }
 
+// PC High/Ultra: the same ground textures at 2K, fetched from the site's hq/ folder after the menu is up.
+// Each image replaces the bundled one (and every repeated clone of it) as soon as it decodes; missing files are skipped.
+function applyHQTextures(tx) {
+  if (typeof PHOTO_TEX === 'undefined') return;
+  for (const k of Object.keys(PHOTO_TEX)) {
+    const t = tx[k]; if (!t) continue;
+    const img = new Image(); img.decoding = 'async';
+    img.onload = () => { for (const u of [t, ...(CLONES.get(t) || [])]) { u.dispose(); u.image = img; u.anisotropy = GFX.maxAniso; u.needsUpdate = true; } };
+    img.src = 'hq/' + k + '.jpg';
+  }
+}
+
 function makeGarageTex() {
   return canvasTex(2048, 256, (g, w, h) => {
     g.fillStyle = '#eceef0'; g.fillRect(0, 0, w, h);

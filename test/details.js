@@ -6,7 +6,7 @@ const tag=process.argv[2]||'a';
 const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript(()=>{try{localStorage.setItem('apexgp.settings','{"quality":1,"mirrors":false,"v":3,"team":"ardent"}')}catch(e){}});
+await page.addInitScript(()=>{try{localStorage.setItem('apexgp.settings','{"quality":1,"mirrors":false,"v":5,"team":"ardent"}')}catch(e){}});
 await page.goto('http://local/');await page.waitForTimeout(5000);
 const views={L:[0.3,1.3,-4.4,0,0.6,0],R:[0.3,1.3,4.4,0,0.6,0]};
 await page.evaluate(()=>{document.querySelector('#menu').hidden=true;const m=App.previewCar;m.grp.traverse(o=>{if(o.isMesh&&o.geometry===GFX.geo.carbon){}});});

@@ -6,7 +6,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><style>[hidden]{dis
 const page=await br.newPage({viewport:{width:1280,height:720}});const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP0+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('**/iframe_api',r=>r.fulfill({body:'',contentType:'text/javascript'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript(()=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:4,mode:'practice',track:'silver',camera:'chase'}))});
+await page.addInitScript(()=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:5,mode:'practice',track:'silver',camera:'chase'}))});
 await page.goto('http://local/');await page.waitForTimeout(6000);
 // change circuit in the menu first, like a player, then start
 await page.evaluate(()=>{document.querySelector('#pick-circuit .arr[data-d="1"]').click();});await page.waitForTimeout(3000);

@@ -6,7 +6,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><style>[hidden]{dis
 const page=await br.newPage({viewport:{width:1280,height:720}});const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP0+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('**/iframe_api',r=>r.fulfill({body:'',contentType:'text/javascript'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript((t)=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:4,mode:'practice',track:t,camera:'chase',traffic:3}))},process.argv[2]||'silver');
+await page.addInitScript((t)=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:5,mode:'practice',track:t,camera:'chase',traffic:3}))},process.argv[2]||'silver');
 await page.goto('http://local/');await page.waitForTimeout(6000);
 await page.evaluate(()=>document.querySelector('#start').click());await page.waitForTimeout(6000);
 const clk=async(sel)=>{await page.mouse.click(...await page.$eval(sel,e=>{const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];}));await page.waitForTimeout(1200);};

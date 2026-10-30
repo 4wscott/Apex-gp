@@ -39,4 +39,7 @@ fs.writeFileSync(path.join(site, 'sw.js'), fs.readFileSync(path.join(__dirname, 
 fs.copyFileSync(path.join(__dirname, 'pwa', 'manifest.webmanifest'), path.join(site, 'manifest.webmanifest'));
 for (const f of fs.readdirSync(path.join(__dirname, 'pwa', 'icons'))) fs.copyFileSync(path.join(__dirname, 'pwa', 'icons', f), path.join(site, 'icons', f));
 fs.writeFileSync(path.join(site, '.nojekyll'), '');
+// high-resolution pack for PCs on High/Ultra (see assets/make_hq.py)
+fs.mkdirSync(path.join(site, 'hq'), { recursive: true });
+for (const f of fs.readdirSync(path.join(__dirname, 'assets', 'hq'))) fs.copyFileSync(path.join(__dirname, 'assets', 'hq', f), path.join(site, 'hq', f));
 console.log('site/ built', BUILD);

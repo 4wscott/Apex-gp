@@ -2,14 +2,14 @@
 // The game page is checked against the server on every launch (a cheap "not modified" reply when nothing
 // changed), so published updates arrive on their own; the cached copy is used when offline or on a slow link.
 const BUILD = '__BUILD__';
-const PAGE = 'apex-page', LIBS = 'apex-libs-v1';
+const PAGE = 'apex-page', LIBS = 'apex-libs-v1', HQ = 'apex-hq-v1';
 const CORE = ['./', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(PAGE).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'no-cache' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== PAGE && k !== LIBS).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== PAGE && k !== LIBS && k !== HQ).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
 self.addEventListener('message', (e) => { if (e.data === 'build') e.source && e.source.postMessage({ build: BUILD }); });
 
@@ -35,6 +35,11 @@ self.addEventListener('fetch', (e) => {
   // three.js and fonts are versioned: cache first
   if (/cdn\.jsdelivr\.net|fonts\.(googleapis|gstatic)\.com/.test(url.host)) {
     e.respondWith(caches.open(LIBS).then(async (c) => (await c.match(req)) || fetch(req).then((res) => { if (res.ok || res.type === 'opaque') c.put(req, res.clone()); return res; })));
+    return;
+  }
+  // the high-resolution pack: fetched once, then from the cache (bump HQ when its files change)
+  if (url.origin === location.origin && url.pathname.includes('/hq/')) {
+    e.respondWith(caches.open(HQ).then(async (c) => (await c.match(req)) || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; })));
     return;
   }
   // everything else on this site (icons, manifest)
