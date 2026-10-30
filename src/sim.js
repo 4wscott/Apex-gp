@@ -925,8 +925,10 @@ class Race {
     if (q.phase === 'in' || q.phase === 'queue') {
       const lim = q.s >= P.speedLine1 ? PIT_SPEED : Math.max(PIT_SPEED, q.v - 16 * dt);           // brake to the limiter by the speed line
       const vStop = Math.sqrt(Math.max(0, 2 * 7 * (target - q.s)));
-      q.v = Math.min(lim, Math.max(q.v - 16 * dt, 0), vStop);
-      if (target - q.s < 0.03 || q.v < 0.15) {
+      // brake down to the limiter, hold it along the lane (pulling away again from a queue), then brake into the box
+      const toLim = q.v > lim ? Math.max(lim, q.v - 16 * dt) : Math.min(lim, q.v + 6 * dt);
+      q.v = Math.max(0, Math.min(toLim, vStop));
+      if (target - q.s < 0.03 || (q.v < 0.15 && target - q.s < 0.6)) {
         q.v = 0;
         if (!busy) { q.phase = 'stop'; q.t = 0; this.emit('pitstop', { car: c, service: q.service }); } else q.phase = 'queue';
       }
