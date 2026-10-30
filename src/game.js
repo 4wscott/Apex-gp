@@ -227,9 +227,14 @@ const App = {
   teamAccent(team) {
     const lum = (h) => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
     const sat = (h) => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255]; return Math.max(...c) - Math.min(...c); };
-    // prefer a vivid colour bright enough to read on near-black; plain white/grey only as a last resort
-    const cands = [team.c1, team.c2, team.c3, team.tip].filter(Boolean).filter((h) => lum(h) > 0.12);
-    const pick = cands.sort((a, b) => (sat(b) > 60) - (sat(a) > 60) || lum(b) - lum(a))[0] || '#ffd21f';
+    // the team's main colour, lifted toward white until it reads on the near-black UI; greys and whites fall through to the next colour
+    const lift = (h) => {
+      const c = new THREE.Color(h), hsl = {}; c.getHSL(hsl);
+      for (let k = 0; k < 20 && lum('#' + c.getHexString()) < 0.16; k++) c.setHSL(hsl.h, Math.max(hsl.s, 0.75), (hsl.l = Math.min(0.62, hsl.l + 0.03)));
+      return '#' + c.getHexString();
+    };
+    const base = [team.c1, team.c2, team.c3, team.tip].filter(Boolean).find((h) => sat(h) > 60);
+    const pick = base ? lift(base) : '#ffd21f';
     const m = $('#menu'); m.style.setProperty('--accent', pick); m.style.setProperty('--accent-ink', lum(pick) > 0.35 ? '#111' : '#fff');
   },
   // online race from the host's start message
@@ -1053,7 +1058,9 @@ const Menu = {
     if (d === 'opts') $('#race-opts').open = true;
     const tab = d === 'settings' ? ($$('.tab').find((t) => t.getAttribute('aria-selected') === 'true' && t.dataset.panel !== 'p-race') || $$('.tab')[1]) : $$('.tab')[0];
     tab.click(); $('.menu-inner').scrollTop = 0;
-  },
+    // open lists at the current pick
+    const cur = d === 'teams' ? $('.team.sel') : d === 'circuits' ? $('.circuit[aria-pressed="true"]') : null;
+    if (cur) { const mi = $('.menu-inner'); mi.scrollTop += cur.getBoundingClientRect().top - mi.getBoundingClientRect().top - 70; }  },
   // ‹ › on the bottom-bar pickers
   cycle(kind, dir) {
     if (kind === 'circuit') {

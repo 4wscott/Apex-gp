@@ -116,6 +116,11 @@ body.race-settings .menu-inner { top: 16px; bottom: 16px; }
 #menu[data-drawer="circuits"] #circuits > .circuit { width: calc(50% - 5px); }
 #menu[data-drawer="teams"] #teams > .team { width: 100%; }
 #menu[data-drawer="opts"] #race-opts > summary { display: none; }
+#race-opts[open], #race-only { display: grid; gap: 16px; }
+#menu[data-drawer="opts"] #race-opts { background: none; border: 0; padding: 0; }
+#menu[data-drawer="opts"] .row { grid-template-columns: 1fr; gap: 8px; }
+#menu[data-drawer="opts"] .row label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+#menu[data-drawer="opts"] .row input[type=range] { flex: 1; }
 .startbar { z-index: 5; gap: 12px !important; }
 #pickers { display: flex; gap: 10px; flex: 1; min-width: 0; align-items: stretch; }
 .pick { display: flex; align-items: stretch; background: rgba(27,32,41,0.88); border: 1px solid var(--line); border-radius: 10px; min-width: 0; flex: 1 1 0; max-width: 340px; }
