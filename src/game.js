@@ -8,15 +8,17 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'game', weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', ytUrl: '', weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
-// phones start on lighter settings; saved choices still win
-if (IS_TOUCH) Object.assign(DEFAULTS, { quality: IS_PHONE ? 0 : 1, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60 });
+// touch devices start with fewer rivals and the chase camera; saved choices still win
+if (IS_TOUCH) Object.assign(DEFAULTS, { quality: 2, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60 });
 const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 // v2: arrow buttons became the default phone steering
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
+// v3: High graphics by default everywhere, music from a YouTube playlist
+if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -58,7 +60,7 @@ const App = {
     this.input = new Input(); this.audio = new AudioEngine();
     this.music = new Music(this.audio);
     // browsers only allow sound after a tap or key press: start the menu music on the first one
-    const wake = () => { applyAudioSession(); this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); this.music.setDuck(this.session ? raceMusic() : 1); };
+    const wake = () => { applyAudioSession(); this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube' && !YTMusic.player) YTMusic.play().catch(() => this.music.start()); this.music.setDuck(this.session ? raceMusic() : 1); };
     // unlock on every kind of gesture until the audio is really running (iOS only accepts touchend/click)
     const unlock = () => { wake(); if (this.audio.ctx && this.audio.ctx.state === 'running') ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => removeEventListener(e, unlock, true)); };
     ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => addEventListener(e, unlock, true));
@@ -233,7 +235,7 @@ const App = {
   start(cfg) {
     cfg = cfg || null; this.cfg = cfg;
     this.audio.start(); this.audio.setVolume(settings.volume);
-    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); this.music.setDuck(raceMusic());
+    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); YTMusic.dock(true);
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
     $('#loading').hidden = false; $('#menu').hidden = true;
@@ -349,7 +351,7 @@ const App = {
   quit() {
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
-    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1);
+    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1); YTMusic.dock(false);
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
     $('#r-again').textContent = 'Race again'; $('#r-menu').textContent = 'Main menu'; $('#r-menu').hidden = false;
     $('#res-head').innerHTML = '<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr>';
@@ -420,6 +422,7 @@ const App = {
       race.requestPit(P, next);
       Hud.banner(next ? `Box this lap: ${COMPOUNDS[next].name} tyres` : 'Pit stop cancelled', next ? 'info' : 'warn');
     }
+    if (settings.musicSource === 'youtube') { if (inp.spNextPressed) { YTMusic.next(); Hud.flash('Next track'); } if (inp.spPlayPressed) YTMusic.toggle(); }
     if (settings.musicSource === 'spotify' && Spotify.connected()) {
       if (inp.spNextPressed) Spotify.next().then(() => Hud.flash('Spotify: next track')).catch((e) => Hud.flash(e.message));
       if (inp.spPlayPressed) Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())).catch((e) => Hud.flash(e.message));
@@ -919,6 +922,15 @@ const Results = {
 
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
+  // YouTube music panel
+  initYouTube() {
+    $('#yt-url').value = settings.ytUrl || ''; $('#yt-url').placeholder = YT_DEFAULT;
+    const set = () => { settings.ytUrl = $('#yt-url').value.trim(); saveSettings(); };
+    $('#yt-load').onclick = () => { set(); if (settings.ytUrl && !YTMusic.parse(settings.ytUrl)) { $('#yt-msg').textContent = 'That doesn\'t look like a YouTube playlist or video link.'; return; } $('#yt-msg').textContent = 'Loading…'; YTMusic.play(settings.ytUrl || YT_DEFAULT).then(() => ($('#yt-msg').textContent = '')).catch((e) => ($('#yt-msg').textContent = e.message)); };
+    $('#yt-default').onclick = () => { $('#yt-url').value = ''; set(); YTMusic.play(YT_DEFAULT).catch(() => {}); };
+    $('#yt-prev').onclick = () => YTMusic.prev(); $('#yt-next').onclick = () => YTMusic.next(); $('#yt-pp').onclick = () => YTMusic.toggle();
+    YTMusic.onChange = () => { $('#yt-now').textContent = YTMusic.failed ? (YTMusic.msg || 'YouTube unavailable') : YTMusic.title() ? '▶ ' + YTMusic.title() : ''; };
+  },
   // Spotify panel
   initSpotify() {
     $('#sp-client').value = store.get('sp.client', '');
@@ -967,7 +979,7 @@ const Menu = {
     Net.onLeft = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (!c) return; c.net = null; c.x = 1e5; c.y = 1e5; if (c.mesh) c.mesh.grp.visible = false; Hud.banner(`${c.driver.name} left the race`, 'warn'); };
   },
   init() {
-    this.initOnline(); this.initSpotify();
+    this.initOnline(); this.initSpotify(); this.initYouTube();
     // circuits
     const grid = $('#circuits');
     TRACKS.forEach((spec) => {
@@ -989,7 +1001,7 @@ const Menu = {
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
-        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'spotify') this.spotifyUI(); }
+        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'youtube') YTMusic.play().catch(() => {}); else YTMusic.stop(); if (v === 'spotify') this.spotifyUI(); }
       });
     });
     const range = (id, key, fmt, scale = 1) => {
@@ -1075,7 +1087,7 @@ const Menu = {
     const career = settings.mode === 'career';
     $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${TEAMS.find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
       : `<b>${settings.mode === 'race' ? 'Grand Prix' : 'Time trial'}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
-    $('#sp-panel').hidden = settings.musicSource !== 'spotify';
+    $('#sp-panel').hidden = settings.musicSource !== 'spotify'; $('#yt-panel').hidden = settings.musicSource !== 'youtube';
     const online = settings.mode === 'online';
     $('#race-only').hidden = settings.mode !== 'race' && !online; $('#opps').closest('.row').hidden = online; $('#aipace').closest('.row').hidden = online; $('[data-set="grid"]').closest('.row').hidden = online;
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
@@ -1114,5 +1126,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd;
+window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

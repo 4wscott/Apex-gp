@@ -11,7 +11,7 @@ const which=process.argv[2]||'all';
  await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
  await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));
  await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
- await page.addInitScript(p=>{try{localStorage.setItem('apexgp.settings',p)}catch(e){}},process.env.PRE||'{"quality":0,"mirrors":false,"v":2}');
+ await page.addInitScript(p=>{try{localStorage.setItem('apexgp.settings',p)}catch(e){}},process.env.PRE||'{"quality":0,"mirrors":false,"v":3}');
  await page.goto('http://local/');await page.waitForTimeout(2500);
  const ev=(f,a)=>page.evaluate(f,a);
  const log=(...a)=>console.log(...a);

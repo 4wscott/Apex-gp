@@ -178,7 +178,7 @@ class Music {
   stop() { this.on = false; clearInterval(this.timer); this.apply(); }
   setLevel(v) { this.level = v; this.apply(); }
   setDuck(v) { this.duck = v; this.apply(); }
-  apply() { if (this.bus) this.bus.gain.setTargetAtTime(this.on ? this.level * this.duck * 0.9 : 0, this.audio.ctx.currentTime, 0.4); }
+  apply() { if (typeof YTMusic !== 'undefined') YTMusic.setVolume(this.level * this.duck); if (this.bus) this.bus.gain.setTargetAtTime(this.on ? this.level * this.duck * 0.9 : 0, this.audio.ctx.currentTime, 0.4); }
   // chords (A minor family) and a melody per cycle
   makeSong() {
     const progs = [[0, 5, 2, 6], [5, 6, 0, 0], [0, 3, 5, 6], [5, 2, 6, 0], [0, 6, 5, 6]];

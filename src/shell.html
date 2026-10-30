@@ -147,6 +147,10 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 #dash.compact { display: none; }
 #h-wing { color: var(--red); font-weight: 700; }
 #sp-now { margin: 6px 0; font-weight: 600; }
+#yt-dock { position: fixed; z-index: 30; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 64px); width: 200px; height: 113px; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.45); background: #000; }
+#yt-dock iframe { width: 200px; height: 113px; border: 0; display: block; }
+body.yt-race #yt-dock { bottom: auto; right: max(16px, env(safe-area-inset-right, 0px)); top: 172px; opacity: 0.9; }
+body.touch.yt-race #yt-dock { top: 128px; transform: scale(0.8); transform-origin: top right; }
 #h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 .banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
@@ -260,7 +264,8 @@ body.touch #h-track { display: none; }
     <div id="h-track"></div>
   </div>
 
-  <div id="touch" hidden></div>
+  <div id="yt-dock" hidden></div>
+<div id="touch" hidden></div>
   <div id="rotate" hidden>Turn your phone sideways to race.</div>
 
   <div id="menu">
@@ -349,8 +354,16 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label for="fov">Field of view</label><div class="ctl"><input id="fov" type="range" min="45" max="90" step="1"><output id="fov-out"></output></div></div>
         <div class="row"><label for="vol">Volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
-        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
+        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="youtube">YouTube playlist</button><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
         <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
+        <div id="yt-panel" hidden>
+          <div class="row"><label for="yt-url">Playlist link</label><div class="ctl"><input id="yt-url" type="url" autocomplete="off" spellcheck="false"> <button type="button" class="btn" id="yt-load">Play</button></div></div>
+          <p class="hint">Paste any YouTube playlist or video link (from the YouTube app: Share → Copy link). Leave it empty for the default hardstyle playlist. <button type="button" class="btn" id="yt-default">Use default</button></p>
+          <p class="sp-now" id="yt-now" aria-live="polite"></p>
+          <div class="actions"><button type="button" class="btn" id="yt-prev" aria-label="Previous track">⏮</button><button type="button" class="btn primary" id="yt-pp" aria-label="Play or pause">⏯</button><button type="button" class="btn" id="yt-next" aria-label="Next track">⏭</button></div>
+          <p class="hint">During a race: <kbd>N</kbd> next track, <kbd>K</kbd> play/pause. The music needs an internet connection; offline the built-in hardstyle plays instead.</p>
+          <p class="hint" id="yt-msg" aria-live="polite"></p>
+        </div>
         <div id="sp-panel" hidden>
           <div class="row"><label for="sp-client">Spotify Client ID</label><div class="ctl"><input id="sp-client" type="text" autocomplete="off" spellcheck="false" placeholder="32 letters and numbers from developer.spotify.com"></div></div>
           <p class="hint" id="sp-redirect"></p>

@@ -5,7 +5,7 @@ const html='<!doctype html><html><head><meta charset="utf-8"><style>[hidden]{dis
 const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript(()=>{try{localStorage.setItem('apexgp.settings','{"quality":1,"mirrors":false,"v":2,"camera":"chase"}')}catch(e){}});
+await page.addInitScript(()=>{try{localStorage.setItem('apexgp.settings','{"quality":1,"mirrors":false,"v":3,"camera":"chase"}')}catch(e){}});
 await page.goto('http://local/');await page.waitForTimeout(6000);
 await page.evaluate(()=>{document.querySelector('#menu').hidden=true;});
 // fly the camera to the first corner grandstand
