@@ -215,7 +215,17 @@ const App = {
     const i = Math.round(30 / T.ds);
     this.previewCar.grp.position.copy(W(T.px[i] + T.nx[i] * T.lineO[i], T.py[i] + T.ny[i] * T.lineO[i], 0));
     this.previewCar.grp.rotation.y = Math.atan2(T.ty[i], T.tx[i]);
-    this.previewT = 0; this.previewTrack = T;
+    this.previewT = 0; this.previewTrack = T; this.previewYaw = this.previewCar.grp.rotation.y; this.previewSpin = this.previewSpin || 0;
+    this.teamAccent(team);
+  },
+  // menu accent follows the team: its brightest livery colour, readable on the dark UI
+  teamAccent(team) {
+    const lum = (h) => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const sat = (h) => { const n = parseInt(h.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255]; return Math.max(...c) - Math.min(...c); };
+    // prefer a vivid colour bright enough to read on near-black; plain white/grey only as a last resort
+    const cands = [team.c1, team.c2, team.c3, team.tip].filter(Boolean).filter((h) => lum(h) > 0.12);
+    const pick = cands.sort((a, b) => (sat(b) > 60) - (sat(a) > 60) || lum(b) - lum(a))[0] || '#ffd21f';
+    const m = $('#menu'); m.style.setProperty('--accent', pick); m.style.setProperty('--accent-ink', lum(pick) > 0.35 ? '#111' : '#fff');
   },
   // online race from the host's start message
   startOnline(m) {
@@ -399,7 +409,10 @@ const App = {
   menuFrame(dt) {
     if (!this.previewCar || !this.previewTrack) return;
     this.previewT += dt * 0.12;
-    const c = this.previewCar.grp.position, a = this.previewT;
+    // turntable: the camera holds still while the car turns; a drag spins it by hand and it carries on after a pause
+    if (!this.spinDrag && performance.now() - (this.spinTouched || 0) > 2500) this.previewSpin += dt * 0.22;
+    this.previewCar.grp.rotation.y = this.previewYaw + this.previewSpin;
+    const c = this.previewCar.grp.position, a = 0.55;
     this.camera.fov = 38; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
     if (window.DEBUG_CAM) { const d = window.DEBUG_CAM; this.camera.position.set(c.x + d[0], d[1], c.z + d[2]); this.camera.lookAt(c.x + (d[3] || 0), d[4] ?? 0.5, c.z + (d[5] || 0)); }
     else { this.camera.position.set(c.x + Math.cos(a) * 7.5, 1.6 + Math.sin(a * 0.7) * 0.4, c.z + Math.sin(a) * 7.5); this.camera.lookAt(c.x, 0.55, c.z); }
@@ -1057,6 +1070,12 @@ const Menu = {
     $('#open-opts').onclick = () => this.drawer('opts');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
     $('#start').onclick = () => App.start();
+    // drag the empty showroom to spin the car
+    const menu = $('#menu');
+    menu.addEventListener('pointerdown', (e) => { if (e.target !== menu) return; App.spinDrag = { x: e.clientX }; menu.setPointerCapture(e.pointerId); });
+    menu.addEventListener('pointermove', (e) => { if (!App.spinDrag) return; App.previewSpin += (e.clientX - App.spinDrag.x) * 0.012; App.spinDrag.x = e.clientX; });
+    const endSpin = () => { if (App.spinDrag) { App.spinDrag = null; App.spinTouched = performance.now(); } };
+    menu.addEventListener('pointerup', endSpin); menu.addEventListener('pointercancel', endSpin);
     // showroom keys, like the bumpers in console racers: Q/E change mode, Enter starts, Esc closes a panel
     addEventListener('keydown', (e) => {
       if ($('#menu').hidden || App.session || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName)) return;
@@ -1147,6 +1166,8 @@ const Menu = {
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
     $('#pc-name').textContent = spec.name; $('#pc-meta').textContent = spec.country;
     $('#pt-name').textContent = dr.name; $('#pt-meta').textContent = team.name;
+    const st = teamStats(team);
+    $('#pt-stats').innerHTML = [['PWR', st.power], ['AERO', st.aero], ['DRV', st.drivers]].map(([k, v]) => `<i><em>${k}</em><u><s style="width:${Math.max(0, (v - 40) / 59 * 100).toFixed(0)}%"></s></u></i>`).join('') + `<i class="ovr"><em>OVR</em><b>${st.overall}</b></i>`;
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
     $('#pickers').hidden = career || online;
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;

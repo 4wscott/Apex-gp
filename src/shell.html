@@ -123,7 +123,16 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.0
 .pick-body span, #open-opts span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #open-opts { display: grid; text-align: left; padding: 6px 14px; min-width: 0; max-width: 260px; background: rgba(27,32,41,0.88); }
 #start { min-width: 150px; font-size: 20px; }
-@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span, #open-opts span { display: none; } #start { min-width: 110px; } }
+#pick-team { max-width: 470px; flex-grow: 1.4; }
+#pt-stats { display: grid; grid-template-columns: auto auto; gap: 2px 8px; align-content: center; padding: 6px 4px 6px 8px; border-left: 1px solid var(--line); font-size: 10px; color: var(--muted); }
+#pt-stats i { display: flex; align-items: center; gap: 5px; font-style: normal; }
+#pt-stats em { font-style: normal; width: 30px; letter-spacing: 0.04em; }
+#pt-stats u { display: block; width: 46px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; }
+#pt-stats s { display: block; height: 100%; background: var(--accent); }
+#pt-stats .ovr b { font-size: 14px; color: var(--fg); font-family: var(--f-display); }
+#menu { touch-action: none; }
+#menu .menu-inner, #menu .strip { touch-action: pan-y pan-x; }
+@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span, #open-opts span { display: none; } #start { min-width: 110px; } #pt-stats { grid-template-columns: auto; gap: 1px; padding-block: 3px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 34px; } }
 @media (max-width: 760px) { #open-opts { display: none; } #topbar .logo { display: none; } }
 
 .modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
@@ -457,7 +466,7 @@ body.touch #h-track { display: none; }
     <div class="startbar">
       <div id="pickers">
         <div class="pick" id="pick-circuit"><button type="button" class="arr" data-d="-1" aria-label="Previous circuit">‹</button><button type="button" class="pick-body" data-open="circuits"><small>Circuit</small><b id="pc-name"></b><span id="pc-meta"></span></button><button type="button" class="arr" data-d="1" aria-label="Next circuit">›</button></div>
-        <div class="pick" id="pick-team"><button type="button" class="arr" data-d="-1" aria-label="Previous driver">‹</button><button type="button" class="pick-body" data-open="teams"><small>Team · driver</small><b id="pt-name"></b><span id="pt-meta"></span></button><button type="button" class="arr" data-d="1" aria-label="Next driver">›</button></div>
+        <div class="pick" id="pick-team"><button type="button" class="arr" data-d="-1" aria-label="Previous driver">‹</button><button type="button" class="pick-body" data-open="teams"><small>Team · driver</small><b id="pt-name"></b><span id="pt-meta"></span></button><div id="pt-stats" aria-label="Team ratings"></div><button type="button" class="arr" data-d="1" aria-label="Next driver">›</button></div>
         <button type="button" class="btn" id="open-opts"><small>Race settings</small><span id="opts-sum2"></span></button>
       </div>
       <span id="sum" hidden></span>
