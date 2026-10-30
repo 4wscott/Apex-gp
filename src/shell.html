@@ -102,6 +102,10 @@ body.race-settings .menu-inner { top: calc(16px + env(safe-area-inset-top, 0px))
 #results .table-wrap, #pause .table-wrap { overflow: auto; min-height: 0; flex: 1 1 auto; }
 @media (max-height: 500px) { #results .card, #pause .card { padding: 12px 16px; } #results h2, #pause h2 { font-size: 22px; margin: 0 0 6px; } #results td, #results th { padding: 3px 8px; font-size: 13px; } }
 body.touch #pause .table-wrap { display: none; }
+/* mouse users always have a way out: a pause button at the top of the race screen */
+#h-pause { position: absolute; left: 50%; transform: translateX(-50%); top: max(10px, env(safe-area-inset-top, 0px)); z-index: 4; background: rgba(10,12,16,0.72); color: var(--fg); border: 1px solid var(--line); border-radius: 18px; padding: 6px 14px; font-size: 13px; cursor: pointer; pointer-events: auto; }
+#h-pause:hover { border-color: var(--accent); }
+body.touch #h-pause { display: none; }
 /* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
 #menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
 /* below the iPhone status bar / notch: the app draws under it, and iOS keeps taps in that strip for itself */
@@ -352,6 +356,7 @@ body.touch #h-track { display: none; }
   <canvas id="view" aria-label="3D race view"></canvas>
 
   <div id="hud" hidden>
+    <button type="button" id="h-pause" aria-label="Pause (Esc or P)" title="Pause (Esc or P)">❚❚ <span>Pause</span></button>
     <div id="tower-wrap"><div class="tw-head">Lap timing</div><div id="tower"></div></div>
     <div id="timing">
       <div class="tm-top"><span id="h-pos">P1</span><span class="tm-lap">Lap <b id="h-lap">1/5</b></span></div>

@@ -387,6 +387,7 @@ const App = {
     if (!this.session) return;
     this.paused = force !== undefined ? force : !this.paused;
     $('#pause').hidden = !this.paused;
+    $('#h-pause').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
@@ -1209,6 +1210,13 @@ const Menu = {
     $('#p-resume').onclick = () => App.togglePause(false);
     $('#p-restart').onclick = () => App.restart();
     $('#p-settings').onclick = () => this.raceSettings(true);
+    $('#h-pause').onclick = (e) => { e.currentTarget.blur(); App.togglePause(true); };
+    // the hidden YouTube player can take keyboard focus (a click on it, or it starting up): while driving,
+    // hand focus straight back so Esc, C, steering and everything else keep reaching the game
+    const reclaim = () => { const a = document.activeElement; if (App.session && !App.paused && a && (a.tagName === 'IFRAME' || a.closest?.('#menu'))) { a.blur(); window.focus(); } };
+    addEventListener('blur', () => setTimeout(reclaim, 60));
+    $('#view').addEventListener('pointerdown', reclaim); $('#hud').addEventListener('pointerdown', reclaim);
+    setInterval(reclaim, 1000);
     $('#p-quit').onclick = () => App.quit();
     $('#r-again').onclick = () => {
       if (App.cfg && App.cfg.quali) { const g = Career.pendingGrid; App.quit(); setTimeout(() => Career.startRace(g), 50); return; }
