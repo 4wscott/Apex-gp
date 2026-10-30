@@ -13,16 +13,15 @@ const DEFAULTS = {
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
 // touch devices start with fewer rivals and the chase camera; saved choices still win
-if (!IS_TOUCH) DEFAULTS.quality = 3;
 if (IS_TOUCH) Object.assign(DEFAULTS, { quality: 2, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60 });
 const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 // v2: arrow buttons became the default phone steering
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
 // v3: High graphics by default everywhere, music from a YouTube playlist
 if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
-if (settings.v < 5 && !IS_TOUCH && settings.quality === 2) settings.quality = 3; // PC: the most realistic setting by default
 if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; }
-if (settings.v < 5) settings.v = 5; // image quality first: undo automatic step-downs
+if (settings.v < 5) settings.v = 5;
+if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first // image quality first: undo automatic step-downs
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -153,13 +152,17 @@ const App = {
     if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; }
     if (this.flare) { this.flare.parent && this.flare.parent.remove(this.flare); this.flare = null; }
     if (q < 2) return;
-    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 256 : 128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 160 : 112, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     const cam = new THREE.CubeCamera(0.5, 800, rt);
     const shared = new Set(Object.values(GFX.mats));
     const mats = [];
     P.mesh.grp.traverse((o) => { if (!o.isMesh) return; for (const m of [].concat(o.material)) if (m && m.clearcoat >= 0.5 && !shared.has(m) && !mats.includes(m)) mats.push(m); });
     mats.forEach((m) => { m.envMap = rt.texture; m.envMapIntensity = 1.15; m.needsUpdate = true; });
-    this.reflect = { rt, cam, n: 0, every: q >= 3 ? 2 : 4, mats };
+    // the reflection view skips the thousands of instanced fans, flags, trees and tufts: invisible in a car's paint, but
+    // most of the cost; and it renders the four side faces in turn, the sky/ground faces only now and then (steady cost)
+    const heavy = []; this.scene.traverse((o) => { if ((o.isInstancedMesh && o.count > 150) || o.isPoints) heavy.push(o); });
+    cam.children.forEach((c) => { c.far = 350; c.updateProjectionMatrix(); });
+    this.reflect = { rt, cam, n: 0, mats, heavy, order: [0, 4, 1, 5], k: 0 };
     // lens flare: a soft glow on the sun plus ghosts along the line through the centre of the frame
     const tex = (stops, size = 128) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'), gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2); stops.forEach(([o, col]) => gr.addColorStop(o, col)); g.fillStyle = gr; g.fillRect(0, 0, size, size); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
     const glow = tex([[0, 'rgba(255,250,235,1)'], [0.12, 'rgba(255,240,210,0.7)'], [0.4, 'rgba(255,220,170,0.12)'], [1, 'rgba(255,220,170,0)']], 256);
@@ -175,12 +178,22 @@ const App = {
   },
   realismFrame(P, cam) {
     const R = this.reflect;
-    if (R && P.mesh && R.n++ % R.every === 0) {
-      // from just above the car body, with the car itself hidden so it doesn't reflect its own inside
-      P.mesh.grp.getWorldPosition(R.cam.position); R.cam.position.y += 0.9;
-      const vis = P.mesh.grp.visible; P.mesh.grp.visible = false;
-      const flareVis = this.flare ? this.flare.visible : false; if (this.flare) this.flare.visible = false;
-      R.cam.update(this.renderer, this.scene);
+    if (R && P.mesh) {
+      // one face of the reflection cube per frame, so the cost is small and the same every frame (no stutter)
+      const r = this.renderer, cc = R.cam;
+      // side faces in turn; every 8th cycle also the up/down faces (sky and tarmac barely change)
+      const cyc = Math.floor(R.n / 4), f = R.n % 4 === 3 && cyc % 8 === 0 && R.k++ % 2 === 0 ? (R.k % 4 < 2 ? 2 : 3) : R.order[R.n % 4]; R.n++;
+      if (R.n % 4 === 1) { P.mesh.grp.getWorldPosition(cc.position); cc.position.y += 0.9; cc.updateMatrixWorld(); }
+      R.heavy.forEach((o) => { o.userData.rv = o.visible; o.visible = false; });
+      if (cc.coordinateSystem !== r.coordinateSystem) { cc.coordinateSystem = r.coordinateSystem; cc.updateCoordinateSystem(); }
+      const vis = P.mesh.grp.visible, flareVis = this.flare ? this.flare.visible : false;
+      P.mesh.grp.visible = false; if (this.flare) this.flare.visible = false;
+      const prev = r.getRenderTarget(), shadows = r.shadowMap.autoUpdate;
+      r.shadowMap.autoUpdate = false; // the main view already updated the shadow map this frame
+      R.rt.texture.generateMipmaps = f === 5; // blurred levels for rough paint, rebuilt once per cycle
+      r.setRenderTarget(R.rt, f); r.render(this.scene, cc.children[f]);
+      r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows;
+      R.heavy.forEach((o) => { o.visible = o.userData.rv; });
       P.mesh.grp.visible = vis; if (this.flare) this.flare.visible = flareVis;
     }
     if (this.flare) {
@@ -209,7 +222,7 @@ const App = {
   },
   resize() {
     const w = innerWidth, h = innerHeight;
-    const dpr = devicePixelRatio || 1, pr = (settings.quality === 3 ? Math.min(2, Math.max(dpr, 1.5)) : Math.min(dpr, [1, 1, 1.5][settings.quality])) * (settings.autoRes ? this.resScale || 1 : 1);
+    const dpr = devicePixelRatio || 1, pr = Math.min(dpr, [1, 1, 1.5, 2][settings.quality]) * (settings.autoRes ? this.resScale || 1 : 1);
     this.renderer.setPixelRatio(pr); this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setPixelRatio(pr); this.composer.setSize(w, h); }
@@ -1443,5 +1456,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
