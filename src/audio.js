@@ -2,7 +2,7 @@
 class AudioEngine {
   constructor() { this.ctx = null; this.vol = 0.7; }
   start() {
-    if (this.ctx) { this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain(); this.master.gain.value = this.vol; this.master.connect(ctx.destination);

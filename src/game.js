@@ -59,7 +59,11 @@ const App = {
     this.music = new Music(this.audio);
     // browsers only allow sound after a tap or key press: start the menu music on the first one
     const wake = () => { applyAudioSession(); this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); this.music.setDuck(this.session ? raceMusic() : 1); };
-    addEventListener('pointerdown', wake, { once: true }); addEventListener('keydown', wake, { once: true });
+    // unlock on every kind of gesture until the audio is really running (iOS only accepts touchend/click)
+    const unlock = () => { wake(); if (this.audio.ctx && this.audio.ctx.state === 'running') ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => removeEventListener(e, unlock, true)); };
+    ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => addEventListener(e, unlock, true));
+    // coming back to the app after switching away: resume the audio
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.audio.ctx) { this.audio.ctx.resume(); applyAudioSession(); } });
     this.particles = new Particles(this.scene);
     this.hdriCache = {};
     this.setupComposer();
@@ -164,9 +168,9 @@ const App = {
     const hemi = (this.hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : 0xdfe9f5, night ? 0x3a3024 : 0x5a5040, night ? 1.4 : 0.35)); root.add(hemi);
     const sun = new THREE.DirectionalLight(night ? 0xfff1dd : th.sunColor, night ? 2.2 : th.time === 'overcast' ? 2.2 : 3.4);
     const q = settings.quality;
-    sun.castShadow = q >= 1;
-    sun.shadow.mapSize.set(...[[512, 512], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
-    const sc = sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 600;
+    sun.castShadow = true; // phones too: without shadows the cars and scenery look pasted on
+    sun.shadow.mapSize.set(...[[1024, 1024], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
+    const ext = q === 0 ? 38 : 60, sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 600;
     sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
     root.add(sun); root.add(sun.target); this.sun = sun;
     this.scene.add(root);
@@ -530,13 +534,14 @@ const App = {
     S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002), 0.2);
     const look = inp.lookBack ? Math.PI : 0;
     if (mode === 'cockpit' || mode === 'tcam') {
-      const local = mode === 'cockpit' ? new THREE.Vector3(-0.02, 0.875 - clamp(P.axS, -40, 30) * 0.0006, clamp(P.ay, -50, 50) * 0.0009) : new THREE.Vector3(-0.35, 1.22, 0);
+      // driver's eye: further back from the wheel and a little higher, so the wheel sits low and the road fills the view
+      const local = mode === 'cockpit' ? new THREE.Vector3(-0.15, 0.905 - clamp(P.axS, -40, 30) * 0.0006, clamp(P.ay, -50, 50) * 0.0009) : new THREE.Vector3(-0.35, 1.22, 0);
       local.y += (Math.random() - 0.5) * S.shake; local.z += (Math.random() - 0.5) * S.shake;
       P.mesh.body.updateMatrixWorld(); P.mesh.grp.updateMatrixWorld();
       const wp = local.applyMatrix4(P.mesh.body.matrixWorld);
       cam.position.copy(wp);
       const yaw = P.h + look + clamp(P.r * 0.04, -0.08, 0.08) * (mode === 'cockpit' ? 1 : 0);
-      const tgt = wp.clone().add(new THREE.Vector3(Math.cos(yaw), mode === 'cockpit' ? -0.075 : -0.09, -Math.sin(yaw)));
+      const tgt = wp.clone().add(new THREE.Vector3(Math.cos(yaw), mode === 'cockpit' ? -0.055 : -0.09, -Math.sin(yaw)));
       cam.up.set(0, 1, 0); cam.lookAt(tgt);
       cam.rotateZ(-P.mesh.body.rotation.x * 0.6);
       cam.fov = settings.fov; cam.near = mode === 'cockpit' ? 0.06 : 0.12;
@@ -602,7 +607,18 @@ const App = {
 };
 
 // with the player's own music (Spotify, Apple Music...) the game's sounds mix in instead of stopping it (iOS 17+ Safari)
-const applyAudioSession = () => { try { if (navigator.audioSession) navigator.audioSession.type = settings.musicSource === 'own' ? 'ambient' : 'auto'; } catch (e) { /* not supported */ } };
+// iPhone: web audio is muted by the silent switch unless the page asks for media playback. iOS 17+ has
+// navigator.audioSession; older iOS switches category when an <audio> element plays, so a silent loop is started.
+const applyAudioSession = () => {
+  const own = settings.musicSource === 'own';
+  try { if (navigator.audioSession) navigator.audioSession.type = own ? 'ambient' : 'playback'; } catch (e) { /* not supported */ }
+  if (own || !/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || !('ontouchend' in document)) return;
+  if (!window.__silentAudio) {
+    const a = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA='); a.loop = true; a.setAttribute('playsinline', ''); a.volume = 0.01;
+    window.__silentAudio = a;
+  }
+  window.__silentAudio.play().catch(() => {});
+};
 // music level while racing, relative to the menu
 const raceMusic = () => ({ off: 0, quiet: 0.35, full: 1 }[settings.musicRace] ?? 0.35);
 const dx0 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
