@@ -13,13 +13,16 @@ const DEFAULTS = {
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
 // touch devices start with fewer rivals and the chase camera; saved choices still win
+if (!IS_TOUCH) DEFAULTS.quality = 3;
 if (IS_TOUCH) Object.assign(DEFAULTS, { quality: 2, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60 });
 const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 // v2: arrow buttons became the default phone steering
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
 // v3: High graphics by default everywhere, music from a YouTube playlist
 if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
-if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; } // image quality first: undo automatic step-downs
+if (settings.v < 5 && !IS_TOUCH && settings.quality === 2) settings.quality = 3; // PC: the most realistic setting by default
+if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; }
+if (settings.v < 5) settings.v = 5; // image quality first: undo automatic step-downs
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -121,6 +124,48 @@ const App = {
     this.smaa = new SMAAPass(innerWidth * r.getPixelRatio(), innerHeight * r.getPixelRatio()); comp.addPass(this.smaa);
     this.composer = comp;
   },
+  // High and Ultra: the player's paint reflects the real surroundings (a cube camera riding with the car) and the sun flares the lens
+  setupRealism(P) {
+    const q = settings.quality;
+    if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; }
+    if (this.flare) { this.flare.parent && this.flare.parent.remove(this.flare); this.flare = null; }
+    if (q < 2) return;
+    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 256 : 128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    const cam = new THREE.CubeCamera(0.5, 800, rt);
+    const shared = new Set(Object.values(GFX.mats));
+    const mats = [];
+    P.mesh.grp.traverse((o) => { if (!o.isMesh) return; for (const m of [].concat(o.material)) if (m && m.clearcoat >= 0.5 && !shared.has(m) && !mats.includes(m)) mats.push(m); });
+    mats.forEach((m) => { m.envMap = rt.texture; m.envMapIntensity = 1.15; m.needsUpdate = true; });
+    this.reflect = { rt, cam, n: 0, every: q >= 3 ? 2 : 4, mats };
+    // lens flare: a soft glow on the sun plus ghosts along the line through the centre of the frame
+    const tex = (stops, size = 128) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'), gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2); stops.forEach(([o, col]) => gr.addColorStop(o, col)); g.fillStyle = gr; g.fillRect(0, 0, size, size); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+    const glow = tex([[0, 'rgba(255,250,235,1)'], [0.12, 'rgba(255,240,210,0.7)'], [0.4, 'rgba(255,220,170,0.12)'], [1, 'rgba(255,220,170,0)']], 256);
+    const ring = tex([[0, 'rgba(255,255,255,0)'], [0.75, 'rgba(255,255,255,0)'], [0.86, 'rgba(180,220,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+    const disc = tex([[0, 'rgba(200,230,255,0.35)'], [0.7, 'rgba(200,230,255,0.15)'], [1, 'rgba(200,230,255,0)']]);
+    const fl = new Lensflare();
+    fl.addElement(new LensflareElement(glow, 420, 0, new THREE.Color(1, 0.97, 0.9)));
+    fl.addElement(new LensflareElement(disc, 60, 0.45, new THREE.Color(0.7, 0.85, 1)));
+    fl.addElement(new LensflareElement(ring, 120, 0.7, new THREE.Color(0.8, 1, 0.9)));
+    fl.addElement(new LensflareElement(disc, 90, 0.95, new THREE.Color(1, 0.8, 0.6)));
+    fl.addElement(new LensflareElement(ring, 200, 1.25));
+    this.worldRoot.add(fl); this.flare = fl;
+  },
+  realismFrame(P, cam) {
+    const R = this.reflect;
+    if (R && P.mesh && R.n++ % R.every === 0) {
+      // from just above the car body, with the car itself hidden so it doesn't reflect its own inside
+      P.mesh.grp.getWorldPosition(R.cam.position); R.cam.position.y += 0.9;
+      const vis = P.mesh.grp.visible; P.mesh.grp.visible = false;
+      const flareVis = this.flare ? this.flare.visible : false; if (this.flare) this.flare.visible = false;
+      R.cam.update(this.renderer, this.scene);
+      P.mesh.grp.visible = vis; if (this.flare) this.flare.visible = flareVis;
+    }
+    if (this.flare) {
+      // no sun to flare in rain, or at night
+      this.flare.visible = !this.isNight && this.sky.visible && this.sun.intensity > 1.5;
+      this.flare.position.copy(cam.position).addScaledVector(this.sunDir, 900);
+    }
+  },
   // keep driving smooth: lower the render resolution when frames run slow (and raise it again with headroom);
   // if that is not enough, step the graphics quality down once and say so
   perf(dt) {
@@ -178,7 +223,7 @@ const App = {
     // keep the HDRI's sun but never let it sit too low for readable shadows
     const sunDir = night ? new THREE.Vector3(0.15, 1, 0.2).normalize() : H.sunDir.clone();
     if (!night && sunDir.y < 0.35) { sunDir.y = 0.35; sunDir.normalize(); }
-    this.sunDir = sunDir;
+    this.sunDir = sunDir; this.isNight = night;
     this.scene.environment = H.env;
     this.wx = null; // weather baselines belong to this scene's lights
     const sky = buildSky(theme, sunDir); root.add(sky); this.sky = sky;
@@ -191,7 +236,7 @@ const App = {
     const q = settings.quality;
     sun.castShadow = true; // phones too: without shadows the cars and scenery look pasted on
     sun.shadow.mapSize.set(...[[1024, 1024], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
-    const ext = q === 0 ? 38 : 60, sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 600;
+    const ext = q === 0 ? 38 : q === 3 ? 48 : 60, sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 600;
     sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
     root.add(sun); root.add(sun.target); this.sun = sun;
     this.scene.add(root);
@@ -300,6 +345,7 @@ const App = {
       });
       PitCrew.reset(this.worldRoot);
       this.setupCockpit(race.player);
+      this.setupRealism(race.player);
       if (mode === 'trial' && !(cfg && cfg.quali)) this.setupGhost(T, team);
       $('#p-finishq').hidden = !(cfg && cfg.quali);
       this.buildRacingLine(T);
@@ -392,6 +438,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; } this.flare = null;
     document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
@@ -631,6 +678,7 @@ const App = {
     this.sun.target.position.copy(base).addScaledVector(fwd, 25);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(cam.position);
+    this.realismFrame(P, cam);
     // mirrors
     if (S.mirror && (mode === 'cockpit' || mode === 'tcam')) {
       // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
