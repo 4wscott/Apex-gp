@@ -293,7 +293,9 @@ const App = {
   },
   setupCockpit(car) {
     // the player's car swaps the simple wheel for the detailed one with a live display
-    const sw = makeSteeringWheel(car.team), m = car.mesh;
+    const m = car.mesh;
+    if (m.sw) m.swSpin.remove(m.sw.g); // replace the lightweight wheel with the full one (live display)
+    const sw = makeSteeringWheel(car.team); m.sw = sw;
     m.swSimple.forEach((o) => (o.visible = false));
     m.swSpin.add(sw.g);
     // forearms run to the wrists of the detailed gloves
@@ -490,6 +492,7 @@ const App = {
       // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
       const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
       if (m.avatar) m.avatar.root.visible = c === P || far < lod;
+      if (m.modelBody && m.modelBody.userData.lod) m.modelBody.geometry = m.modelBody.userData.lod[c === P || far < 45 ? 0 : 1];
       if (c === P || far < Math.min(150, lod)) updateArms(m);
       // active aero: flaps open in X-mode
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));

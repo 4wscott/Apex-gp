@@ -91,9 +91,10 @@ def process(path, keep_mesh, tex_max, keep_images=True):
 
 helmet = process('assets/models_src/helmet.glb', lambda n: 'Plane.002' not in n and 'Cube.007' not in n, 512)  # Cube.007 is a hidden inner liner
 driver = process('assets/models_src/driver.glb', lambda n: any(k in n for k in ('Outfit_Top', 'Wolf3D_Body')), 512)
-car = open('assets/models_src/car2026_game.glb', 'rb').read()  # made by tools/prep_car.mjs
+car = open('assets/models_src/car2026_game.glb', 'rb').read()  # made by tools/prep_car.mjs (distant cars)
+carhq = open('assets/models_src/car2026_hq.glb', 'rb').read()  # tools/prep_car.mjs 0.6 0.02 hq (nearby cars)
 js = ('// Driver, helmet and car models (Sketchfab, CC BY 4.0): "race driver" by asset_for_games, "Racing helmet" by mizucorp4,\n// "My take on the 2026 f1 regulations" by MaG80.\n'
       '// Built by assets/make_models.py from assets/models_src/.\n'
-      'const MODEL_DATA = ' + json.dumps({k: 'data:model/gltf-binary;base64,' + base64.b64encode(v).decode() for k, v in (('helmet', helmet), ('driver', driver), ('car', car))}) + ';\n')
+      'const MODEL_DATA = ' + json.dumps({k: 'data:model/gltf-binary;base64,' + base64.b64encode(v).decode() for k, v in (('helmet', helmet), ('driver', driver), ('car', car), ('carhq', carhq))}) + ';\n')
 open('assets/models.js', 'w').write(js)
 print('helmet KB', len(helmet) // 1024, 'driver KB', len(driver) // 1024, 'car KB', len(car) // 1024, 'models.js KB', len(js) // 1024)

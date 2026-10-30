@@ -1094,9 +1094,9 @@ const lum = (c) => { const n = parseInt(c.slice(1), 16); return (0.299 * (n >> 1
 // ---- imported driver and helmet (Sketchfab, CC BY 4.0) --------------------------------
 function loadModels() {
   if (typeof MODEL_DATA === 'undefined') return Promise.resolve();
-  const L = new GLTFLoader();
+  const L = new GLTFLoader(); L.setMeshoptDecoder(MeshoptDecoder);
   const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no)));
-  return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null]).then(([h, d, c]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null }; })
+  return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null, MODEL_DATA.carhq ? get('carhq') : null]).then(([h, d, c, hq]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null, carhq: hq ? prepCar(hq.scene) : null }; })
     .catch((e) => console.warn('driver models unavailable', e));
 }
 // helmet parts baked into car space: front faces +x, about 0.31 m long, centred on the head pivot
@@ -1157,16 +1157,18 @@ function prepCar(root) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     const g = o.geometry.clone();
-    for (const k of Object.keys(g.attributes)) if (!['position', 'uv'].includes(k)) g.deleteAttribute(k);
-    // dequantize (positions and uvs are stored as normalized integers) before transforming and merging
+    for (const k of Object.keys(g.attributes)) if (!['position', 'uv', 'normal'].includes(k)) g.deleteAttribute(k);
+    // dequantize (positions, normals and uvs are stored as normalized integers) before transforming and merging
     const get = ['getX', 'getY', 'getZ'];
-    for (const k of ['position', 'uv']) { const a = g.attributes[k]; if (a && !(a.array instanceof Float32Array)) { const f = new Float32Array(a.count * a.itemSize); for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) f[i * a.itemSize + c] = a[get[c]](i); g.setAttribute(k, new THREE.BufferAttribute(f, a.itemSize)); } }
+    for (const k of ['position', 'uv', 'normal']) { const a = g.attributes[k]; if (a && !(a.array instanceof Float32Array)) { const f = new Float32Array(a.count * a.itemSize); for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) f[i * a.itemSize + c] = a[get[c]](i); g.setAttribute(k, new THREE.BufferAttribute(f, a.itemSize)); } }
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(M, o.matrixWorld));
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     if (/light/i.test(o.material.name)) light.push(g); else { livery.push(g); tex = tex || o.material.map; }
   });
+  const hasN = livery.every((g) => g.attributes.normal);
+  if (!hasN) for (const g of livery.concat(light)) g.deleteAttribute('normal');
   const out = { livery: mergeGeometries(livery, false), light: light.length ? mergeGeometries(light, false) : null, tex };
-  for (const g of [out.livery, out.light]) if (g) { g.computeVertexNormals(); g.computeBoundingSphere(); }
+  for (const g of [out.livery, out.light]) if (g) { if (!g.attributes.normal) g.computeVertexNormals(); else g.normalizeNormals(); g.computeBoundingSphere(); } // keep the model's own normals when it has them
   return out;
 }
 // team livery painted onto the model's own texture layout: base -> team colour, stripes and panels -> accents,
@@ -1187,14 +1189,14 @@ function liveryFromModel(team, num) {
   g.putImageData(d, 0, 0);
   // our branding where the original logos were (several islands are mirrored in the texture layout)
   const sp = GFX.tex.sponsors, pick = hashStr(team.id), ink = lum(team.c1) > 0.55 ? '#121417' : '#ffffff';
-  const text = (t, x, y, size, mirror, col = ink) => { g.save(); g.translate(x * w / 1024, y * h / 1024); if (mirror === 'v') g.scale(1, -1); else if (mirror) g.scale(-1, 1); g.fillStyle = col; g.font = `800 ${size * w / 1024}px "Saira Condensed", Arial Narrow, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, 0, 0); g.restore(); };
+  const text = (t, x, y, size, mirror, col = ink) => { g.save(); g.translate(x * w / 1024, y * h / 1024); if (mirror === 'v') g.scale(1, -1); else if (mirror === 'r') g.scale(-1, -1); else if (mirror) g.scale(-1, 1); g.fillStyle = col; g.font = `800 ${size * w / 1024}px "Saira Condensed", Arial Narrow, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, 0, 0); g.restore(); };
   // paint out every original logo area with the base colour first (atlas pixel boxes)
   g.fillStyle = team.c1;
   for (const [x0, y0, x1, y1] of [[325, 45, 392, 92], [325, 195, 392, 238], [455, 80, 545, 135], [455, 230, 545, 285], [440, 118, 466, 142], [440, 268, 466, 292], [685, 310, 750, 352], [785, 310, 850, 352],
     [690, 195, 985, 240], [140, 378, 320, 402], [55, 588, 85, 609], [105, 613, 133, 634], [440, 140, 470, 160], [440, 290, 470, 305]]) g.fillRect(x0 * w / 1024, y0 * h / 1024, (x1 - x0) * w / 1024, (y1 - y0) * h / 1024);
-  text(sp[pick % sp.length][0], 488, 106, 21, true); text(sp[pick % sp.length][0], 488, 258, 21, false);
-  text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'v');
-  text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, false); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, false);
+  text(sp[pick % sp.length][0], 488, 106, 21, 'v'); text(sp[pick % sp.length][0], 488, 258, 21, 'r');
+  text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'r');
+  text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, 'v'); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, 'v');
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = GFX.maxAniso; t.userData.keep = true;
   return (GFX.carLivery[key] = t);
 }
@@ -1462,18 +1464,23 @@ function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
     fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
     const mat = new THREE.MeshPhysicalMaterial({ map: liveryFromModel(team, num), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
-    modelBody = new THREE.Mesh(M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
+    // nearby: full-detail body; beyond 45 m the lighter one (switched in the game loop)
+    modelBody = new THREE.Mesh(M.carhq ? M.carhq.livery : M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
+    modelBody.userData.lod = M.carhq ? [M.carhq.livery, M.car.livery] : null;
     // live mirror glass moved onto the model's mirror housings
     mirrors.forEach((m, k) => { m.position.set(0.6, 0.78, (k === 0 ? 1 : -1) * 0.55); m.scale.set(1, 1.3, 1.4); });
     if (M.car.light) body.add(new THREE.Mesh(M.car.light, new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 0.6 })));
   }
   // imported driver replaces the simple shoulders, arms and fists (the fists stay as invisible grip targets)
-  let avatar = null;
+  let avatar = null, sw = null;
   if (M) {
     avatar = makeAvatar(team, body); shoulders.visible = false;
-    for (const a of arms) { a.fore.visible = a.upper.visible = false; a.hand.visible = false; if (a.elb) a.elb.visible = false; }
+    // a proper F1 wheel and gloves for every driver; the model's own bare hands are hidden
+    sw = makeSteeringWheel(team, true); swSimple.forEach((o) => (o.visible = false)); swSpin.add(sw.g);
+    if (avatar.hands) avatar.hands.visible = false;
+    arms.forEach((a, i) => { a.fore.visible = a.upper.visible = false; if (a.elb) a.elb.visible = false; a.hand = sw.wrists[i]; a.hand.userData.wrist = true; });
   }
-  const out = { modelBody, fwParts: modelBody ? null : { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
+  const out = { sw, modelBody, fwParts: modelBody ? null : { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
   return out;
 }
@@ -1499,7 +1506,7 @@ function makeGlove(sd, team) {
   const wrist = new THREE.Object3D(); wrist.position.set(0.04 * sd, -0.065, 0.055); g.add(wrist); g.userData.wrist = wrist;
   return g;
 }
-function makeSteeringWheel(team) {
+function makeSteeringWheel(team, lite = false) {
   const g = new THREE.Group(), face = new THREE.Group(); face.rotation.y = -Math.PI / 2; g.add(face);
   const carbonM = new THREE.MeshPhysicalMaterial({ map: rep(GFX.tex.carbon.albedo, 3, 3), roughness: 0.35, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.1 });
   const rubber = new THREE.MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.97 });
@@ -1525,7 +1532,8 @@ function makeSteeringWheel(team) {
   // quick-release hub
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.05, 20).rotateX(Math.PI / 2), alu); hub.position.z = -0.03; face.add(hub);
   // printed labels and graphics on the faceplate
-  const labels = canvasTex(1024, 560, (c, w, h) => {
+  GFX.wheelLabels = GFX.wheelLabels || {};
+  const labels = GFX.wheelLabels[team.id + team.name] || (GFX.wheelLabels[team.id + team.name] = canvasTex(1024, 560, (c, w, h) => {
     c.clearRect(0, 0, w, h);
     const X = (x) => (x / 0.256 + 0.5) * w, Y = (y) => (0.5 - y / 0.15) * h;
     c.fillStyle = '#e9edf2'; c.font = '700 22px Arial, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -1533,12 +1541,14 @@ function makeSteeringWheel(team) {
     lab.forEach(([t, x, y]) => c.fillText(t, X(x), Y(y + (Math.abs(x) > 0.05 && y > -0.06 ? 0.012 : 0.0))));
     c.strokeStyle = team.c2; c.lineWidth = 6; c.beginPath(); c.moveTo(X(-0.06), Y(0.07)); c.lineTo(X(0.06), Y(0.07)); c.stroke();
     c.fillStyle = team.c1; c.font = '800 20px "Saira Condensed", Arial'; c.fillText(team.name.toUpperCase(), X(0), Y(-0.062));
-  }, { clamp: true });
+  }, { clamp: true }));
+  labels.userData.keep = true;
   const lp = new THREE.Mesh(new THREE.PlaneGeometry(0.256, 0.15), new THREE.MeshBasicMaterial({ map: labels, transparent: true, depthWrite: false }));
   lp.position.z = zf + 0.0006; face.add(lp);
   // screen
-  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 256;
+  const canvas = document.createElement('canvas'); canvas.width = lite ? 4 : 512; canvas.height = lite ? 2 : 256;
   const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace;
+  if (lite) { const c2 = canvas.getContext('2d'); c2.fillStyle = '#0a1a10'; c2.fillRect(0, 0, 4, 2); }
   const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.058, 0.006), new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.4 })); bezel.position.set(0, 0.016, zf + 0.002); face.add(bezel);
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.05), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); screen.position.set(0, 0.016, zf + 0.0055); face.add(screen);
   // shift-light LEDs: 15 across the top, 3 flag lights each side
