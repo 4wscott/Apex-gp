@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', ytUrl: '', weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -235,7 +235,7 @@ const App = {
   start(cfg) {
     cfg = cfg || null; this.cfg = cfg;
     this.audio.start(); this.audio.setVolume(settings.volume);
-    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); YTMusic.dock(true);
+    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); document.body.classList.remove('yt-tap');
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
     $('#loading').hidden = false; $('#menu').hidden = true;
@@ -243,7 +243,7 @@ const App = {
       this.buildScene(T);
       this.previewCar = null;
       const team = cfg ? cfg.team : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
-      const opp = mode === 'trial' ? 0 : cfg ? cfg.opponents : settings.opponents;
+      const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
       const race = new Race(T, {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
@@ -351,7 +351,7 @@ const App = {
   quit() {
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
-    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1); YTMusic.dock(false);
+    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1); setTimeout(() => YTMusic.ready && YTMusic.checkTap(), 1500);
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
     $('#r-again').textContent = 'Race again'; $('#r-menu').textContent = 'Main menu'; $('#r-menu').hidden = false;
     $('#res-head').innerHTML = '<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr>';
@@ -415,7 +415,7 @@ const App = {
     if (inp.ersPressed) { P.ersMode = (P.ersMode + 1) % 3; Hud.flash(`ERS ${ERS_MODES[P.ersMode].name}`); }
     if (inp.biasFPressed) { P.bias = Math.min(0.62, P.bias + 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     if (inp.biasRPressed) { P.bias = Math.max(0.5, P.bias - 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
-    if (inp.pitPressed && race.mode === 'race' && !race.quali && !P.pit && !P.finished) {
+    if (inp.pitPressed && (race.mode === 'race' || race.mode === 'practice') && !race.quali && !P.pit && !P.finished) {
       // each press cycles: box on Soft -> Medium -> Hard -> Intermediate -> Wet -> cancel
       const order = ['S', 'M', 'H', 'I', 'W', null], cur = order.indexOf(P.pitReq ?? null);
       let next = order[(cur + 1) % order.length]; if (next === P.compound && P.pitReq == null) next = order[(order.indexOf(next) + 1) % (order.length - 1)];
@@ -429,7 +429,7 @@ const App = {
     }
     if (inp.resetPressed && race.phase === 'green' && !P.pit) {
       const T = race.track, d0 = P.dist; P.place(P.idx, T.lineO[P.idx], 0); P.dist = d0; P.lastS = P.s; P.lapValid = race.mode === 'race' && P.lapValid;
-      if (race.mode === 'trial') P.lapValid = false;
+      if (race.mode !== 'race') P.lapValid = false;
       Hud.flash('Car reset to track');
     }
   },
@@ -455,6 +455,10 @@ const App = {
         if (race.mode === 'trial' && e.valid && S.ghost && e.time < S.ghost.best) {
           S.ghost.best = e.time; S.ghost.data = S.ghostRec.slice();
           store.set('tt.' + race.track.spec.id, { time: e.time, ghost: S.ghost.data });
+        }
+        if (race.mode === 'practice' && e.valid) {
+          const k = 'pr.' + race.track.spec.id, pb = store.get(k, null);
+          if (!pb || e.time < pb.time) { store.set(k, { time: e.time }); $('#h-pb-wrap').hidden = false; $('#h-pb').textContent = fmtTime(e.time); if (pb) Hud.flash('New practice best'); }
         }
         S.ghostRec = []; S.ghostT = 0;
         if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) Career.finishQuali(race); }, 1800); }
@@ -768,12 +772,12 @@ const Hud = {
     $('#hud').hidden = false;
     const tower = $('#tower'); tower.innerHTML = '';
     this.rows = race.cars.map(() => { const r = document.createElement('div'); r.className = 'trow'; r.innerHTML = '<span class="tp"></span><span class="tc"></span><span class="td"></span><span class="tg"></span>'; tower.appendChild(r); return r; });
-    $('#tower-wrap').hidden = race.mode === 'trial';
-    $('#lightsbar').hidden = race.mode === 'trial';
+    $('#tower-wrap').hidden = race.mode !== 'race';
+    $('#lightsbar').hidden = race.mode !== 'race';
     this.t = 0; this.delta = null; this.refLap = null; this.curLap = []; this.lastLapT = -1;
     $('#h-best').textContent = '--:--.---'; $('#h-last').textContent = '--:--.---';
     $$('.sec').forEach((s) => (s.className = 'sec'));
-    const ttBest = race.mode === 'trial' ? store.get('tt.' + race.track.spec.id, null) : null;
+    const ttBest = race.mode === 'trial' ? store.get('tt.' + race.track.spec.id, null) : race.mode === 'practice' ? store.get('pr.' + race.track.spec.id, null) : null;
     $('#h-pb-wrap').hidden = !ttBest; if (ttBest) $('#h-pb').textContent = fmtTime(ttBest.time);
     $('#h-track').textContent = race.track.spec.name;
   },
@@ -836,7 +840,7 @@ const Hud = {
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : '0:00.000';
-    $('#h-time').classList.toggle('invalid', race.mode === 'trial' && !P.lapValid);
+    $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
     $('#h-delta').className = this.delta === null ? '' : this.delta < 0 ? 'good' : 'bad';
     $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : race.quali ? 'Qualifying' : 'Time trial';
@@ -883,7 +887,7 @@ const Hud = {
     $('#h-last').className = e.overall ? 'purple' : e.best ? 'green' : '';
     if (isFinite(P.bestLap)) $('#h-best').textContent = fmtTime(P.bestLap);
     if (e.valid && e.time <= P.bestLap + 1e-6) { this.refLap = this.curLap.slice(); this.pbSec = P.lastSectors.slice(); }
-    if (race.mode === 'trial' || race.mode === 'race') this.banner(`Lap ${fmtTime(e.time)}${e.valid ? (e.overall ? ' · fastest' : e.best ? ' · personal best' : '') : ' · invalid'}`, e.valid ? (e.overall ? 'purple' : e.best ? 'good' : 'info') : 'warn');
+    if (race.mode === 'trial' || race.mode === 'race' || race.mode === 'practice') this.banner(`Lap ${fmtTime(e.time)}${e.valid ? (e.overall ? ' · fastest' : e.best ? ' · personal best' : '') : ' · invalid'}`, e.valid ? (e.overall ? 'purple' : e.best ? 'good' : 'info') : 'warn');
   },
   banner(text, kind = 'info') {
     const b = $('#banner'); b.textContent = text; b.className = 'banner ' + kind; b.hidden = false; b.dataset.until = performance.now() + 2600;
@@ -924,12 +928,20 @@ const Results = {
 const Menu = {
   // YouTube music panel
   initYouTube() {
-    $('#yt-url').value = settings.ytUrl || ''; $('#yt-url').placeholder = YT_DEFAULT;
-    const set = () => { settings.ytUrl = $('#yt-url').value.trim(); saveSettings(); };
-    $('#yt-load').onclick = () => { set(); if (settings.ytUrl && !YTMusic.parse(settings.ytUrl)) { $('#yt-msg').textContent = 'That doesn\'t look like a YouTube playlist or video link.'; return; } $('#yt-msg').textContent = 'Loading…'; YTMusic.play(settings.ytUrl || YT_DEFAULT).then(() => ($('#yt-msg').textContent = '')).catch((e) => ($('#yt-msg').textContent = e.message)); };
-    $('#yt-default').onclick = () => { $('#yt-url').value = ''; set(); YTMusic.play(YT_DEFAULT).catch(() => {}); };
+    const sel = $('#yt-list');
+    sel.innerHTML = '<option value="random">Random mix (changes each time)</option>' + YT_PLAYLISTS.map((p, k) => `<option value="${k}">${p[0]}</option>`).join('') + '<option value="custom">My own playlist link…</option>';
+    sel.value = settings.ytList ?? 'random'; $('#yt-url').value = settings.ytUrl || '';
+    const own = () => ($('#yt-own').hidden = sel.value !== 'custom');
+    own();
+    sel.onchange = () => { settings.ytList = sel.value; saveSettings(); own(); if (sel.value !== 'custom') { YTMusic.session = null; YTMusic.play(YTMusic.pick()).catch(() => {}); } };
+    $('#yt-load').onclick = () => {
+      settings.ytUrl = $('#yt-url').value.trim(); saveSettings();
+      if (!YTMusic.parse(settings.ytUrl)) { $('#yt-msg').textContent = 'That doesn\'t look like a YouTube playlist or video link.'; return; }
+      $('#yt-msg').textContent = ''; YTMusic.play(settings.ytUrl).catch((e) => ($('#yt-msg').textContent = e.message));
+    };
+    $('#yt-shuffle').onclick = () => { if (sel.value !== 'random') { sel.value = 'random'; settings.ytList = 'random'; saveSettings(); own(); } YTMusic.shuffleList().catch(() => {}); };
     $('#yt-prev').onclick = () => YTMusic.prev(); $('#yt-next').onclick = () => YTMusic.next(); $('#yt-pp').onclick = () => YTMusic.toggle();
-    YTMusic.onChange = () => { $('#yt-now').textContent = YTMusic.failed ? (YTMusic.msg || 'YouTube unavailable') : YTMusic.title() ? '▶ ' + YTMusic.title() : ''; };
+    YTMusic.onChange = () => { const t = YTMusic.title(); $('#yt-now').textContent = YTMusic.failed ? (YTMusic.msg || 'YouTube unavailable') : t ? `▶ ${t} · ${YTMusic.playlistName()}` : YTMusic.playlistName(); };
   },
   // Spotify panel
   initSpotify() {
@@ -1007,10 +1019,10 @@ const Menu = {
     const range = (id, key, fmt, scale = 1) => {
       if (!$(id)) return;
       const el = $(id); el.value = settings[key] * scale;
-      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'music') App.music.setLevel(settings.music); };
+      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); };
       el.addEventListener('input', upd); out.textContent = fmt(settings[key]);
     };
-    range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
+    range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
@@ -1086,10 +1098,14 @@ const Menu = {
     const spec = TRACKS.find((t) => t.id === settings.track), team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     const career = settings.mode === 'career';
     $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${TEAMS.find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
-      : `<b>${settings.mode === 'race' ? 'Grand Prix' : 'Time trial'}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
+      : `<b>${{ race: 'Grand Prix', trial: 'Time trial', practice: 'Practice' }[settings.mode] || ''}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
     $('#sp-panel').hidden = settings.musicSource !== 'spotify'; $('#yt-panel').hidden = settings.musicSource !== 'youtube';
     const online = settings.mode === 'online';
-    $('#race-only').hidden = settings.mode !== 'race' && !online; $('#opps').closest('.row').hidden = online; $('#aipace').closest('.row').hidden = online; $('[data-set="grid"]').closest('.row').hidden = online;
+    const prac = settings.mode === 'practice';
+    $('#race-only').hidden = settings.mode !== 'race' && !online && !prac; $('#opps').closest('.row').hidden = online || prac; $('#aipace').closest('.row').hidden = online || (prac && !settings.traffic);
+    $('[data-set="grid"]').closest('.row').hidden = online || prac; $('#laps').closest('.row').hidden = prac; $('#traffic-row').hidden = !prac;
+    const cmp = { S: 'Soft', M: 'Medium', H: 'Hard', I: 'Inters', W: 'Wets' }[settings.compound] || 'Medium', wx = { dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[settings.weather];
+    $('#opts-sum').textContent = settings.mode === 'race' ? `${settings.laps} laps · ${settings.opponents} rivals · ${wx} · ${cmp} tyres` : prac ? `${settings.traffic ? settings.traffic + ' cars on track' : 'Track to yourself'} · ${wx} · ${cmp} tyres` : online ? `${settings.laps} laps · ${wx} · ${cmp} tyres` : `${cmp} tyres`;
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },

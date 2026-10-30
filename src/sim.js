@@ -751,7 +751,7 @@ function pitLane(T) {
 }
 const PIT_SPEED = 80 / 3.6;
 class Race {
-  // mode: 'race' | 'trial'
+  // mode: 'race' | 'trial' | 'practice' (open session: unlimited laps, optional traffic spread round the lap)
   constructor(track, opts) {
     this.track = track; this.mode = opts.mode; this.laps = opts.laps || 5;
     this.aiPace = opts.aiPace || 1; this.time = 0; this.greenT = 0; this.phase = 'grid'; this.lightsT = 0; this.lightsOn = 0;
@@ -783,9 +783,11 @@ class Race {
     grid.forEach((e, k) => {
       const comp = e.player ? (opts.compound || 'M') : ['S', 'M', 'M', 'H'][(rng() * 4) | 0];
       const car = new Car(T, e.tm, e.dr, { player: !!e.player, compound: comp, upgrades: e.player ? opts.upgrades : null, assist: e.player ? opts.assist : { tc: 2, abs: true, autoGear: true } });
-      const back = this.mode === 'trial' ? 160 : 12 + k * 8;
-      const i0 = Math.round((T.length - back) / T.ds) % T.n;
-      car.place(i0, this.mode === 'trial' ? T.lineO[i0] : (k % 2 === 0 ? 1 : -1) * Math.min(2.8, T.hw - 1.5), 0);
+      // practice: the player leaves the pit straight on a flying start, traffic is spread round the lap
+      const prac = this.mode === 'practice', ahead = prac && !e.player ? (T.length * (k + 1)) / (grid.length + 1) : 0;
+      const back = this.mode === 'trial' || prac ? 160 - ahead : 12 + k * 8;
+      const i0 = Math.round((((T.length - back) % T.length) + T.length) % T.length / T.ds) % T.n;
+      car.place(i0, this.mode === 'trial' || prac ? T.lineO[i0] : (k % 2 === 0 ? 1 : -1) * Math.min(2.8, T.hw - 1.5), prac && !e.player ? T.lineV[i0] * 0.8 : 0);
       car.dist = car.s - T.length; car.lastS = car.s;
       car.gridPos = k + 1; car.lap = 0; car.lapStart = 0; car.lapTimes = []; car.bestLap = Infinity; car.cpTimes = [];
       car.sector = 0; car.sectorStart = 0; car.sectorTimes = [NaN, NaN, NaN]; car.lastSectors = [NaN, NaN, NaN];
@@ -796,7 +798,7 @@ class Race {
       else if (e.remote) { car.remote = e.remote; car.net = null; }
       else this.ais.push(new AIDriver(car, e.dr.skill * (0.97 + 0.03 * e.tm.perf.a), hashStr(e.dr.code) ^ (k * 7919)));
     });
-    if (this.mode === 'trial') { this.phase = 'green'; this.greenT = 10; }
+    if (this.mode === 'trial' || this.mode === 'practice') { this.phase = 'green'; this.greenT = 10; }
     // weather: 'dry' | 'wet' | 'mixed' (dry start, rain arrives during the race, may stop again)
     this.weather = opts.weather || 'dry';
     this.env = { wet: this.weather === 'wet' ? 0.8 : 0, rain: this.weather === 'wet' ? 0.75 : 0 };
@@ -1029,7 +1031,7 @@ class Race {
     if (c === this.player && this.phase === 'green' && !c.pit) {
       if (over && !c.offTrack) {
         c.offTrack = true;
-        if (this.mode === 'trial') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap invalidated', kind: 'warn' }); c.lapValid = false; }
+        if (this.mode !== 'race') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap invalidated', kind: 'warn' }); c.lapValid = false; }
         else {
           c.trackLimits++;
           if (c.trackLimits % 4 === 0) { c.penalty += 5; this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }

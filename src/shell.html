@@ -22,7 +22,7 @@ kbd { font-family: var(--f-data); font-size: 11px; background: var(--panel-2); b
 
 /* ---------- menu ---------- */
 #menu { position: absolute; inset: 0; overflow-y: auto; background: linear-gradient(90deg, rgba(13,16,21,0.97) 0, rgba(13,16,21,0.9) 46%, rgba(13,16,21,0.25) 100%); }
-.menu-inner { max-width: 760px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 120px; display: grid; gap: 22px; }
+.menu-inner { max-width: 820px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 110px; display: grid; gap: 16px; }
 .brand { display: grid; gap: 4px; }
 .brand h1 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: clamp(40px, 7vw, 64px); line-height: 0.9; letter-spacing: 0.01em; text-transform: uppercase; transform: skewX(-9deg); transform-origin: left; text-wrap: balance; }
 .brand h1 span { color: var(--accent); }
@@ -83,6 +83,27 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.0
 #sum b { color: var(--fg); }
 .note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel-2); border-radius: 0 6px 6px 0; font-size: 13px; color: var(--fg); max-width: 70ch; }
 #menu-error { color: var(--red); }
+.modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.modes button { display: grid; gap: 2px; text-align: left; padding: 12px 12px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); cursor: pointer; min-width: 0; }
+.modes button b { font-family: var(--f-display); font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
+.modes button span { font-size: 12px; color: var(--muted); }
+.modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.modes button[aria-pressed="true"] span { color: var(--accent-ink); opacity: 0.75; }
+.strip { display: flex !important; overflow-x: auto; gap: 10px; scroll-snap-type: x proximity; padding-bottom: 6px; scrollbar-width: thin; }
+.strip > * { flex: 0 0 auto; scroll-snap-align: start; }
+#circuits.strip > .circuit { width: 168px; }
+#teams.strip > .team { width: 236px; }
+.opts { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.opts summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.opts summary::-webkit-details-marker { display: none; }
+.opts summary::before { content: '▸'; color: var(--accent); }
+.opts[open] summary::before { content: '▾'; }
+.opts summary span { color: var(--muted); font-size: 14px; }
+.opts .seg { flex-wrap: wrap; }
+@media (max-height: 500px) { #circuits.strip > .circuit { width: 132px; } .c-style { display: none; } #teams.strip > .team { width: 210px; } .brand h1 { font-size: 34px; } .modes button { padding: 8px 10px; } .modes button b { font-size: 16px; } .modes button span { display: none; } .menu-inner { gap: 12px; padding-top: 12px; } }
+.menu-inner > *, .group { min-width: 0; }
+@media (max-width: 700px) { .modes { grid-template-columns: repeat(3, minmax(0, 1fr)); } .modes button span { display: none; } }
+
 #roster summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 6px 0; }
 #roster-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-block: 10px; }
 .roster-team { display: grid; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
@@ -147,10 +168,10 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 #dash.compact { display: none; }
 #h-wing { color: var(--red); font-weight: 700; }
 #sp-now { margin: 6px 0; font-weight: 600; }
-#yt-dock { position: fixed; z-index: 30; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 64px); width: 200px; height: 113px; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.45); background: #000; }
+#yt-dock { position: fixed; z-index: 30; right: 0; bottom: 0; width: 200px; height: 113px; opacity: 0; pointer-events: none; overflow: hidden; }
 #yt-dock iframe { width: 200px; height: 113px; border: 0; display: block; }
-body.yt-race #yt-dock { bottom: auto; right: max(16px, env(safe-area-inset-right, 0px)); top: 172px; opacity: 0.9; }
-body.touch.yt-race #yt-dock { top: 128px; transform: scale(0.8); transform-origin: top right; }
+body.yt-tap #yt-dock { opacity: 1; pointer-events: auto; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 64px); border-radius: 6px; box-shadow: 0 0 0 3px var(--accent); }
+body.yt-tap #yt-dock::after { content: 'Tap the video once to start the music'; position: absolute; left: 0; right: 0; top: -1px; background: var(--accent); color: var(--accent-ink); font: 700 11px/1.6 var(--f-body); text-align: center; pointer-events: none; }
 #h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 .banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
@@ -272,19 +293,22 @@ body.touch #h-track { display: none; }
     <div class="menu-inner">
       <div class="brand">
         <h1>Apex <span>Grand Prix</span></h1>
-        <p>Eleven teams, twenty-two drivers and eight circuits in a fictional open-wheel championship. 2026-style cars: hybrid power with 350 kW of electric deployment, active aero and an overtake mode.</p>
         <p id="menu-error" hidden></p>
       </div>
       <div class="tabs" role="tablist">
-        <button class="tab" role="tab" aria-selected="true" data-panel="p-race" type="button">Race weekend</button>
+        <button class="tab" role="tab" aria-selected="true" data-panel="p-race" type="button">Play</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-assist" type="button">Driving</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-controls" type="button">Controls</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-gfx" type="button">Graphics &amp; sound</button>
       </div>
 
       <section class="panel" id="p-race">
-        <div class="group"><h2>Session</h2>
-          <div class="seg" data-set="mode"><button type="button" data-v="career">Career</button><button type="button" data-v="race">Free play: Grand Prix</button><button type="button" data-v="trial">Free play: Time trial</button><button type="button" data-v="online">Online with friends</button></div>
+        <div class="modes" data-set="mode" role="group" aria-label="Game mode">
+          <button type="button" data-v="career"><b>Career</b><span>Seasons, points, upgrades</span></button>
+          <button type="button" data-v="race"><b>Grand Prix</b><span>One race, your rules</span></button>
+          <button type="button" data-v="practice"><b>Practice</b><span>Any circuit, unlimited laps</span></button>
+          <button type="button" data-v="trial"><b>Time trial</b><span>Beat your ghost</span></button>
+          <button type="button" data-v="online"><b>Online</b><span>Race friends</span></button>
         </div>
         <div id="career" hidden></div>
         <div class="group" id="online" hidden><h2>Online race</h2>
@@ -296,24 +320,26 @@ body.touch #h-track { display: none; }
           <ol id="on-players"></ol>
           <div class="actions"><button type="button" class="btn primary" id="on-start" hidden>Start race for everyone</button><button type="button" class="btn" id="on-leave" hidden>Leave room</button></div>
         </div>
-        <div class="group"><h2>Tyres</h2>
-          <div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button><button type="button" data-v="I">Intermediate · damp track</button><button type="button" data-v="W">Wet · heavy rain</button></div>
-        </div>
-        <div class="group free-only"><h2>Circuit</h2><div id="circuits"></div></div>
-        <div class="group free-only"><h2>Team and driver</h2><div id="teams"></div>
+        <div class="group free-only"><h2>Circuit</h2><div id="circuits" class="strip"></div></div>
+        <div class="group free-only"><h2>Team and driver</h2><div id="teams" class="strip"></div>
           <details id="roster"><summary>Rename teams and drivers</summary>
             <p class="hint">Give any team or driver the name you want, plus the three-letter code shown in the timing tower and the race number. Names are saved on this device and used everywhere: menus, timing, results and career.</p>
             <div id="roster-body"></div>
             <div class="actions"><button type="button" class="btn primary" id="roster-save">Save names</button><button type="button" class="btn" id="roster-reset">Restore original names</button></div>
             <p class="hint" id="roster-msg" aria-live="polite"></p>
           </details></div>
-        <div class="group" id="race-only"><h2>Race settings</h2>
+        <details class="group opts" id="race-opts"><summary><b>Settings</b> <span id="opts-sum"></span></summary>
+          <div class="row"><label>Tyres</label><div class="ctl"><div class="seg" data-set="compound"><button type="button" data-v="S">Soft · most grip, wears fast</button><button type="button" data-v="M">Medium · balanced</button><button type="button" data-v="H">Hard · least grip, lasts longest</button><button type="button" data-v="I">Intermediate · damp track</button><button type="button" data-v="W">Wet · heavy rain</button></div>
+        </div></div>
+          <div class="row" id="traffic-row"><label for="traffic">Cars on track</label><div class="ctl"><input id="traffic" type="range" min="0" max="21" step="1"><output id="traffic-out"></output></div></div>
+          <div id="race-only">
           <div class="row"><label for="laps">Race distance</label><div class="ctl"><input id="laps" type="range" min="1" max="30" step="1"><output id="laps-out"></output></div></div>
           <div class="row"><label>Weather</label><div class="ctl seg" data-set="weather"><button type="button" data-v="dry">Dry</button><button type="button" data-v="mixed">Changing (rain arrives)</button><button type="button" data-v="wet">Wet</button></div></div>
           <div class="row"><label for="opps">Opponents</label><div class="ctl"><input id="opps" type="range" min="0" max="21" step="1"><output id="opps-out"></output></div></div>
           <div class="row"><label for="aipace">AI pace</label><div class="ctl"><input id="aipace" type="range" min="80" max="104" step="1"><output id="aipace-out"></output></div></div>
           <div class="row"><label>Starting position</label><div class="ctl seg" data-set="grid"><button type="button" data-v="pole">Pole</button><button type="button" data-v="mid">Midfield</button><button type="button" data-v="back">Back of grid</button><button type="button" data-v="random">Random</button></div></div>
         </div>
+        </details>
       </section>
 
       <section class="panel" id="p-assist" hidden>
@@ -357,8 +383,8 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="youtube">YouTube playlist</button><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
         <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
         <div id="yt-panel" hidden>
-          <div class="row"><label for="yt-url">Playlist link</label><div class="ctl"><input id="yt-url" type="url" autocomplete="off" spellcheck="false"> <button type="button" class="btn" id="yt-load">Play</button></div></div>
-          <p class="hint">Paste any YouTube playlist or video link (from the YouTube app: Share → Copy link). Leave it empty for the default hardstyle playlist. <button type="button" class="btn" id="yt-default">Use default</button></p>
+          <div class="row"><label for="yt-list">Playlist</label><div class="ctl"><select id="yt-list"></select> <button type="button" class="btn" id="yt-shuffle">Another playlist</button></div></div>
+          <div class="row" id="yt-own"><label for="yt-url">Your link</label><div class="ctl"><input id="yt-url" type="url" autocomplete="off" spellcheck="false" placeholder="Paste a YouTube playlist or video link"> <button type="button" class="btn" id="yt-load">Play</button></div></div>
           <p class="sp-now" id="yt-now" aria-live="polite"></p>
           <div class="actions"><button type="button" class="btn" id="yt-prev" aria-label="Previous track">⏮</button><button type="button" class="btn primary" id="yt-pp" aria-label="Play or pause">⏯</button><button type="button" class="btn" id="yt-next" aria-label="Next track">⏭</button></div>
           <p class="hint">During a race: <kbd>N</kbd> next track, <kbd>K</kbd> play/pause. The music needs an internet connection; offline the built-in hardstyle plays instead.</p>

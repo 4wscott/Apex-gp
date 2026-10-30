@@ -9,9 +9,9 @@ await page.addInitScript(()=>{localStorage.setItem('apexgp.settings',JSON.string
 await page.goto('https://apexgp.test/');await page.waitForTimeout(6000);
 
 await page.mouse.click(600,300);for(let i=0;i<30;i++){if(await page.evaluate(()=>YTMusic.ready&&YTMusic.player.getPlayerState()===1))break;await page.waitForTimeout(2000);}
-const st=()=>page.evaluate(()=>({ready:YTMusic.ready,failed:YTMusic.failed,msg:YTMusic.msg,state:YTMusic.ready?YTMusic.player.getPlayerState():null,title:YTMusic.title(),vol:YTMusic.ready?YTMusic.player.getVolume():null,dock:!document.querySelector('#yt-dock').hidden}));
+const st=()=>page.evaluate(()=>({src:JSON.stringify(YTMusic.src),pick:YTMusic.pick(),ready:YTMusic.ready,failed:YTMusic.failed,msg:YTMusic.msg,state:YTMusic.ready?YTMusic.player.getPlayerState():null,title:YTMusic.title(),vol:YTMusic.ready?YTMusic.player.getVolume():null,dock:!document.querySelector('#yt-dock').hidden}));
 console.log('menu',await st());
-await page.screenshot({path:SP+'yt-menu.png'});
+await page.screenshot({path:SP+'yt-menu.png',timeout:120000});
 await page.evaluate(()=>App.start());await page.waitForTimeout(8000);
 console.log('race',await st());await page.screenshot({path:SP+'yt-race.png',timeout:120000});
 console.log('errs',errs.slice(0,4));await br.close();})();
