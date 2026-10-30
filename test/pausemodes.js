@@ -7,7 +7,7 @@ for(const mode of ['race','practice','trial','career']){
 const ctx=await br.newContext({viewport:{width:1280,height:720}});const page=await ctx.newPage();const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP0+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('**/iframe_api',r=>r.fulfill({body:'',contentType:'text/javascript'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript((m)=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:3,mode:m,track:'silver',opponents:3,camera:'cockpit',tc:2}))},mode);
+await page.addInitScript((m)=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:0,v:4,mode:m,track:'silver',opponents:3,camera:'cockpit',tc:2}))},mode);
 await page.goto('http://local/');await page.waitForTimeout(6000);
 if(mode==='career'){await page.evaluate(()=>{const b=[...document.querySelectorAll('#career button')].find(b=>/start|create|begin/i.test(b.textContent));b&&b.click();});await page.waitForTimeout(800);await page.evaluate(()=>{const b=[...document.querySelectorAll('#career button')].find(b=>/race|weekend|start|go/i.test(b.textContent)&&!b.hidden);b&&b.click();});}
 else await page.evaluate(()=>document.querySelector('#start').click());

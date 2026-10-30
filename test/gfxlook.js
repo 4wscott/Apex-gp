@@ -6,7 +6,7 @@ for (const [q,vp,cam] of [[0,{width:844,height:390},'chase'],[0,{width:844,heigh
 const page=await br.newPage({viewport:vp});const errs=[];page.on('pageerror',e=>errs.push(e.message));
 await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**',r=>{const u=new URL(r.request().url());r.fulfill({body:fs.readFileSync(SP+'t160/package/'+u.pathname.replace('/npm/three@0.160.0/',''),'utf8'),contentType:'application/javascript'});});
 await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:'',contentType:'text/css'}));await page.route('http://local/',r=>r.fulfill({body:html,contentType:'text/html'}));
-await page.addInitScript(([q,cam])=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:q,v:3,opponents:7,camera:cam,track:'riviera'}))},[q,cam]);
+await page.addInitScript(([q,cam])=>{localStorage.setItem('apexgp.settings',JSON.stringify({quality:q,v:4,opponents:7,camera:cam,track:'riviera'}))},[q,cam]);
 await page.goto('http://local/');await page.waitForTimeout(6000);
 await page.evaluate(()=>{App.start();});await page.waitForTimeout(6000);
 await page.evaluate(()=>{App.session.race.lightsT=99;const P=App.session.race.player;});

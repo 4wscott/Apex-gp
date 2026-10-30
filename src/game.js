@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -19,6 +19,7 @@ const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
 // v3: High graphics by default everywhere, music from a YouTube playlist
 if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
+if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; } // image quality first: undo automatic step-downs
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -128,18 +129,19 @@ const App = {
     if (now < pf.t0) return;
     pf.n++; if (now - pf.t0 < 1500) return;
     const fps = (pf.n * 1000) / (now - pf.t0); pf.t0 = now; pf.n = 0;
-    const sc = this.resScale || 1;
-    if (fps < 50 && sc > 0.6) { this.resScale = Math.max(0.6, sc - 0.1); this.resize(); }
-    else if (fps > 58 && sc < 1) { this.resScale = Math.min(1, sc + 0.05); this.resize(); }
-    pf.slow = fps < 38 && sc <= 0.61 ? pf.slow + 1 : 0;
-    if (pf.slow >= 3 && settings.quality > 0) {
-      settings.quality--; saveSettings(); this.resScale = 0.8; this.setupComposer(); this.resize(); pf.slow = 0;
-      Hud.flash(`Graphics set to ${['Low', 'Medium', 'High', 'Ultra'][settings.quality]} to keep it smooth`);
+    if (!settings.autoRes) {
+      // full resolution: just point out the option once if it really struggles
+      pf.slow = fps < 30 ? pf.slow + 1 : 0;
+      if (pf.slow >= 4 && !this.slowHint) { this.slowHint = true; Hud.flash('Running slow: Settings → Resolution → Auto keeps it smooth'); }
+      return;
     }
+    const sc = this.resScale || 1;
+    if (fps < 50 && sc > 0.75) { this.resScale = Math.max(0.75, sc - 0.05); this.resize(); }
+    else if (fps > 58 && sc < 1) { this.resScale = Math.min(1, sc + 0.05); this.resize(); }
   },
   resize() {
     const w = innerWidth, h = innerHeight;
-    const pr = Math.min(devicePixelRatio || 1, [1, 1, 1.25, 1.75][settings.quality]) * (this.resScale || 1);
+    const dpr = devicePixelRatio || 1, pr = (settings.quality === 3 ? Math.min(2, Math.max(dpr, 1.5)) : Math.min(dpr, [1, 1, 1.5][settings.quality])) * (settings.autoRes ? this.resScale || 1 : 1);
     this.renderer.setPixelRatio(pr); this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setPixelRatio(pr); this.composer.setSize(w, h); }
@@ -1185,6 +1187,7 @@ const Menu = {
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); }
+        if (key === 'autoRes') { App.resScale = 1; App.resize(); }
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
         if (key === 'camera' && App.session) App.session.camMode = v;
         if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'youtube') YTMusic.play().catch(() => {}); else YTMusic.stop(); if (v === 'spotify') this.spotifyUI(); }
