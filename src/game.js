@@ -53,7 +53,7 @@ const App = {
       disc: new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.6, emissive: 0xff5a10, emissiveIntensity: 0 }),
       blob: new THREE.MeshBasicMaterial({ map: tx.blob, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -8, polygonOffsetUnits: -32 }),
       visor: new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, roughness: 0.04, metalness: 0.95, clearcoat: 1, iridescence: 0.6 }),
-      mirrorGlass: new THREE.MeshStandardMaterial({ color: 0xaab4bf, roughness: 0.06, metalness: 1 }),
+      mirrorGlass: new THREE.MeshStandardMaterial({ color: 0x9fb0c2, emissive: 0x3a4655, roughness: 0.15, metalness: 0.55 }),
     };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(settings.fov, 1, 0.08, 30000);
@@ -608,7 +608,7 @@ const App = {
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(cam.position);
     // mirrors
-    if (S.mirror && mode === 'cockpit') {
+    if (S.mirror && (mode === 'cockpit' || mode === 'tcam')) {
       // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
       const sd = S.mirror.sides[S.mirror.n++ % 2], mc = sd.cam;
       sd.glass.getWorldPosition(mc.position);
@@ -870,11 +870,11 @@ const Hud = {
     const tcol = (t) => (t < 80 ? '#4aa3ff' : t > 118 ? '#ff4d4d' : '#2bd46a');
     $('#h-tf').style.background = tcol(P.tempF); $('#h-tr').style.background = tcol(P.tempR);
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
-    $('#h-wear').textContent = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? ` · BOX → ${P.pitReq}` : ''}${S.race.env.wet > 0.05 ? ` · track ${Math.round(S.race.env.wet * 100)}% wet` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
+    $('#h-wear').innerHTML = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? `<span class="h-box">BOX → ${COMPOUNDS[P.pitReq].name}</span>` : ''}${S.race.env.wet > 0.05 ? `<span class="h-box wet">Track ${Math.round(S.race.env.wet * 100)}% wet</span>` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
-    $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : '0:00.000';
+    $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the clock runs from lights out
     $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
     $('#h-delta').className = this.delta === null ? '' : this.delta < 0 ? 'good' : 'bad';
@@ -903,7 +903,9 @@ const Hud = {
         if (i === 0) gap = c.finished ? 'Finish' : 'Leader';
         else {
           const lapsDown = Math.floor((leader.dist - c.dist) / race.track.length);
-          gap = lapsDown >= 1 && !c.finished ? `+${lapsDown} lap` : fmtGap(race.gapBetween(leader, c));
+          // before the first timing loops (the run from the grid) estimate the gap from distance and speed
+          let g = race.gapBetween(leader, c); if (!(g > 0)) g = Math.max(0, leader.dist - c.dist) / Math.max(15, c.vx);
+          gap = race.phase !== 'green' && race.time < 1 ? '' : lapsDown >= 1 && !c.finished ? `+${lapsDown} lap` : fmtGap(g);
         }
         r.children[3].textContent = gap;
       });
