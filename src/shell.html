@@ -86,7 +86,7 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: 0.0
 /* settings opened from the pause menu: only the panel, over the paused race */
 body.race-settings #topbar, body.race-settings .startbar { display: none !important; }
 body.race-settings #menu { background: rgba(8,10,13,0.55) !important; z-index: 30; }
-body.race-settings .menu-inner { top: 16px; bottom: 16px; }
+body.race-settings .menu-inner { top: calc(16px + env(safe-area-inset-top, 0px)); bottom: 16px; }
 /* controls tab: the section for this device comes first */
 #p-controls:not([hidden]) { display: flex !important; flex-direction: column; gap: 22px; }
 .ctl-group { display: grid; gap: 14px; min-width: 0; }
@@ -104,17 +104,18 @@ body.race-settings .menu-inner { top: 16px; bottom: 16px; }
 body.touch #pause .table-wrap { display: none; }
 /* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
 #menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
-#topbar { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 18px; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+/* below the iPhone status bar / notch: the app draws under it, and iOS keeps taps in that strip for itself */
+#topbar { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 18px; padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
 #topbar .logo { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 26px; text-transform: uppercase; transform: skewX(-9deg); white-space: nowrap; }
 #topbar .logo span { color: var(--accent); }
 #topbar .modes { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-#topbar .modes button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 8px 12px 6px; color: var(--muted); display: block; white-space: nowrap; }
+#topbar .modes button { min-height: 44px; background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 8px 12px 6px; color: var(--muted); display: block; white-space: nowrap; }
 #topbar .modes button b { font-size: 17px; }
 #topbar .modes button span { display: none; }
 #topbar .modes button[aria-pressed="true"] { background: none; color: var(--fg); border-bottom-color: var(--accent); }
 #topbar .modes button:hover { color: var(--fg); }
 .iconbtn { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: rgba(27,32,41,0.85); color: var(--fg); font-size: 20px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
-.menu-inner { box-sizing: border-box; position: absolute; z-index: 6; top: 64px; right: max(12px, env(safe-area-inset-right, 0px)); bottom: 86px; width: min(560px, calc(100% - 24px)); max-width: none !important; overflow-y: auto; background: rgba(13,16,21,0.96); border: 1px solid var(--line); border-radius: 14px; padding: 0 16px 20px !important; gap: 14px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+.menu-inner { box-sizing: border-box; position: absolute; z-index: 6; top: calc(64px + env(safe-area-inset-top, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); bottom: 86px; width: min(560px, calc(100% - 24px)); max-width: none !important; overflow-y: auto; background: rgba(13,16,21,0.96); border: 1px solid var(--line); border-radius: 14px; padding: 0 16px 20px !important; gap: 14px !important; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
 #menu:not([data-drawer]) .menu-inner { display: none !important; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; margin: 0 -16px; padding: 12px 16px; background: rgb(13,16,21); border-radius: 14px 14px 0 0; z-index: 2; }
 .drawer-head b { font-family: var(--f-display); font-size: 22px; text-transform: uppercase; color: var(--accent); }
@@ -149,7 +150,8 @@ body.touch #pause .table-wrap { display: none; }
 .pick-body b { font-family: var(--f-display); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pick-body span, #open-opts span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #open-opts { display: grid; text-align: left; padding: 6px 14px; min-width: 0; max-width: 260px; background: rgba(27,32,41,0.88); }
-#start { min-width: 150px; font-size: 20px; }
+#start { min-width: 150px; font-size: 20px; white-space: nowrap; letter-spacing: 0.04em; }
+@media (max-width: 900px) { #start { font-size: 16px; min-width: 0; padding-inline: 14px; } #open-opts { max-width: 200px; } }
 #pick-team { max-width: 470px; flex-grow: 1.4; }
 #pt-stats { display: grid; grid-template-columns: auto auto; gap: 2px 8px; align-content: center; padding: 6px 4px 6px 8px; border-left: 1px solid var(--line); font-size: 10px; color: var(--muted); }
 #pt-stats i { display: flex; align-items: center; gap: 5px; font-style: normal; }
@@ -159,7 +161,7 @@ body.touch #pause .table-wrap { display: none; }
 #pt-stats .ovr b { font-size: 14px; color: var(--fg); font-family: var(--f-display); }
 #menu { touch-action: none; }
 #menu .menu-inner, #menu .strip { touch-action: pan-y pan-x; }
-@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: 52px; bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span { display: none; } #open-opts span { font-size: 11px; } #start { min-width: 110px; } #pt-stats { grid-template-columns: auto; gap: 1px; padding-block: 3px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 34px; } }
+@media (max-height: 500px) { #topbar { padding-block: 6px; } #topbar .logo { font-size: 20px; } #topbar .modes button b { font-size: 14px; } .menu-inner { top: calc(52px + env(safe-area-inset-top, 0px)); bottom: 74px; } .pick-body b { font-size: 15px; } .pick-body span { display: none; } #open-opts span { font-size: 11px; } #start { min-width: 110px; } #pt-stats { grid-template-columns: auto; gap: 1px; padding-block: 3px; } #pt-stats .ovr { display: none; } #pt-stats u { width: 34px; } }
 @media (max-width: 760px) { #topbar .logo { display: none; } }
 #topbar .modes button { flex: 0 0 auto; }
 /* phone held upright: short tab names, pickers stacked full width, settings + start side by side */

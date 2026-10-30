@@ -1292,7 +1292,7 @@ const Menu = {
     const st = teamStats(team);
     $('#pt-stats').innerHTML = [['PWR', st.power], ['AERO', st.aero], ['DRV', st.drivers]].map(([k, v]) => `<i><em>${k}</em><u><s style="width:${Math.max(0, (v - 40) / 59 * 100).toFixed(0)}%"></s></u></i>`).join('') + `<i class="ovr"><em>OVR</em><b>${st.overall}</b></i>`;
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
-    $('#pickers').hidden = career; $('.startbar').hidden = career;
+    $('#pickers').hidden = career; $('.startbar').hidden = career; $('#start').textContent = { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },
   buildBinds() {
