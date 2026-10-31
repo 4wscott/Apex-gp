@@ -330,7 +330,7 @@ class Input {
         <button type="button" id="t-thr" aria-label="Throttle">Throttle</button>
       </div>
       <div class="t-top">
-        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('pit', 'PIT')}${btn('reset', 'Reset')}
+        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('reset', 'Reset')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('pit', 'PIT')}
       </div>`;
     const sens = o.touchSens || 1, buzz = (ms) => { if (o.haptics && navigator.vibrate) try { navigator.vibrate(ms); } catch (e) { /* not supported */ } };
     this.buzz = buzz;

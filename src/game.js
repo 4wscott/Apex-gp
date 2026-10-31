@@ -195,10 +195,8 @@ const App = {
       const prev = r.getRenderTarget(), shadows = r.shadowMap.autoUpdate;
       r.shadowMap.autoUpdate = false; // the main view already updated the shadow map this frame
       R.rt.texture.generateMipmaps = f === 5; // blurred levels for rough paint, rebuilt once per cycle
-      r.setRenderTarget(R.rt, f); r.render(this.scene, cc.children[f]);
-      r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows;
-      R.heavy.forEach((o) => { o.visible = o.userData.rv; });
-      P.mesh.grp.visible = vis; if (this.flare) this.flare.visible = flareVis;
+      try { r.setRenderTarget(R.rt, f); r.render(this.scene, cc.children[f]); }
+      finally { r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows; R.heavy.forEach((o) => { o.visible = o.userData.rv; }); P.mesh.grp.visible = vis; } if (this.flare) this.flare.visible = flareVis;
     }
     if (this.flare) {
       // no sun to flare in rain, or at night
@@ -559,12 +557,16 @@ const App = {
       real.push(c, c.x, c.y, c.h);
       c.x = c._px + (c.x - c._px) * a; c.y = c._py + (c.y - c._py) * a; c.h = c._ph + angleDiff(c.h, c._ph) * a;
     }
-    this.updateVisuals(dt, S, inp);
-    if (this.fireworks) this.fireworks.update(dt, this.audio);
-    drawBigScreen(race, dt);
-    this.render();
-    for (let k = 0; k < real.length; k += 4) { const c = real[k]; c.x = real[k + 1]; c.y = real[k + 2]; c.h = real[k + 3]; }
-    Hud.update(dt, S, inp);
+    try {
+      this.updateVisuals(dt, S, inp);
+      if (this.fireworks) this.fireworks.update(dt, this.audio);
+      drawBigScreen(race, dt);
+      this.render();
+    } catch (err) { reportError(err); }
+    finally { for (let k = 0; k < real.length; k += 4) { const c = real[k]; c.x = real[k + 1]; c.y = real[k + 2]; c.h = real[k + 3]; } }
+    try { Hud.update(dt, S, inp); } catch (err) { reportError(err); }
+    // safety net: a player car with broken numbers (or lost far off the circuit) goes straight back to the track
+    if (!(Number.isFinite(P.x) && Number.isFinite(P.y) && Number.isFinite(P.vx) && Number.isFinite(P.h)) || (!P.pit && Math.abs(P.d) > 80)) this.resetPlayer(race, 'recovered');
   },
   // performance meter: fps and frame time over the last half second, plus a 2 s graph of frame times
   meter(ms) {
@@ -622,11 +624,26 @@ const App = {
       if (inp.spNextPressed) Spotify.next().then(() => Hud.flash('Spotify: next track')).catch((e) => Hud.flash(e.message));
       if (inp.spPlayPressed) Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())).catch((e) => Hud.flash(e.message));
     }
-    if (inp.resetPressed && race.phase === 'green' && !P.pit) {
-      const T = race.track, d0 = P.dist; P.place(P.idx, T.lineO[P.idx], 0); P.dist = d0; P.lastS = P.s; P.lapValid = race.mode === 'race' && P.lapValid;
-      if (race.mode !== 'race') P.lapValid = false;
-      Hud.flash('Car reset to track');
+    if (inp.resetPressed && race.phase === 'green') {
+      if (P.pit && race.mode === 'race') Hud.flash('In the pit lane: the car drives itself until the pit exit');
+      else this.resetPlayer(race);
     }
+  },
+  // back on the racing line, standing still, with every sliding/pit state cleared and the camera behind the car
+  resetPlayer(race, why) {
+    const P = race.player, T = race.track, S = this.session;
+    let i = P.idx; if (!Number.isFinite(i) || i < 0) { const q = trackDistance(T, Number.isFinite(P.x) ? P.x : T.px[0], Number.isFinite(P.y) ? P.y : T.py[0], -1, 0, 2); i = q.i >= 0 ? q.i : 0; }
+    const d0 = Number.isFinite(P.dist) ? P.dist : 0;
+    if (P.pit) { P.pit = null; P.limiter = false; }
+    P.pitReq = null;
+    P.place(i, T.lineO[i], 0); P.dist = d0; P.lastS = P.s;
+    Object.assign(P, { slipF: 0, slipR: 0, lockF: false, lockR: false, spin: false, impact: 0, kerbHit: 0, reverse: false, stopT: 0, throttle: 0, brake: 0, axS: 0, ay: 0, surface: 'tarmac', gear: 1, rpm: 4000 });
+    for (const k of ['tempF', 'tempR', 'wear', 'soc']) if (!Number.isFinite(P[k])) P[k] = { tempF: 85, tempR: 85, wear: 0, soc: SOC_MAX * 0.5 }[k];
+    P._px = P.x; P._py = P.y; P._ph = P.h;
+    if (P.mesh) P.mesh.grp.visible = true;
+    if (S) S.camSmooth = null;
+    if (race.mode !== 'race') P.lapValid = false;
+    Hud.flash(why === 'recovered' ? 'Car recovered to the track' : 'Car reset to track');
   },
   handleEvents(race) {
     const S = this.session;
@@ -642,7 +659,7 @@ const App = {
       else if (e.type === 'vscending') Hud.banner('VSC ending', 'info');
       else if (e.type === 'vscend') Hud.banner('Green flag: racing resumes', 'go');
       else if (e.type === 'blue') Hud.banner(`Blue flag: let ${e.car.driver.abbr || e.car.driver.code} through`, 'info');
-      else if (e.type === 'pitentry' && e.car === race.player && !e.teleport) Hud.banner('Pit lane: limiter on (80 km/h)', 'info');
+      else if (e.type === 'pitentry' && e.car === race.player && !e.teleport) Hud.banner(race.mode === 'practice' ? 'Pit lane: the car drives itself to your box · Reset cancels' : 'Pit lane: limiter on, the car drives itself to your box', 'info');
       else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(`Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
       else if (e.type === 'pitexit' && e.car === race.player) Hud.banner('Rejoining the track', 'info');
       else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(`${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
@@ -787,9 +804,8 @@ const App = {
       sd.glass.getWorldPosition(mc.position);
       const back = fwd.clone().negate(), side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(sd.side); // car-right is +z in the body
       mc.lookAt(mc.position.clone().add(back.multiplyScalar(10)).addScaledVector(side, 1.6).add(new THREE.Vector3(0, -0.35, 0)));
-      const vis = P.mesh.grp.visible; P.mesh.grp.visible = false;
-      this.renderer.setRenderTarget(sd.rt); this.renderer.render(this.scene, mc); this.renderer.setRenderTarget(null);
-      P.mesh.grp.visible = vis;
+      P.mesh.grp.visible = false;
+      try { this.renderer.setRenderTarget(sd.rt); this.renderer.render(this.scene, mc); } finally { this.renderer.setRenderTarget(null); P.mesh.grp.visible = true; }
     }
     // steering wheel display at 20 Hz
     // wheel LEDs and rotaries follow the car every frame; the screen redraws at 20 Hz
@@ -1299,6 +1315,17 @@ function addUpgradeParts(m, rd, team) {
   const louvres = rd.power >= 4 ? 6 : rd.power >= 2 ? 3 : 0;
   for (let k = 0; k < louvres; k++) for (const z of [-0.5, 0.5]) box(0.05, 0.02, 0.26, carbon, -0.15 - k * 0.12, 0.6, z, 0.3);
 }
+
+// ---- errors: shown once on screen (so a screenshot tells us what happened) and kept for Settings
+function reportError(err) {
+  const msg = String((err && (err.stack || err.message)) || err).split('\n').slice(0, 2).join(' · ').slice(0, 220);
+  console.error(err);
+  try { store.set('lastError', { msg, at: new Date().toISOString(), build: window.APEX_BUILD || '' }); } catch (e) { /* storage full */ }
+  if (reportError.shown === msg) return; reportError.shown = msg;
+  Hud.flash('Something went wrong (the game kept going): ' + msg.slice(0, 90));
+}
+addEventListener('error', (e) => reportError(e.error || e.message));
+addEventListener('unhandledrejection', (e) => { const r = e.reason; if (r && /googlevideo|youtube|spotify|peer/i.test(String(r.message || r))) return; reportError(r); });
 
 // ---- car setup: four choices that change the player's car in the physics -----------------------
 function setupEffect() {
