@@ -1151,6 +1151,8 @@ const Hud = {
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
     $('#h-wear').innerHTML = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? `<span class="h-box">BOX → ${COMPOUNDS[P.pitReq].name}</span>` : ''}${S.race.env.wet > 0.05 ? `<span class="h-box wet">Track ${Math.round(S.race.env.wet * 100)}% wet</span>` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
+    $('#h-ba').hidden = !P.assisting; $('#h-pitlane').hidden = !P.pit; $('#h-boxreq').hidden = !P.pitReq || !!P.pit;
+    if (P.pitReq && !P.pit) $('#h-boxreq').textContent = `BOX THIS LAP · ${this.touchOn ? 'PIT' : 'M / PIT'} to cancel`;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc && !r.sc;
       if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`;
       else if (r.sc) { const k = r.sc.order.indexOf(P), ahead = k <= 0 ? r.sc : r.sc.order[k - 1], gap = ahead.dist - P.dist; el.textContent = `SAFETY CAR · ${k <= 0 ? 'SC' : ahead.driver.abbr || ahead.driver.code} ${Math.max(0, Math.round(gap))} m`; } }

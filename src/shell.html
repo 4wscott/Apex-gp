@@ -168,6 +168,13 @@ body.touch #radio span { font-size: 13px; }
 #pad-toast { position: fixed; left: 50%; top: max(70px, calc(env(safe-area-inset-top, 0px) + 66px)); transform: translateX(-50%); z-index: 40; background: rgba(10,12,16,0.92); border: 1px solid var(--accent, #ffd21f); border-radius: 20px; padding: 8px 16px; font-weight: 600; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent, #ffd21f); outline-offset: 2px; }
 #p-pad { margin: 4px 0 0; font-size: 13px; }
+/* the game is not a document: no text selection or iOS long-press callout while playing (it can swallow a finger lifting off a pedal) */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; }
+/* dash tags: what the car is doing for you */
+#h-ba { color: #111; background: #4aa3ff; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+#h-pitlane { color: #111; background: #ffd21f; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+#h-boxreq { color: #fff; background: #e10600; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
 /* penalty reason under the time in the results */
 .pen-why { display: block; font-size: 10px; color: var(--muted); white-space: normal; max-width: 140px; }
 /* career: rival head-to-head and contract offers */
@@ -469,7 +476,7 @@ body.touch #h-track { display: none; }
         <div><small>Tyres</small><b class="tyres"><span class="tyre" id="h-tf"></span><span id="h-tft">--</span><span class="tyre" id="h-tr"></span><span id="h-trt">--</span></b></div>
         <div><small>Tyre life</small><b id="h-wear">100%</b></div>
         <div><small>Input</small><b id="h-device">Keyboard</b></div>
-        <div><b id="h-ot" hidden>OVERTAKE</b><b id="h-wing" hidden>WING DAMAGE</b><b id="h-vsc" hidden>VSC</b></div>
+        <div><b id="h-ot" hidden>OVERTAKE</b><b id="h-wing" hidden>WING DAMAGE</b><b id="h-vsc" hidden>VSC</b><b id="h-ba" hidden>BRAKE ASSIST</b><b id="h-pitlane" hidden>PIT LANE · AUTO</b><b id="h-boxreq" hidden>BOX THIS LAP</b></div>
       </div>
     </div>
     <div id="lightsbar"><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span><span class="lamp"></span></div>

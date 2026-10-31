@@ -1136,7 +1136,14 @@ class Race {
     if (c === this.player && this.phase === 'green' && !c.pit) {
       if (over && !c.offTrack) {
         c.offTrack = true;
-        if (this.mode !== 'race') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap invalidated', kind: 'warn' }); c.lapValid = false; }
+        if (this.mode === 'practice') {
+          // practice: two warnings a lap, the third trip off the track deletes the lap
+          if (c.lapValid && c.dist > 0) {
+            c.lapWarn = (c.lapWarn || 0) + 1;
+            if (c.lapWarn <= 2) this.emit('msg', { car: c, text: `Track limits warning ${c.lapWarn} of 2: the lap still counts`, kind: 'info' });
+            else { c.lapValid = false; this.emit('msg', { car: c, text: 'Third time off the track: lap deleted', kind: 'warn' }); }
+          }
+        } else if (this.mode !== 'race') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap deleted (time trial laps must stay inside the lines)', kind: 'warn' }); c.lapValid = false; }
         else {
           c.trackLimits++;
           if (c.trackLimits % 4 === 0) { c.penalty += 5; (c.penalties = c.penalties || []).push('Track limits'); this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }
@@ -1183,7 +1190,7 @@ class Race {
         }
         if (this.mode === 'race' && lapNow === this.laps && c === this.player) this.emit('msg', { car: c, text: 'Final lap', kind: 'info' });
       }
-      c.lapStart = this.time; c.sector = 0; c.sectorStart = this.time; c.lapValid = true;
+      c.lapStart = this.time; c.sector = 0; c.sectorStart = this.time; c.lapValid = true; c.lapWarn = 0;
       // overtake mode: within 1 s of the car ahead at the line
       if (this.mode === 'race' && this.phase === 'green' && c.lap >= 2) {
         const ahead = this.standings()[this.standings().indexOf(c) - 1];

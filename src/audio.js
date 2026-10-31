@@ -419,6 +419,13 @@ class Input {
       el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off);
     };
     pedal(root.querySelector('#t-thr'), 'thr'); pedal(root.querySelector('#t-brk'), 'brk');
+    // safety: when no finger is on the screen at all, nothing can still be held (a lost "finger up" can't leave the throttle on)
+    if (!this.touchGuard) {
+      this.touchGuard = true;
+      const clear = (e) => { if (e.touches && e.touches.length) return; st.thr = 0; st.brk = 0; st.steer = 0; root.querySelectorAll('.down').forEach((el) => el.classList.remove('down')); for (const k in st.btn) if (st.btn[k] === 2) st.btn[k] = 0; };
+      addEventListener('touchend', clear, true); addEventListener('touchcancel', clear, true);
+      addEventListener('blur', () => clear({})); document.addEventListener('visibilitychange', () => document.hidden && clear({}));
+    }
     root.querySelectorAll('[data-act]').forEach((b2) => {
       const a = b2.dataset.act;
       b2.addEventListener('pointerdown', (e) => { st.btn[a] = 2; b2.classList.add('down'); this.lastDevice = 'touch'; buzz(10); e.preventDefault(); });
