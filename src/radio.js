@@ -3,7 +3,7 @@
 // (position changes, tyre wear). Spoken lines use the browser's speech voice, framed by a radio click.
 const Radio = {
   q: [], showing: null, until: 0, said: {},
-  reset() { this.q = []; this.showing = null; this.until = 0; this.said = {}; this.lastPos = 0; this.lastPosT = 0; this.checkT = 0; this.voice = null; try { speechSynthesis.cancel(); } catch (e) { /* no speech */ } $('#radio').hidden = true; },
+  reset() { if (App.audio && App.audio.duck) App.audio.duck(false); if (App.music && App.music.setRadio) App.music.setRadio(false); this.q = []; this.showing = null; this.until = 0; this.said = {}; this.lastPos = 0; this.lastPosT = 0; this.checkT = 0; this.voice = null; try { speechSynthesis.cancel(); } catch (e) { /* no speech */ } $('#radio').hidden = true; },
   // priority 2 interrupts, 1 queues; one-off lines are keyed so they are never repeated
   say(text, prio = 1, key) {
     if (settings.radio === 'off' || !App.session || App.session.online && App.session.race.mode !== 'race') return;
@@ -12,11 +12,11 @@ const Radio = {
   },
   frame(race) {
     const now = performance.now();
-    if (this.showing && now > this.until) { this.showing = null; $('#radio').hidden = true; }
+    if (this.showing && now > this.until) { this.showing = null; $('#radio').hidden = true; App.audio.duck(false); App.music.setRadio(false); }
     if (!this.showing && this.q.length && !Replay.on && !App.paused) {
       const text = this.q.shift(); this.showing = text; this.until = now + 2600 + text.length * 55;
       $('#radio-text').textContent = text; $('#radio').hidden = false;
-      this.click(); if (settings.radio === 'voice') this.speak(text);
+      this.click(); if (settings.radio === 'voice') { this.speak(text); App.audio.duck(true); App.music.setRadio(true); }
     }
     // once a second: position changes and tyre wear
     if (now - this.checkT < 1000 || race.phase !== 'green') return;
@@ -26,6 +26,7 @@ const Radio = {
       const pos = race.standings().indexOf(P) + 1;
       if (this.lastPos && pos !== this.lastPos && now - this.lastPosT > 6000) {
         this.lastPosT = now;
+        if (pos < this.lastPos) App.audio.cheer(pos === 1 ? 1.3 : 0.8);
         this.say(pos < this.lastPos ? (pos === 1 ? 'Great move! You are leading the race.' : `Nice move, P${pos}.`) : `Lost a place, P${pos}. Keep your head.`);
       }
       this.lastPos = pos;
@@ -81,7 +82,7 @@ const Radio = {
       s.cancel();
       const u = new SpeechSynthesisUtterance(text.replace(/P(\d+)/g, 'P $1'));
       if (this.voice) u.voice = this.voice;
-      u.rate = 1.08; u.pitch = 0.92; u.volume = Math.min(1, 0.4 + (settings.volume ?? 0.7));
+      u.rate = 1.08; u.pitch = 0.92; u.volume = clamp((settings.voiceVol ?? 0.9) * (0.5 + 0.5 * (settings.volume ?? 0.7)), 0, 1);
       s.speak(u);
     } catch (e) { /* speech unavailable: text only */ }
   },

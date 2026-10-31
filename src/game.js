@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -64,7 +64,7 @@ const App = {
     this.input = new Input(); this.audio = new AudioEngine();
     this.music = new Music(this.audio);
     // browsers only allow sound after a tap or key press: start the menu music on the first one
-    const wake = () => { applyAudioSession(); this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube' && !YTMusic.player) YTMusic.play().catch(() => this.music.start()); this.music.setDuck(this.session ? raceMusic() : 1); };
+    const wake = () => { applyAudioSession(); this.audio.fxVol = settings.sfx ?? 1; this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube' && !YTMusic.player) YTMusic.play().catch(() => this.music.start()); this.music.setDuck(this.session ? raceMusic() : 1); };
     // unlock on every kind of gesture until the audio is really running (iOS only accepts touchend/click)
     const unlock = () => { wake(); if (this.audio.ctx && this.audio.ctx.state === 'running') ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => removeEventListener(e, unlock, true)); };
     ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => addEventListener(e, unlock, true));
@@ -653,7 +653,7 @@ const App = {
     for (const e of race.events) {
       Radio.event(e, race);
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
-      else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); }
+      else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); this.audio.cheer(0.8); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
       else if (e.type === 'rainstart') Hud.banner('Rain is starting to fall', 'warn');
       else if (e.type === 'rainstop') Hud.banner('Rain has stopped: the track will dry', 'info');
@@ -678,7 +678,7 @@ const App = {
         }
         S.ghostRec = []; S.ghostT = 0;
         if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) (this.cfg && this.cfg.gp ? Weekend : Career).finishQuali(race); }, 1800); }
-      } else if (e.type === 'finish' && e.car === race.player) { Hud.banner(`Chequered flag: P${e.pos}`, 'go'); if (race.mode === 'race' && !this.fireworks) this.fireworks = new Fireworks(this.worldRoot, race.track, GFX.mainStand); }
+      } else if (e.type === 'finish' && e.car === race.player) { Hud.banner(`Chequered flag: P${e.pos}`, 'go'); this.audio.cheer(e.pos <= 3 ? 1.4 : 1); if (race.mode === 'race' && !this.fireworks) this.fireworks = new Fireworks(this.worldRoot, race.track, GFX.mainStand); }
     }
     race.events.length = 0;
     Radio.frame(race);
@@ -825,7 +825,10 @@ const App = {
     const st = { rain: race.env.rain, player: P, inCockpit: mode === 'cockpit', crowd: Crowd.noise(race, P) };
     if (other) {
       const rx = other.x - P.x, ry = other.y - P.y, side = -(rx * -Math.sin(P.h) + ry * Math.cos(P.h)) / (best + 1);
-      st.other = { car: other, gain: 0.5 * (1 - best / 60), pan: clamp(side, -1, 1) };
+      // closing speed along the line between the cars (for the Doppler pitch shift)
+      const pv = [P.vx * Math.cos(P.h) - (P.vy || 0) * Math.sin(P.h), P.vx * Math.sin(P.h) + (P.vy || 0) * Math.cos(P.h)], ov = [other.vx * Math.cos(other.h) - (other.vy || 0) * Math.sin(other.h), other.vx * Math.sin(other.h) + (other.vy || 0) * Math.cos(other.h)];
+      const closing = ((pv[0] - ov[0]) * rx + (pv[1] - ov[1]) * ry) / (best + 0.01);
+      st.other = { car: other, gain: 0.5 * (1 - best / 60), pan: clamp(side, -1, 1), closing, dist: best };
     }
     this.audio.update(dt, st);
     if (this.touchOn) {
@@ -1513,11 +1516,12 @@ const Menu = {
     const range = (id, key, fmt, scale = 1) => {
       if (!$(id)) return;
       const el = $(id); el.value = settings[key] * scale;
-      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); };
+      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'sfx') App.audio.setFx(settings.sfx); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); };
       el.addEventListener('input', upd); out.textContent = fmt(settings[key]);
     };
     range('#su-wing', 'setupWing', (v) => (v === 0 ? 'Balanced' : v < 0 ? `Low downforce ${-v}` : `High downforce ${v}`)); range('#su-bias', 'setupBias', (v) => `${v}% front`);
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
+    range('#sfx', 'sfx', (v) => `${Math.round(v * 100)}%`, 100); range('#voicevol', 'voiceVol', (v) => `${Math.round(v * 100)}%`, 100);
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     // stepped menu

@@ -585,7 +585,9 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Dashboard overlay</label><div class="ctl seg" data-set="hud"><button type="button" data-v="auto">Hide in cockpit</button><button type="button" data-v="full">Always</button></div></div>
         <div class="row"><label>Mirrors</label><div class="ctl seg" data-set="mirrors"><button type="button" data-v="true">Live mirrors</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label for="fov">Field of view</label><div class="ctl"><input id="fov" type="range" min="45" max="90" step="1"><output id="fov-out"></output></div></div>
-        <div class="row"><label for="vol">Volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
+        <div class="row"><label for="vol">Master volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
+        <div class="row"><label for="sfx">Engine &amp; effects</label><div class="ctl"><input id="sfx" type="range" min="0" max="100" step="1"><output id="sfx-out"></output></div></div>
+        <div class="row"><label for="voicevol">Radio voice</label><div class="ctl"><input id="voicevol" type="range" min="0" max="100" step="1"><output id="voicevol-out"></output></div></div>
         <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="youtube">YouTube playlist</button><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
         <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
         <div id="yt-panel" hidden>

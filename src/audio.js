@@ -6,7 +6,8 @@ class AudioEngine {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain(); this.master.gain.value = this.vol; this.master.connect(ctx.destination);
-    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(this.master);
+    this.fx = ctx.createGain(); this.fx.gain.value = this.fxVol ?? 1; this.fx.connect(this.master); // engine & effects volume (music has its own bus)
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.connect(this.fx);
     this.out = comp;
     // noise buffer
     const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = nb.getChannelData(0);
@@ -53,9 +54,12 @@ class AudioEngine {
     rs.connect(rbp); rbp.connect(rg); rg.connect(shaper); rs.start();
     // MGU-H / turbo whine
     const whine = ctx.createOscillator(); whine.type = 'sine'; const wg = ctx.createGain(); wg.gain.value = 0; whine.connect(wg); whine.start();
-    const synth = ctx.createGain(); synth.gain.value = 1; shaper.connect(synth); synth.connect(lp); lp.connect(g); wg.connect(g);
+    // tone: the camera decides the character (cockpit = intake and body boom, outside = sharp exhaust)
+    const low = ctx.createBiquadFilter(); low.type = 'lowshelf'; low.frequency.value = 220; low.gain.value = 0;
+    const high = ctx.createBiquadFilter(); high.type = 'highshelf'; high.frequency.value = 2800; high.gain.value = 0;
+    const synth = ctx.createGain(); synth.gain.value = 1; shaper.connect(synth); synth.connect(lp); lp.connect(low); low.connect(high); high.connect(g); wg.connect(g);
     if (pan) { g.connect(pan); pan.connect(this.out); } else g.connect(this.out);
-    return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg, synth };
+    return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg, synth, low, high };
   }
   attachLoops(e) {
     const ctx = this.ctx;
@@ -88,7 +92,9 @@ class AudioEngine {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const p = st.player;
-    if (p.justShifted) { if (p.justShifted < 0) this.blip = 0.11; else this.player.cut = 0.06; p.justShifted = 0; }
+    if (p.justShifted) { if (p.justShifted < 0) this.blip = 0.11; else { this.player.cut = 0.06; this.crack(Math.min(1, p.rpm / 12000), st.inCockpit); } p.justShifted = 0; }
+    // tone for the camera, eased so a camera change doesn't click
+    this.player.low.gain.setTargetAtTime(st.inCockpit ? 5 : 0, t, 0.15); this.player.high.gain.setTargetAtTime(st.inCockpit ? -7 : 2.5, t, 0.15);
     this.player.cut -= dt; this.blip = Math.max(0, (this.blip || 0) - dt);
     let thr = Math.max(p.throttle, 0.05, this.blip > 0 ? 0.85 : 0);
     // rev limiter: the ignition cuts in and out ~25 times a second
@@ -97,18 +103,59 @@ class AudioEngine {
     if ((this.prevThr || 0) > 0.6 && p.throttle < 0.15 && p.rpm > 8500) this.crackle(4 + Math.floor(Math.random() * 5));
     this.prevThr = p.throttle;
     this.setEngine(this.player, p.rpm + (this.blip > 0 ? 900 : 0), thr, st.inCockpit ? 0.55 : 0.42);
-    if (st.other) this.setEngine(this.other, st.other.car.rpm, Math.max(st.other.car.throttle, 0.1), st.other.gain, st.other.pan);
+    if (st.other) {
+      // Doppler: a car closing in sounds higher, one pulling away lower (speed of sound 343 m/s)
+      const dop = 343 / (343 - clamp(st.other.closing || 0, -120, 120));
+      this.setEngine(this.other, st.other.car.rpm * dop, Math.max(st.other.car.throttle, 0.1), st.other.gain, st.other.pan);
+      // a close, fast pass: a short whoosh, once per pass
+      if (st.other.dist < 9 && Math.abs(st.other.closing || 0) > 8 && !this.passing) { this.passing = true; this.whoosh(Math.min(1, Math.abs(st.other.closing) / 40), st.other.pan); }
+      if (st.other.dist > 16) this.passing = false;
+    }
     else this.setEngine(this.other, 4000, 0, 0);
     const v = Math.max(0, p.vx);
     this.wind.g.gain.setTargetAtTime(Math.min(0.35, (v / 90) ** 2 * 0.3), t, 0.1);
     this.wind.fl.frequency.setTargetAtTime(400 + v * 12, t, 0.1);
     const slip = Math.max(Math.abs(p.slipF) - 0.07, Math.abs(p.slipR) - 0.07, 0) * 4 + (p.lockF || p.lockR ? 0.6 : 0) + (p.spin ? 0.4 : 0);
     this.squeal.g.gain.setTargetAtTime(p.surface === 'tarmac' || p.surface === 'kerb' ? Math.min(0.25, slip * (v > 3 ? 0.4 : 0)) : 0, t, 0.04);
+    this.squeal.fl.frequency.setTargetAtTime(900 + Math.min(1, slip) * 1300, t, 0.05); // the further past the limit, the higher the squeal
     this.rumble.g.gain.setTargetAtTime(p.surface === 'kerb' && v > 3 ? 0.6 : 0, t, 0.02);
     this.gravel.g.gain.setTargetAtTime((p.surface === 'gravel' || p.surface === 'grass') && v > 2 ? 0.35 : 0, t, 0.05);
-    this.crowd.g.gain.setTargetAtTime(st.crowd || 0, t, 0.5);
+    this.crowd.g.gain.setTargetAtTime((st.crowd || 0) * (this.duckK ?? 1), t, 0.5);
     this.rain.g.gain.setTargetAtTime((st.rain || 0) * 0.12, t, 0.5);
   }
+  // upshift: a sharp exhaust crack (quieter and duller from the cockpit)
+  crack(k, cockpit) {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; src.playbackRate.value = 1.3;
+    const hp = ctx.createBiquadFilter(); hp.type = 'bandpass'; hp.frequency.value = cockpit ? 900 : 1700; hp.Q.value = 0.9;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime((cockpit ? 0.22 : 0.4) * k, t + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    src.connect(hp); hp.connect(g); g.connect(this.out); src.start(t, Math.random()); src.stop(t + 0.1);
+  }
+  // a close pass: air rushing past, swept downward
+  whoosh(k, pan) {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2; bp.frequency.setValueAtTime(1800, t); bp.frequency.exponentialRampToValueAtTime(350, t + 0.55);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.32 * k, t + 0.12); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    src.connect(bp); bp.connect(g); if (pn) { pn.pan.value = clamp(pan || 0, -1, 1); g.connect(pn); pn.connect(this.out); } else g.connect(this.out);
+    src.start(t, Math.random()); src.stop(t + 0.65);
+  }
+  // the crowd cheering: a swell of voices for overtakes and the finish
+  cheer(k = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime, dur = 2.6;
+    for (const [f, q] of [[700, 0.6], [1400, 0.8], [2600, 1]]) {
+      const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const am = ctx.createGain(); const lfo = ctx.createOscillator(); lfo.frequency.value = 5 + Math.random() * 4; const lg = ctx.createGain(); lg.gain.value = 0.25; lfo.connect(lg); lg.connect(am.gain);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.14 * k, t + 0.5); g.gain.setTargetAtTime(0, t + dur - 1, 0.5);
+      src.connect(bp); bp.connect(am); am.connect(g); g.connect(this.out); src.start(t, Math.random()); lfo.start(t); src.stop(t + dur + 1.5); lfo.stop(t + dur + 1.5);
+    }
+  }
+  // while the engineer talks: engine and effects dip so the voice is clear
+  duck(on) { if (!this.fx) return; this.duckK = on ? 0.5 : 1; this.fx.gain.setTargetAtTime((this.fxVol ?? 1) * this.duckK, this.ctx.currentTime, on ? 0.08 : 0.4); }
+  setFx(v) { this.fxVol = v; if (this.fx) this.fx.gain.setTargetAtTime(v * (this.duckK ?? 1), this.ctx.currentTime, 0.05); }
   thud(strength) {
     if (!this.ctx || strength < 2) return;
     const ctx = this.ctx, t = ctx.currentTime;
@@ -178,7 +225,8 @@ class Music {
   stop() { this.on = false; clearInterval(this.timer); this.apply(); }
   setLevel(v) { this.level = v; this.apply(); }
   setDuck(v) { this.duck = v; this.apply(); }
-  apply() { if (typeof YTMusic !== 'undefined') YTMusic.setVolume(this.level * this.duck); if (this.bus) this.bus.gain.setTargetAtTime(this.on ? this.level * this.duck * 0.9 : 0, this.audio.ctx.currentTime, 0.4); }
+  setRadio(on) { this.radioDuck = on ? 0.35 : 1; this.apply(); }
+  apply() { const k = this.level * this.duck * (this.radioDuck ?? 1); if (typeof YTMusic !== 'undefined') YTMusic.setVolume(k); if (this.bus) this.bus.gain.setTargetAtTime(this.on ? k * 0.9 : 0, this.audio.ctx.currentTime, 0.3); }
   // chords (A minor family) and a melody per cycle
   makeSong() {
     const progs = [[0, 5, 2, 6], [5, 6, 0, 0], [0, 3, 5, 6], [5, 2, 6, 0], [0, 6, 5, 6]];
