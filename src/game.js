@@ -639,11 +639,13 @@ const App = {
     P.place(i, T.lineO[i], 0); P.dist = d0; P.lastS = P.s;
     Object.assign(P, { slipF: 0, slipR: 0, lockF: false, lockR: false, spin: false, impact: 0, kerbHit: 0, reverse: false, stopT: 0, throttle: 0, brake: 0, axS: 0, ay: 0, surface: 'tarmac', gear: 1, rpm: 4000 });
     for (const k of ['tempF', 'tempR', 'wear', 'soc']) if (!Number.isFinite(P[k])) P[k] = { tempF: 85, tempR: 85, wear: 0, soc: SOC_MAX * 0.5 }[k];
+    // practice and time trial: a reset is a trip back to the garage, so the car is repaired and the tyres are brought back to temperature
+    if (race.mode !== 'race') { P.wingHealth = 1; P.tempF = P.tempR = 90; P.wingMsg = false; }
     P._px = P.x; P._py = P.y; P._ph = P.h;
     if (P.mesh) P.mesh.grp.visible = true;
     if (S) S.camSmooth = null;
     if (race.mode !== 'race') P.lapValid = false;
-    Hud.flash(why === 'recovered' ? 'Car recovered to the track' : 'Car reset to track');
+    Hud.flash(why === 'recovered' ? 'Car recovered to the track' : race.mode !== 'race' ? 'Car reset and repaired' : 'Car reset to track');
   },
   handleEvents(race) {
     const S = this.session;

@@ -452,7 +452,7 @@ class Car {
     const q = 0.5 * RHO * this.vx * this.vx;
     const clA = p.ClA * (this.aeroX ? 0.6 : 1) * (1 - this.dirty * 0.18) * (0.88 + 0.12 * this.wingHealth); // a broken front wing loses downforce too
     const cdA = p.CdA * (this.aeroX ? 0.7 : 1) * (1 - this.tow * 0.28);
-    const balF = p.aeroBal * (0.75 + 0.25 * this.wingHealth);
+    const balF = p.aeroBal * (0.88 + 0.12 * this.wingHealth);
     const DfF = q * clA * balF, DfR = q * clA * (1 - balF) * (this.aeroX ? 1.1 : 1);
     const drag = q * cdA;
 
@@ -555,8 +555,10 @@ class Car {
     // --- tyres: heat and wear
     const slipP = Math.abs(FyF * aF * vxs) + Math.abs(FyR * aR * vxs) + (this.lockF || this.lockR || this.spin ? 60e3 : 0);
     const cool = 0.004 * (1 + vxa / 80), roll = 0.005 * vxa;
-    this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool) * dt;
-    this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool) * dt;
+    const hot = (t) => Math.max(0, t - 125) * 0.08; // past ~125 C the rubber sheds heat fast (and grip already falls)
+    this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool - hot(this.tempF)) * dt;
+    this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool - hot(this.tempR)) * dt;
+    this.tempF = clamp(this.tempF, 15, 150); this.tempR = clamp(this.tempR, 15, 150);
     this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * (this.setupWear || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt); // wet tyres overheat on a dry track
 
     // --- walls
@@ -574,7 +576,7 @@ class Car {
         const scrub = clamp(1 - vn * 0.03, 0.55, 0.97); wx *= scrub; wy *= scrub;
         this.vx = wx * ch + wy * sh; this.vy = -wx * sh + wy * ch;
         this.r *= 0.5; this.impact = vn;
-        if (vn > 9) this.wingHealth = Math.max(0, this.wingHealth - (vn - 9) * 0.06);
+        if (vn > 12) this.wingHealth = Math.max(0, this.wingHealth - (vn - 12) * 0.035); // a proper hit costs part of the wing, glancing touches nothing
       }
       this.locate(false);
     }
@@ -895,7 +897,7 @@ class Race {
     if (this.twoCompounds && !this.player.stops && !this.player.pit && this.lapsLeft(this.player) === 3 && !this.player.ruleMsg) { this.player.ruleMsg = true; this.emit('msg', { car: this.player, text: 'Reminder: pit for a different tyre compound (M) or take a 20 s penalty', kind: 'warn' }); }
     // front wing damage message
     const P = this.player;
-    if (P.wingHealth < 0.6 && !P.wingMsg) { P.wingMsg = true; this.emit('msg', { car: P, text: 'Front wing damaged: box for a new nose (M)', kind: 'warn' }); }
+    if (P.wingHealth < 0.6 && !P.wingMsg) { P.wingMsg = true; this.emit('msg', { car: P, text: this.mode === 'race' ? 'Front wing damaged: the car will understeer. Press PIT for a new nose' : 'Front wing damaged: press Reset to repair it', kind: 'warn' }); }
     if (P.wingHealth > 0.9) P.wingMsg = false;
   }
   // player asks to pit (or changes the tyre choice / cancels); returns the requested compound or null

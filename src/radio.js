@@ -30,6 +30,7 @@ const Radio = {
       }
       this.lastPos = pos;
     }
+    if (P.wingHealth < 0.6) this.say(race.mode === 'race' ? 'We have front wing damage, expect understeer. Box when you can for a new nose.' : 'Front wing damage. Reset the car to repair it.', 1, 'wing' + P.stops);
     if (P.wear > 0.62 && race.mode !== 'trial') this.say('Tyres are going off. Box when you are ready, press PIT to call it.', 1, 'wear');
   },
   event(e, race) {
