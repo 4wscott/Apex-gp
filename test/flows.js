@@ -39,7 +39,7 @@ const which=process.argv[2]||'all';
   // development upgrade
   const before=await ev(()=>Career.data.rd.power);await ev(()=>Career.upgrade('power'));log('upgrade power',before,'->',await ev(()=>Career.data.rd.power));
   // jump to the last round, qualify, race, check season review
-  await ev(()=>{Career.data.round=7;Career.save();Career.render();});
+  await ev(()=>{Career.data.round=Career.data.calendar.length-1;Career.data.sprints=[];Career.save();Career.render();});
   await ev(()=>Career.startQuali());
   await waitFor(()=>!!(App.session&&App.session.race&&App.session.race.quali));
   log('quali running',await ev(()=>({track:App.session.race.track.spec.id,mode:App.session.race.mode})));

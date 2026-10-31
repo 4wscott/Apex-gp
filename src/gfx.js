@@ -1565,7 +1565,9 @@ function suitTexture(team) {
 }
 
 const CAR_SCALE = 1.08;
-function makeCar(team, num, G2, mats, compound = 'M', hero = false) {
+function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = null) {
+  // a custom livery (career): the team's colours swapped for the player's own, for painting only
+  const team = livery ? Object.assign({}, team0, livery, { id: team0.id + '~' + hashStr(JSON.stringify(livery)) }) : team0;
   const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
   grp.scale.setScalar(CAR_SCALE); // drawn a touch larger than the physics footprint so it reads like the TV/game cars
   const matte = !!team.matte;

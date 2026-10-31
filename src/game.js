@@ -326,7 +326,7 @@ const App = {
     // in career the showroom shows your career car
     const car = settings.mode === 'career' && Career.data;
     const team = car ? Career.team() : TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
-    this.previewCar = makeCar(team, car ? Career.data.num : dr.num, GFX.geo, GFX.mats);
+    this.previewCar = makeCar(team, car ? Career.data.num : dr.num, GFX.geo, GFX.mats, 'M', false, car ? Career.livery() : null);
     if (car) addUpgradeParts(this.previewCar, Career.data.rd, team);
     this.worldRoot.add(this.previewCar.grp);
     // showroom spot: on the start/finish line, with the main grandstand across the track behind it
@@ -391,7 +391,7 @@ const App = {
       if (cfg && cfg.online) race.lightsT = -(4 - (Date.now() - cfg.ref) / 1000); // lights start 4 s after the host pressed start, for everyone
       this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0, online: !!(cfg && cfg.online), netT: 0 };
       race.cars.forEach((c) => {
-        const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player);
+        const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player, c === race.player && cfg ? cfg.livery : null);
         this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m;
       });
       PitCrew.reset(this.worldRoot);
@@ -1320,7 +1320,11 @@ const Results = {
     });
     const pos = rows.findIndex((r) => r.car === P) + 1;
     $('#res-title').textContent = `${race.track.spec.name}: you finished P${pos}`;
-    if (App.cfg && App.cfg.career && !App.cfg.recorded) {
+    if (App.cfg && App.cfg.career && App.cfg.sprint && !App.cfg.recorded) {
+      App.cfg.recorded = true; Career.recordSprint(race);
+      $('#res-title').textContent = `Sprint, ${race.track.spec.name}: P${pos} · ${Career.data.lastSprint.pts} points`;
+      $('#r-again').textContent = 'On to the Grand Prix'; $('#r-menu').hidden = true;
+    } else if (App.cfg && App.cfg.career && !App.cfg.recorded) {
       App.cfg.recorded = true;
       const last = Career.recordRace(race);
       $('#res-title').textContent += ` · ${last.pts} points, +${last.earned} development`;
@@ -1740,7 +1744,7 @@ const Menu = {
       if (App.cfg && App.cfg.online) { if (Net.host) Net.startRace(); return; }
       if (App.cfg && App.cfg.quali && App.cfg.gp) { Weekend.startRace(); return; }
       if (App.cfg && App.cfg.quali) { const g = Career.pendingGrid; App.quit(); setTimeout(() => Career.startRace(g), 50); return; }
-      if (App.cfg && App.cfg.career) { $('#r-menu').hidden = false; App.quit(); return; }
+      if (App.cfg && App.cfg.career) { $('#r-menu').hidden = false; App.quit(); return; } // (sprints are recorded when the results show)
       App.restart();
     };
     $('#r-menu').onclick = () => App.quit();

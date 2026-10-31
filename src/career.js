@@ -29,6 +29,13 @@ const Career = {
     if (this.db && this.uid) this.db.doc(`data/users/${this.uid}/career`).set({ json: JSON.stringify(this.data) }).catch(() => {});
   },
   team() { return TEAMS.find((t) => t.id === this.data.teamId); },
+  // the player's own colours: pattern decides which colour leads, finish decides gloss or matte
+  livery() {
+    const L = this.data && this.data.livery; if (!L) return null;
+    const shade = (hx, k) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hx.slice(i, i + 2), 16) * k).toString(16).padStart(2, '0')).join('');
+    const [a, b, c] = { classic: [L.c1, L.c2, L.c3], reversed: [L.c2, L.c1, L.c3], accent: [L.c1, L.c3, L.c2], mono: [L.c1, shade(L.c1, 0.55), L.c3] }[L.pattern || 'classic'];
+    return { c1: a, c2: b, c3: c, matte: L.finish === 'matte', split: false, style: null };
+  },
   driver() { const d = this.data; return { name: d.name, code: d.code, num: d.num, skill: 1 }; },
   track() { return TRACKS.find((t) => t.id === this.data.calendar[this.data.round]); },
   // every driver in the field with the player swapped in
@@ -47,7 +54,7 @@ const Career = {
     code = (code + 'XXX').slice(0, 3);
     this.data = {
       v: 1, name: form.name.trim() || 'Rookie', code, num: form.num, teamId: tm.id, replaces: form.replaces,
-      season: 1, round: 0, calendar: TRACKS.map((t) => t.id), laps: form.laps, points: {}, teamPoints: {}, results: [],
+      season: 1, round: 0, calendar: TRACKS.map((t) => t.id), sprints: this.pickSprints(TRACKS.length, 1), laps: form.laps, points: {}, teamPoints: {}, results: [],
       rd: { points: 20, power: 0, aero: 0, grip: 0 }, history: [], last: null,
     };
     this.save(); this.render(); if (window.App && !App.session) App.preview(this.track().id);
@@ -81,6 +88,18 @@ const Career = {
     d.round++;
     this.save();
     return d.last;
+  },
+  // three sprint weekends a season, spread through the calendar (never the first round)
+  pickSprints(n, season) { const r = mulberry32(season * 977 + n); const out = new Set(); while (out.size < Math.min(3, n - 1)) out.add(1 + Math.floor(r() * (n - 1))); return [...out].sort((a, b) => a - b); },
+  isSprint() { const d = this.data; return !!(d && d.sprints && d.sprints.includes(d.round)); },
+  startSprint() { App.start(Object.assign(this.baseCfg(), { mode: 'race', sprint: true, laps: Math.max(2, Math.round(this.data.laps / 3)), opponents: 21 })); },
+  // sprint: points 8-7-6-5-4-3-2-1, no development points, the round stays open for the Grand Prix
+  recordSprint(race) {
+    const d = this.data, rows = race.results(), SP = [8, 7, 6, 5, 4, 3, 2, 1];
+    rows.forEach((r, i) => { const pts = r.car.finished ? SP[i] || 0 : 0, code = r.car.driver.code; d.points[code] = (d.points[code] || 0) + pts; d.teamPoints[r.car.team.id] = (d.teamPoints[r.car.team.id] || 0) + pts; });
+    const me = rows.findIndex((r) => r.car === race.player);
+    d.sprintDone = d.round; d.lastSprint = { pos: me + 1, pts: SP[me] || 0 };
+    this.save();
   },
   // ---- rival: the closest-matched driver in another team, with a running head-to-head ----
   ensureRival() {
@@ -119,7 +138,7 @@ const Career = {
   nextSeason() {
     const d = this.data, st = this.standings();
     d.history.push({ season: d.season, pos: st.drivers.findIndex((x) => x.me) + 1, pts: d.points[d.code] || 0 });
-    d.season++; d.round = 0; d.points = {}; d.teamPoints = {}; d.results = []; d.last = null; d.rd.points += 30; d.offers = null; d.h2h = { ahead: 0, behind: 0 };
+    d.season++; d.round = 0; d.points = {}; d.teamPoints = {}; d.results = []; d.last = null; d.rd.points += 30; d.offers = null; d.h2h = { ahead: 0, behind: 0 }; d.sprints = this.pickSprints(d.calendar.length, d.season); d.sprintDone = -1;
     this.save(); this.render();
   },
   retire() { this.data = null; store.set('career', null); if (this.db && this.uid) this.db.doc(`data/users/${this.uid}/career`).delete().catch(() => {}); this.render(); },
@@ -137,7 +156,7 @@ const Career = {
           <div class="team cr-teaminfo" id="cr-teaminfo"></div>
           <div class="row"><label for="cr-rep">Seat (replaces)</label><div class="ctl"><select id="cr-rep"></select></div></div>
           <div class="row"><label for="cr-laps">Race distance</label><div class="ctl"><select id="cr-laps"><option value="3">Sprint, 3 laps</option><option value="5" selected>Short, 5 laps</option><option value="10">Medium, 10 laps</option><option value="20">Long, 20 laps</option></select></div></div>
-          <p class="hint">An 8-round season across every circuit. Qualify, race for points, and spend development points to make your car faster. Top teams have quicker cars; a backmarker career is the harder challenge.</p>
+          <p class="hint">A season across every circuit, with three sprint weekends. Qualify, race for points, and spend development points to make your car faster. Top teams have quicker cars; a backmarker career is the harder challenge.</p>
           <div class="actions"><button type="button" class="btn primary" id="cr-start">Start career</button></div>
         </div>`;
       const fillRep = () => {
@@ -151,6 +170,8 @@ const Career = {
       return;
     }
     this.ensureRival();
+    if (!d.sprints) { d.sprints = this.pickSprints(d.calendar.length, d.season); d.sprintDone = -1; }
+    for (const t of TRACKS) if (!d.calendar.includes(t.id) && d.round === 0) d.calendar.push(t.id); // new circuits join at the start of a season
     if (d.round >= d.calendar.length && !d.offers) { this.makeOffers(); this.save(); }
     const st = this.standings(), tm = this.team(), done = d.round >= d.calendar.length;
     const myPos = st.drivers.findIndex((x) => x.me) + 1;
@@ -178,8 +199,16 @@ const Career = {
         <div class="actions"><button type="button" class="btn primary" id="cr-next">Stay at ${tm.name} for season ${d.season + 1}</button></div></div>`
       : `<div class="group"><h2>Next race</h2>
         <div class="next-race"><canvas width="240" height="150" id="cr-map"></canvas><div><b class="c-name">${T.spec.name}</b><br><span class="c-meta">${T.spec.country} · ${(T.length / 1000).toFixed(3)} km · ${d.laps} laps</span><br><span class="c-style">${T.spec.style}</span></div></div>
-        <div class="actions"><button type="button" class="btn primary" id="cr-quali">Qualifying</button><button type="button" class="btn" id="cr-skip">Skip to race</button></div>
+        ${this.isSprint() ? `<p class="sprint-tag">SPRINT WEEKEND · a ${Math.max(2, Math.round(d.laps / 3))}-lap sprint (points 8 to 1) before the Grand Prix</p>` : ''}
+        ${this.isSprint() && d.sprintDone !== d.round ? `<div class="actions"><button type="button" class="btn primary" id="cr-sprint">Sprint race</button></div>`
+        : `${this.isSprint() && d.lastSprint ? `<p class="hint">Sprint: P${d.lastSprint.pos}, ${d.lastSprint.pts} pts. Now the Grand Prix.</p>` : ''}<div class="actions"><button type="button" class="btn primary" id="cr-quali">Qualifying</button><button type="button" class="btn" id="cr-skip">Skip to race</button></div>`}
         <p class="hint">Qualifying: two timed laps, your best counts. Skip and you start from the back half of the grid.</p></div>`}
+      <div class="group livery-ed"><h2>My car</h2>
+        <div class="row"><label>Colours</label><div class="ctl lv-cols"><input type="color" id="lv-c1" aria-label="Main colour"><input type="color" id="lv-c2" aria-label="Second colour"><input type="color" id="lv-c3" aria-label="Accent colour"></div></div>
+        <div class="row"><label>Pattern</label><div class="ctl seg" id="lv-pattern"><button type="button" data-v="classic">Classic</button><button type="button" data-v="reversed">Reversed</button><button type="button" data-v="accent">Accent-led</button><button type="button" data-v="mono">Monochrome</button></div></div>
+        <div class="row"><label>Finish</label><div class="ctl seg" id="lv-finish"><button type="button" data-v="gloss">Gloss</button><button type="button" data-v="matte">Matte</button></div></div>
+        <div class="actions"><button type="button" class="btn" id="lv-reset">Team colours</button></div>
+        <p class="hint">Your colours show on the car in the showroom, in races and in replays.</p></div>
       <div class="group"><h2>Car development · ${d.rd.points} points</h2>${rdRows}</div>
       <div class="group"><h2>Drivers' championship</h2><div class="table-wrap"><table><tbody>${st.drivers.map((x, i) => `<tr class="${x.me ? 'me' : ''}"><td class="num">${i + 1}</td><td><span class="swatch" style="background:${x.team.c1}"></span>${x.name}</td><td>${x.team.name}</td><td class="num">${x.pts}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="group"><h2>Constructors' championship</h2><div class="table-wrap"><table><tbody>${st.teams.map((x, i) => `<tr class="${x.team.id === d.teamId ? 'me' : ''}"><td class="num">${i + 1}</td><td><span class="swatch" style="background:${x.team.c1}"></span>${x.team.name}</td><td class="num">${x.pts}</td></tr>`).join('')}</tbody></table></div></div>
@@ -190,6 +219,13 @@ const Career = {
     if ($('#cr-next')) $('#cr-next').onclick = () => this.nextSeason();
     $$('[data-offer]', root).forEach((b) => (b.onclick = () => this.acceptOffer(+b.dataset.offer)));
     if ($('#cr-quali')) $('#cr-quali').onclick = () => this.startQuali();
+    if ($('#cr-sprint')) $('#cr-sprint').onclick = () => this.startSprint();
+    // livery editor
+    { const t = this.team(), L = d.livery || { c1: t.c1, c2: t.c2, c3: t.c3, pattern: 'classic', finish: t.matte ? 'matte' : 'gloss' };
+      ['c1', 'c2', 'c3'].forEach((k) => { const el = $('#lv-' + k); el.value = L[k]; el.oninput = () => this.setLivery({ [k]: el.value }); });
+      $$('#lv-pattern button').forEach((b) => { b.setAttribute('aria-pressed', String((L.pattern || 'classic') === b.dataset.v)); b.onclick = () => this.setLivery({ pattern: b.dataset.v }); });
+      $$('#lv-finish button').forEach((b) => { b.setAttribute('aria-pressed', String((L.finish || 'gloss') === b.dataset.v)); b.onclick = () => this.setLivery({ finish: b.dataset.v }); });
+      $('#lv-reset').onclick = () => { d.livery = null; this.save(); this.render(); this.refreshCar(); }; }
     if ($('#cr-skip')) $('#cr-skip').onclick = () => this.startRace(null);
     $('#cr-retire').onclick = () => { $('#cr-confirm').hidden = false; $('#cr-retire').hidden = true; };
     $('#cr-retire-no').onclick = () => { $('#cr-confirm').hidden = true; $('#cr-retire').hidden = false; };
@@ -197,9 +233,17 @@ const Career = {
     if (this.db) $('#career-sync').textContent = 'Career saved to your account, so it carries over between your phone and PC.';
     Menu.sync && Menu.sync();
   },
+  setLivery(ch) {
+    const d = this.data, t = this.team();
+    d.livery = Object.assign(d.livery || { c1: t.c1, c2: t.c2, c3: t.c3, pattern: 'classic', finish: t.matte ? 'matte' : 'gloss' }, ch); this.save();
+    $$('#lv-pattern button').forEach((b) => b.setAttribute('aria-pressed', String(d.livery.pattern === b.dataset.v)));
+    $$('#lv-finish button').forEach((b) => b.setAttribute('aria-pressed', String(d.livery.finish === b.dataset.v)));
+    clearTimeout(this.lvT); this.lvT = setTimeout(() => this.refreshCar(), 150); // colour pickers fire often: repaint once they settle
+  },
+  refreshCar() { if (window.App && !App.session && settings.mode === 'career') App.preview(this.track() ? this.track().id : settings.track); },
   baseCfg() {
     const d = this.data;
-    return { team: this.team(), driver: this.driver(), replaceCode: d.replaces, upgrades: d.rd, track: d.calendar[d.round], career: true };
+    return { team: this.team(), driver: this.driver(), replaceCode: d.replaces, upgrades: d.rd, track: d.calendar[d.round], career: true, livery: this.livery() };
   },
   startQuali() { App.start(Object.assign(this.baseCfg(), { mode: 'trial', quali: true })); },
   startRace(gridOrder) {

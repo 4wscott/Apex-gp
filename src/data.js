@@ -61,6 +61,10 @@ const TRACKS = [
     pts: [[0, 0, 40], [900, 0, 60], [1150, 250, 120], [1000, 600, 50], [650, 560, 35], [500, 800, 60], [100, 850, 90], [-250, 600, 45], [-150, 300, 30]] },
   { id: 'nordhang', name: 'Nordhang Ring', country: 'Austria', style: 'Fast valley lap with a long uphill blast', width: 14, wall: 18, runoff: 'grass', theme: 'forest', laps: 5,
     pts: [[0, 0, 30], [1100, 0, 200], [1300, -400, 60], [1050, -700, 40], [700, -500, 80], [400, -800, 50], [0, -750, 120], [-300, -450, 40], [-200, -150, 60]] },
+  { id: 'montealto', name: 'Autódromo Monte Alto', country: 'Mexico', style: 'Thin air, a huge straight and a stadium section', width: 14, wall: 12, runoff: 'tarmac', theme: 'street', laps: 6,
+    pts: [[0, 0, 30], [1200, 0, 25], [1260, 150, 40], [1100, 260, 30], [950, 180, 25], [700, 350, 70], [450, 300, 20], [300, 460, 20], [150, 330, 25], [-150, 420, 60], [-260, 200, 30]] },
+  { id: 'lakeside', name: 'Lakeside Park', country: 'Netherlands', style: 'Flowing curves through the dunes', width: 13, wall: 14, runoff: 'gravel', theme: 'parkland', laps: 6,
+    pts: [[0, 0, 60], [700, -80, 150], [1050, 150, 80], [900, 450, 40], [600, 380, 90], [350, 620, 45], [50, 520, 120], [-200, 700, 40], [-350, 420, 70], [-150, 180, 50]] },
   { id: 'lonestar', name: 'Lone Star Raceway', country: 'United States', style: 'Uphill hairpin, esses and a stadium', width: 15, wall: 18, runoff: 'tarmac', theme: 'prairie', laps: 5,
     pts: [[0, 600, 16], [-100, 560, 100], [-250, 600, 70], [-380, 560, 70], [-500, 620, 70], [-640, 580, 80], [-760, 640, 60], [-900, 560, 18], [-150, 300, 25], [-200, 150, 40], [-350, 120, 20], [-330, -80, 70], [-200, -260, 90], [-50, -200, 40]] },
 ];
