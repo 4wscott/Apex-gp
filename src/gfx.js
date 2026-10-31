@@ -602,7 +602,7 @@ function buildWorld(T, themeKey, quality) {
   // ---- pit lane, garages, pit wall ----
   GFX.pit = buildPitComplex(T, PL, world, add, tx, steel, white, quality);
   // ---- pit complex and main grandstand along the start straight ----
-  GFX.mainStand = null;
+  GFX.mainStand = null; GFX.bigScreen = null;
   // the straight through the line; where the line sits in a kink, the nearest proper straight to it
   const straightAt = (i0) => { let a = i0, b = i0; while (a > i0 - n / 3 && Math.abs(T.kapW[(a - 1 + n) % n]) < 1 / 1500) a--; while (b < i0 + n / 3 && Math.abs(T.kapW[(b + 1) % n]) < 1 / 1500) b++; return [a + 8, b - 8]; };
   let [iA, iB] = straightAt(0);
@@ -625,6 +625,37 @@ function buildWorld(T, themeKey, quality) {
     const standG = new THREE.Group(); standG.add(stand);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(L * 0.88, 0.5, rows * depth + 4), white); roof.position.set(0, rows * rise + 5, -(rows * depth) / 2 - 1); roof.castShadow = true; standG.add(roof);
     for (let k = -4; k <= 4; k++) { const col2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, rows * rise + 5, 0.5), steel); col2.position.set(k * L * 0.1, (rows * rise + 5) / 2, -rows * depth - 0.5); standG.add(col2); }
+    // grandstand detail: end walls, stair aisles, roof trusses, sponsor fascia, a TV platform and a giant screen
+    const concreteM = new THREE.MeshStandardMaterial({ map: rep(tx.concrete, 4, 4), color: 0xc9c6bf, roughness: 0.9 });
+    for (const sx of [-1, 1]) {
+      const end = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateY(-Math.PI / 2), concreteM); end.material.side = THREE.DoubleSide;
+      end.position.x = sx * L * 0.425; end.castShadow = true; standG.add(end);
+    }
+    const aisleG = new THREE.ExtrudeGeometry(shape, { depth: 1.1, bevelEnabled: false }).translate(0, 0.035, -0.55).rotateY(-Math.PI / 2);
+    for (let x = -L * 0.425 + 14; x < L * 0.425 - 6; x += 18) { const a = new THREE.Mesh(aisleG, concreteM); a.position.x = x; a.receiveShadow = true; standG.add(a); }
+    const roofZ = -(rows * depth) / 2 - 1, roofY = rows * rise + 5;
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(L * 0.88, 0.7, 0.5), steel); beam.position.set(0, roofY - 0.6, roofZ + (rows * depth + 4) / 2 - 0.3); standG.add(beam);
+    for (let k = -4; k <= 4; k++) {
+      const len = rows * depth + 2, br = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, Math.hypot(len, 5)), steel);
+      br.position.set(k * L * 0.1, roofY - 2.6, roofZ + 0.6); br.rotation.x = Math.atan2(5, len); standG.add(br);
+    }
+    const fasciaTex = tx.wall.clone(); fasciaTex.needsUpdate = true; fasciaTex.wrapS = THREE.RepeatWrapping; fasciaTex.repeat.set(L / 160, 1);
+    const fascia = new THREE.Mesh(new THREE.PlaneGeometry(L * 0.85, 1.3), new THREE.MeshStandardMaterial({ map: fasciaTex, roughness: 0.6 })); fascia.position.set(0, 0.62, 0.06); standG.add(fascia);
+    const roofFascia = new THREE.Mesh(new THREE.PlaneGeometry(L * 0.88, 1.6), new THREE.MeshStandardMaterial({ map: fasciaTex, roughness: 0.6 })); roofFascia.position.set(0, roofY - 0.1, roofZ + (rows * depth + 4) / 2 + 0.02); standG.add(roofFascia);
+    const tv = new THREE.Group(), tvPlat = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.25, 3), steel); tv.add(tvPlat);
+    const tvCam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.5), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.4 })); tvCam.position.set(0, 1.25, 0.6); tv.add(tvCam);
+    const tvLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1, 6).translate(0, 0.5, 0), steel); tvLeg.position.set(0, 0.12, 0.6); tv.add(tvLeg);
+    for (const rx of [-2.2, 2.2]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1, 3), steel); rail.position.set(rx, 0.6, 0); tv.add(rail); }
+    tv.position.set(L * 0.18, roofY + 0.45, roofZ + 6); standG.add(tv);
+    // giant screen beside the stand, facing the track: live timing during a race (see App), the logo in the menu
+    const scv = document.createElement('canvas'); scv.width = 512; scv.height = 288;
+    const scTex = new THREE.CanvasTexture(scv); scTex.colorSpace = THREE.SRGBColorSpace;
+    const screen = new THREE.Group();
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(13, 7.8, 0.6), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.5 })); frame.position.y = 9; screen.add(frame);
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(12.2, 6.9), new THREE.MeshBasicMaterial({ map: scTex, toneMapped: false })); face.position.set(0, 9, 0.31); screen.add(face);
+    for (const lx of [-4, 4]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.6, 5.2, 0.6), steel); leg.position.set(lx, 2.6, 0); screen.add(leg); }
+    screen.position.set(L * 0.425 + 10, 0, -3); screen.rotation.y = -0.35; standG.add(screen);
+    GFX.bigScreen = { canvas: scv, tex: scTex, t: 0 };
     place(standG, T.wallL[mid] + 7, 0);
     GFX.mainStand = { mid, lat: T.wallL[mid] + 7 + rows * depth / 2, L: L * 0.85, top: rows * rise + 5 };
     if (quality >= 1) { world.updateMatrixWorld(true); Crowd.populate(stand, L * 0.85, rows, depth, rise, rng, quality); }
@@ -637,6 +668,38 @@ function buildWorld(T, themeKey, quality) {
     }
   }
 
+  // TV camera towers on the outside of the four tightest corners, and a camera crane over the end of the main straight
+  {
+    const towerSteel = new THREE.MeshStandardMaterial({ color: 0x8b9096, metalness: 0.7, roughness: 0.45 });
+    const camMat = new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.4 });
+    const tower = () => {
+      const g = new THREE.Group(), H = 9;
+      for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, H, 0.14).translate(0, H / 2, 0), towerSteel); leg.position.set(x * 1.1, 0, z * 1.1); g.add(leg); }
+      for (let y = 1.5; y < H; y += 2.2) for (const r of [0, Math.PI / 2]) { const br = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.08), towerSteel); br.position.y = y; br.rotation.y = r; br.position.x = r ? 0 : 0; g.add(br); }
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 3), towerSteel); deck.position.y = H; deck.castShadow = true; g.add(deck);
+      const cam = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 1), camMat); cam.position.set(0, H + 1.3, 0); g.add(cam);
+      const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.6, 12).rotateX(Math.PI / 2), camMat); lens.position.set(0, H + 1.3, 0.75); g.add(lens);
+      const um = new THREE.Mesh(new THREE.ConeGeometry(1.1, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7 })); um.position.y = H + 2.6; g.add(um);
+      return g;
+    };
+    const apexes = [];
+    for (let i = 0; i < n; i += 4) { const k = Math.abs(T.kapW[i]); if (k > 1 / 90 && apexes.every((a) => Math.min(Math.abs(a.i - i), n - Math.abs(a.i - i)) > 200 / T.ds)) apexes.push({ i, k }); }
+    apexes.sort((a, b) => b.k - a.k).slice(0, 4).forEach(({ i }) => {
+      const side = T.kapW[i] > 0 ? -1 : 1, off = (side > 0 ? T.wallL[i] : T.wallR[i]) + 14, x = T.px[i] + T.nx[i] * off * side, y = T.py[i] + T.ny[i] * off * side;
+      if (pitArea(x, y)) return;
+      const t = tower(); t.position.copy(W(x, y, 0)); t.lookAt(W(T.px[i], T.py[i], 0).setY(0)); world.add(t);
+    });
+    // crane: a long boom with a camera over the run to the first corner
+    const j = Math.round(Math.min(T.length * 0.12, 260) / T.ds) % n, cOff = T.wallR[j] + 10;
+    const cx = T.px[j] - T.nx[j] * cOff, cy = T.py[j] - T.ny[j] * cOff;
+    if (!pitArea(cx, cy)) {
+      const cr = new THREE.Group(), mast = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6).translate(0, 7, 0), towerSteel); cr.add(mast);
+      const boom = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 16).translate(0, 0, 8), towerSteel); boom.position.y = 14; boom.rotation.x = 0.25; cr.add(boom);
+      const ccam = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.8), camMat); ccam.position.set(0, 14 - Math.sin(0.25) * 16 - 0.5, Math.cos(0.25) * 16); cr.add(ccam);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(3, 0.8, 3).translate(0, 0.4, 0), new THREE.MeshStandardMaterial({ color: 0xf2b705, roughness: 0.6 })); cr.add(base);
+      cr.position.copy(W(cx, cy, 0)); cr.lookAt(W(T.px[j], T.py[j], 0).setY(0)); world.add(cr);
+    }
+  }
   // braking boards and corner grandstands
   const boardTex = {};
   [100, 200, 300].forEach((d) => { boardTex[d] = canvasTex(128, 128, (g) => { g.fillStyle = '#f4f4f4'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#111'; g.font = '800 70px "Saira Condensed", Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d), 64, 68); }, { clamp: true }); });

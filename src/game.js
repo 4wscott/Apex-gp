@@ -559,6 +559,7 @@ const App = {
     }
     this.updateVisuals(dt, S, inp);
     if (this.fireworks) this.fireworks.update(dt, this.audio);
+    drawBigScreen(race, dt);
     this.render();
     for (let k = 0; k < real.length; k += 4) { const c = real[k]; c.x = real[k + 1]; c.y = real[k + 2]; c.h = real[k + 3]; }
     Hud.update(dt, S, inp);
@@ -586,6 +587,7 @@ const App = {
     const c = this.previewCar.grp.position, T = this.previewTrack, i = this.previewSpot;
     this.camera.fov = 52; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
     if (this.fireworks) this.fireworks.update(dt, this.audio);
+    drawBigScreen(null, dt);
     if (window.DEBUG_CAM) { const d = window.DEBUG_CAM; this.camera.position.set(c.x + d[0], d[1], c.z + d[2]); this.camera.lookAt(c.x + (d[3] || 0), d[4] ?? 0.5, c.z + (d[5] || 0)); }
     else {
       // stand on the pit-wall side of the track, a little ahead of the line, looking back across at the car and the grandstand
@@ -1243,6 +1245,38 @@ class Fireworks {
   dispose() { this.root.remove(this.pts); this.pts.geometry.dispose(); this.mat.dispose(); }
 }
 
+
+
+// ---- the giant screen by the main grandstand: live top-8 timing in a race, the logo otherwise ----------
+function drawBigScreen(race, dt) {
+  const B = GFX.bigScreen; if (!B) return;
+  B.t -= dt; if (B.t > 0) return; B.t = race ? 1 : 3;
+  const g = B.canvas.getContext('2d'), W = 512, H = 288;
+  g.fillStyle = '#05070b'; g.fillRect(0, 0, W, H);
+  if (!race) {
+    g.fillStyle = '#ff8000'; g.fillRect(0, H - 10, W, 10);
+    g.font = '800 italic 64px "Saira Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff'; g.fillText('APEX', W / 2 - 52, H / 2 - 10); g.fillStyle = '#ff8000'; g.fillText('GP', W / 2 + 76, H / 2 - 10);
+    g.font = '600 22px "Saira Condensed", sans-serif'; g.fillStyle = '#9aa3ad'; g.fillText('GRAND PRIX', W / 2, H / 2 + 44);
+  } else {
+    const st = race.mode === 'race' ? race.standings() : race.cars.slice().sort((a, b) => (isFinite(a.bestLap) ? a.bestLap : 1e9) - (isFinite(b.bestLap) ? b.bestLap : 1e9));
+    g.fillStyle = '#e10600'; g.fillRect(0, 0, W, 36);
+    g.font = '800 24px "Saira Condensed", sans-serif'; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#fff';
+    g.fillText(race.mode === 'race' ? `LAP ${Math.max(1, Math.min(race.laps, race.player.lap))} / ${race.laps}` : 'BEST LAPS', 14, 19);
+    g.textAlign = 'right'; g.fillText(race.track.spec.name.toUpperCase(), W - 14, 19);
+    st.slice(0, 8).forEach((c, i) => {
+      const y = 48 + i * 30, me = c === race.player;
+      if (me) { g.fillStyle = 'rgba(255,210,31,0.18)'; g.fillRect(0, y - 2, W, 28); }
+      g.fillStyle = '#9aa3ad'; g.textAlign = 'right'; g.font = '700 20px "Saira Condensed", sans-serif'; g.fillText(String(i + 1), 34, y + 12);
+      g.fillStyle = c.team.c1; g.fillRect(44, y + 2, 6, 20);
+      g.fillStyle = me ? '#ffd21f' : '#fff'; g.textAlign = 'left'; g.font = '800 20px "Saira Condensed", sans-serif'; g.fillText(c.driver.name.toUpperCase(), 60, y + 12);
+      g.fillStyle = '#9aa3ad'; g.textAlign = 'right'; g.font = '600 18px ui-monospace, monospace';
+      const val = race.mode === 'race' ? (i === 0 ? 'LEADER' : '+' + Math.max(0, race.gapBetween(st[0], c)).toFixed(1)) : isFinite(c.bestLap) && c.bestLap > 0 ? fmtTime(c.bestLap) : '—';
+      g.fillText(val, W - 14, y + 12);
+    });
+  }
+  B.tex.needsUpdate = true;
+}
 
 // ---- car setup: four choices that change the player's car in the physics -----------------------
 function setupEffect() {
