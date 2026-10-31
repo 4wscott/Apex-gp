@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -102,11 +102,15 @@ const App = {
     comp.addPass(new OutputPass());
     const grade = new ShaderPass({
       // broadcast-style grade: speed blur toward the edges, slight fringing, sharpen, S-curve contrast, warm highlights / cool shadows
-      uniforms: { tDiffuse: { value: null }, vig: { value: 0.3 }, speed: { value: 0 }, texel: { value: new THREE.Vector2(1 / innerWidth, 1 / innerHeight) } },
+      uniforms: { tDiffuse: { value: null }, vig: { value: 0.3 }, speed: { value: 0 }, texel: { value: new THREE.Vector2(1 / innerWidth, 1 / innerHeight) }, heatPos: { value: new THREE.Vector2(-1, -1) }, heatR: { value: 0 }, heatT: { value: 0 }, aspect: { value: 1.7 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, speed; uniform vec2 texel; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, speed, heatR, heatT, aspect; uniform vec2 texel, heatPos; varying vec2 vUv;
         void main(){ vec2 d = vUv - 0.5; float r2 = dot(d, d);
-          vec3 c = texture2D(tDiffuse, vUv).rgb;
+          // heat shimmer above the exhaust: a small wobble of the picture, strongest just above the pipe
+          vec2 hv = (vUv - heatPos) * vec2(aspect, 1.0);
+          float hm = heatR > 0.0 ? smoothstep(heatR, 0.0, length(hv * vec2(1.0, 0.55))) * step(-heatR * 0.15, hv.y) : 0.0;
+          vec2 uv = vUv + hm * vec2(sin(vUv.y * 420.0 + heatT * 31.0), cos(vUv.x * 380.0 + heatT * 23.0)) * vec2(0.0016, 0.0011);
+          vec3 c = texture2D(tDiffuse, uv).rgb;
           float blur = speed * smoothstep(0.04, 0.3, r2);
           if (blur > 0.001) { vec3 acc = c; for (int i = 1; i <= 6; i++) acc += texture2D(tDiffuse, vUv - d * blur * 0.012 * float(i)).rgb; c = acc / 7.; }
           float ca = 0.0018 * r2 * 4.;
@@ -249,8 +253,14 @@ const App = {
   buildScene(T) {
     this.clearWorld();
     const root = new THREE.Group(); this.worldRoot = root;
-    const theme = T.spec.theme, th = THEMES[theme], night = th.time === 'night';
-    const hdriName = { parkland: 'sky', airfield: 'sky', forest: 'forest', street: 'city', tropical: 'sky', island: 'bridge', desert: 'night', prairie: 'dawn' }[theme];
+    // time of day: the circuit's own, or day / sunset / night on any circuit (the theme is swapped for this build only)
+    const theme = T.spec.theme, base = THEMES[theme], tod = settings.tod || 'auto';
+    const th = tod === 'night' ? { ...base, sky: THEMES.desert.sky, sunColor: THEMES.desert.sunColor, time: 'night' }
+      : tod === 'sunset' ? { ...base, sky: ['#3d4f78', '#f5a463'], sunColor: '#ff9e52', time: 'sunset' }
+      : tod === 'day' && base.time === 'night' ? { ...base, sky: THEMES.parkland.sky, sunColor: THEMES.parkland.sunColor, time: 'day' } : base;
+    THEMES[theme] = th; try {
+    const night = th.time === 'night';
+    const hdriName = night ? 'night' : { parkland: 'sky', airfield: 'sky', forest: 'forest', street: 'city', tropical: 'sky', island: 'bridge', desert: 'sky', prairie: 'dawn' }[theme];
     if (!this.hdriCache[hdriName]) {
       const h = loadHDRI(hdriName), pm = new THREE.PMREMGenerator(this.renderer);
       this.hdriCache[hdriName] = { env: pm.fromEquirectangular(h.tex).texture, sunDir: h.sunDir }; h.tex.dispose(); pm.dispose();
@@ -259,17 +269,20 @@ const App = {
     this.hdriName = hdriName; this.hqHDRI(hdriName);
     // keep the HDRI's sun but never let it sit too low for readable shadows
     const sunDir = night ? new THREE.Vector3(0.15, 1, 0.2).normalize() : H.sunDir.clone();
-    if (!night && sunDir.y < 0.35) { sunDir.y = 0.35; sunDir.normalize(); }
+    // a low, golden sun at sunset; otherwise high enough for readable shadows
+    if (th.time === 'sunset') { sunDir.y = 0; sunDir.normalize().multiplyScalar(0.97); sunDir.y = 0.2; sunDir.normalize(); }
+    else if (!night && sunDir.y < 0.35) { sunDir.y = 0.35; sunDir.normalize(); }
     this.sunDir = sunDir; this.isNight = night;
     this.scene.environment = H.env;
     this.wx = null; // weather baselines belong to this scene's lights
     const sky = buildSky(theme, sunDir); root.add(sky); this.sky = sky;
     const { world, lightMats, wetMats } = buildWorld(T, theme, settings.quality); root.add(world); this.lightMats = lightMats; this.wetMats = wetMats;
-    const fogCol = night ? new THREE.Color('#1a1828') : new THREE.Color(th.sky[1]).lerp(new THREE.Color('#c9d6e3'), 0.4);
+    const dusk = th.time === 'sunset';
+    const fogCol = night ? new THREE.Color('#1a1828') : dusk ? new THREE.Color('#e7b48c') : new THREE.Color(th.sky[1]).lerp(new THREE.Color('#c9d6e3'), 0.4);
     this.scene.fog = new THREE.FogExp2(fogCol, night ? 0.00035 : 0.00011);
     this.scene.background = fogCol;
-    const hemi = (this.hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : 0xdfe9f5, night ? 0x3a3024 : 0x5a5040, night ? 1.4 : 0.35)); root.add(hemi);
-    const sun = new THREE.DirectionalLight(night ? 0xfff1dd : th.sunColor, night ? 2.2 : th.time === 'overcast' ? 2.2 : 3.4);
+    const hemi = (this.hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : dusk ? 0xffb27a : 0xdfe9f5, night ? 0x3a3024 : dusk ? 0x3a2418 : 0x5a5040, night ? 1.4 : dusk ? 0.6 : 0.35)); root.add(hemi);
+    const sun = new THREE.DirectionalLight(night ? 0xfff1dd : th.sunColor, night ? 2.2 : th.time === 'overcast' ? 2.2 : th.time === 'sunset' ? 2.8 : 3.4);
     const q = settings.quality;
     sun.castShadow = true; // phones too: without shadows the cars and scenery look pasted on
     sun.shadow.mapSize.set(...[[1024, 1024], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
@@ -278,6 +291,7 @@ const App = {
     root.add(sun); root.add(sun.target); this.sun = sun;
     this.scene.add(root);
     Hud.buildMap(T);
+    } finally { THEMES[theme] = base; }
   },
   // studio portrait of a team's car, drawn with the main renderer into a corner of the canvas and copied out
   carThumb(team) {
@@ -389,6 +403,7 @@ const App = {
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
       Replay.reset(race); applySetup(race.player); Radio.reset();
+      this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
       Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
       $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
@@ -543,6 +558,7 @@ const App = {
       c.x = c._px + (c.x - c._px) * a; c.y = c._py + (c.y - c._py) * a; c.h = c._ph + angleDiff(c.h, c._ph) * a;
     }
     this.updateVisuals(dt, S, inp);
+    if (this.fireworks) this.fireworks.update(dt, this.audio);
     this.render();
     for (let k = 0; k < real.length; k += 4) { const c = real[k]; c.x = real[k + 1]; c.y = real[k + 2]; c.h = real[k + 3]; }
     Hud.update(dt, S, inp);
@@ -638,7 +654,7 @@ const App = {
         }
         S.ghostRec = []; S.ghostT = 0;
         if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) (this.cfg && this.cfg.gp ? Weekend : Career).finishQuali(race); }, 1800); }
-      } else if (e.type === 'finish' && e.car === race.player) Hud.banner(`Chequered flag: P${e.pos}`, 'go');
+      } else if (e.type === 'finish' && e.car === race.player) { Hud.banner(`Chequered flag: P${e.pos}`, 'go'); if (race.mode === 'race' && !this.fireworks) this.fireworks = new Fireworks(this.worldRoot, race.track, GFX.mainStand); }
     }
     race.events.length = 0;
     Radio.frame(race);
@@ -697,7 +713,7 @@ const App = {
       if (m.fwParts && broken !== !!m.wingBroken) { m.wingBroken = broken; m.fw.forEach((g) => (g.visible = !broken)); m.fwParts.end.visible = !broken; if (broken && this.particles.sparks) this.particles.sparks(c); }
       // particles near the camera
       const dx = c.x - P.x, dy = c.y - P.y;
-      if (dx * dx + dy * dy < 160 * 160) this.particles.emitFor(c, dt);
+      if (dx * dx + dy * dy < 160 * 160) { this.particles.emitFor(c, dt); if (this.skids && !Replay.on) this.skids.update(c); }
     }
     this.particles.update(dt);
     PitCrew.update(dt, race, this.audio, this.camera.position);
@@ -715,6 +731,7 @@ const App = {
     const base = new THREE.Vector3(P.x, 0, -P.y);
     P.mesh.helmet.visible = P.mesh.visor.visible = P.mesh.shoulders.visible = mode !== 'cockpit';
     if (this.grade) this.grade.uniforms.speed.value = race.phase === 'green' ? clamp((P.vx - 45) / 45, 0, 1) * (mode === 'far' ? 0.4 : 1) : 0;
+    this.heatHaze = settings.heat && settings.quality >= 2 && mode !== 'cockpit';
     S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002), 0.2);
     const look = inp.lookBack ? Math.PI : 0;
     if (mode === 'cockpit' || mode === 'tcam') {
@@ -745,6 +762,15 @@ const App = {
       cam.fov = settings.fov + Math.min(8, P.vx * 0.06); cam.near = 0.3;
     }
     cam.updateProjectionMatrix();
+    if (this.grade) {
+      const U = this.grade.uniforms; U.heatT.value += dt; U.aspect.value = innerWidth / innerHeight;
+      if (this.heatHaze && P.mesh) {
+        P.mesh.body.updateMatrixWorld(); cam.updateMatrixWorld();
+        const ex = new THREE.Vector3(-2.45, 0.62, 0).applyMatrix4(P.mesh.body.matrixWorld), dist = ex.distanceTo(cam.position); ex.project(cam);
+        const on = ex.z < 1 && Math.abs(ex.x) < 1.2 && Math.abs(ex.y) < 1.2;
+        U.heatPos.value.set(ex.x * 0.5 + 0.5, ex.y * 0.5 + 0.5); U.heatR.value = on ? clamp(0.9 / dist, 0.01, 0.12) * (P.rpm > 6000 ? 1 : 0.6) : 0;
+      } else U.heatR.value = 0;
+    }
     // sun follows the player for crisp shadows
     this.sun.target.position.copy(base).addScaledVector(fwd, 25);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
@@ -875,6 +901,36 @@ function drawWheelDisplay(W2, P, race) {
   W2.tex.needsUpdate = true;
 }
 
+// ---- skid marks: dark rubber streaks where tyres lock or spin, recycled oldest-first ----------------
+class Skids {
+  constructor(root) {
+    this.N = 2400; this.k = 0; this.last = new Map();
+    const c = document.createElement('canvas'); c.width = 8; c.height = 32; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 32);
+    // an alpha map is read from brightness: white = solid mark, black = clear
+    gr.addColorStop(0, '#000'); gr.addColorStop(0.25, '#fff'); gr.addColorStop(0.75, '#fff'); gr.addColorStop(1, '#000'); g.fillStyle = gr; g.fillRect(0, 0, 8, 32);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x0b0b0b, alphaMap: tex, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -24 });
+    this.mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 0.3).rotateX(-Math.PI / 2), mat, this.N);
+    this.mesh.frustumCulled = false; this.mesh.count = 0; root.add(this.mesh);
+    this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.up = new THREE.Vector3(0, 1, 0);
+  }
+  add(x0, y0, x1, y1) {
+    const len = Math.hypot(x1 - x0, y1 - y0); if (len < 0.05) return;
+    this.q.setFromAxisAngle(this.up, Math.atan2(y1 - y0, x1 - x0));
+    this.m4.compose(new THREE.Vector3((x0 + x1) / 2, 0.012, -(y0 + y1) / 2), this.q, new THREE.Vector3(len + 0.05, 1, 1));
+    this.mesh.setMatrixAt(this.k, this.m4); this.k = (this.k + 1) % this.N; this.mesh.count = Math.max(this.mesh.count, this.k || this.N);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+  update(c) {
+    const slide = (c.lockF || c.lockR || c.spin || Math.abs(c.slipR || 0) > 0.18) && Math.hypot(c.vx, c.vy || 0) > 4 && (c.surface === 'tarmac' || c.surface === 'kerb');
+    if (!slide) { this.last.delete(c); return; }
+    const ch = Math.cos(c.h), sh = Math.sin(c.h), axle = c.lockF && !c.lockR ? 1.98 : -1.62;
+    const pts = [0.8, -0.8].map((s) => [c.x + ch * axle - sh * s, c.y + sh * axle + ch * s]);
+    const prev = this.last.get(c);
+    if (prev && (prev[0][0] - pts[0][0]) ** 2 + (prev[0][1] - pts[0][1]) ** 2 > 0.6 ** 2) { for (let k = 0; k < 2; k++) this.add(prev[k][0], prev[k][1], pts[k][0], pts[k][1]); this.last.set(c, pts); }
+    else if (!prev) this.last.set(c, pts);
+  }
+}
 // ---- particles: sparks from the skid blocks, tyre smoke, dust --------------
 class Particles {
   constructor(scene) {
@@ -893,7 +949,7 @@ class Particles {
       mk('spark', 600, tex.spark, 0.12, THREE.AdditiveBlending, 0xffffff);
       mk('smoke', 300, tex.smoke, 2.2, THREE.NormalBlending, 0xdddddd);
       mk('dust', 300, tex.smoke, 2.6, THREE.NormalBlending, 0xb59a72);
-      mk('spray', 700, tex.smoke, 2.4, THREE.NormalBlending, 0xb4bac2); this.sets.spray.pts.material.opacity = 0.35;
+      mk('spray', 1800, tex.smoke, 3.4, THREE.NormalBlending, 0xb4bac2); this.sets.spray.pts.material.opacity = 0.32;
     };
     if (GFX.tex) this.ready(GFX.tex);
   }
@@ -908,9 +964,9 @@ class Particles {
     const kmh = c.vx * 3.6;
     // rain spray thrown up behind the rear tyres
     const wet = c.env ? c.env.wet : 0;
-    if (wet > 0.2 && kmh > 50) { const n = Math.min(2, Math.floor(wet * kmh * dt * 0.35 + Math.random() * 0.6)); for (let k = 0; k < n; k++) { const sd = Math.random() < 0.5 ? 0.75 : -0.75; this.spawn('spray', c.x - ch * 2.2 - sh * sd, 0.35 + Math.random() * 0.3, -(c.y - sh * 2.2 + ch * sd), wx * 0.35 + (Math.random() - 0.5) * 3, 1.2 + Math.random() * 1.5, -wy * 0.35 + (Math.random() - 0.5) * 3); } }
+    if (wet > 0.15 && kmh > 40) { const n = Math.min(5, Math.floor(wet * kmh * dt * 0.9 + Math.random() * 0.8)); for (let k = 0; k < n; k++) { const sd = Math.random() < 0.5 ? 0.75 : -0.75; this.spawn('spray', c.x - ch * 2.2 - sh * sd, 0.35 + Math.random() * 0.3, -(c.y - sh * 2.2 + ch * sd), wx * 0.35 + (Math.random() - 0.5) * 3, 1.2 + Math.random() * 1.5, -wy * 0.35 + (Math.random() - 0.5) * 3); } }
     // titanium skid blocks: sparks at high speed, more over kerbs and when braking hard
-    const rate = kmh > 250 ? (kmh - 250) * 0.9 + (c.kerbHit ? 60 : 0) + (c.brake > 0.5 ? 30 : 0) : 0;
+    const rate = (kmh > 250 ? (kmh - 250) * 0.9 + (c.brake > 0.5 ? 30 : 0) : 0) + (c.kerbHit && kmh > 160 ? 70 : 0);
     let n = rate * dt; while (n > 0) {
       if (Math.random() < n) {
         const off = -0.6 - Math.random() * 1.2, lat = (Math.random() - 0.5) * 1.2;
@@ -1361,6 +1417,7 @@ const Menu = {
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
+        if (key === 'tod') App.preview(settings.track);
         if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
         if (key === 'camera' && App.session) App.session.camMode = v;
         if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'youtube') YTMusic.play().catch(() => {}); else YTMusic.stop(); if (v === 'spotify') this.spotifyUI(); }

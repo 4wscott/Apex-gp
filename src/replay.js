@@ -133,6 +133,7 @@ const Replay = {
       cam.position.copy(base).addScaledVector(fwd, -7.5).add(new THREE.Vector3(0, 2.3, 0)); cam.lookAt(base.clone().addScaledVector(fwd, 3).add(new THREE.Vector3(0, 0.3, 0))); cam.fov = 58;
     }
     cam.updateProjectionMatrix();
+    if (App.grade) App.grade.uniforms.heatR.value = 0; // the shimmer is placed for the live camera
     this.shown = mode;
   },
   // ---- controls --------------------------------------------------------------------------------
