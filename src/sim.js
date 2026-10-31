@@ -415,8 +415,23 @@ class Car {
     // --- driver inputs
     const vxa = Math.abs(this.vx);
     let thr = clamp(inp.throttle, 0, 1), brk = clamp(inp.brake, 0, 1);
+    // braking assist: look ahead along the racing line and brake if we arrive faster than the car can slow for it
+    if (this.assist.brakeAssist && vxa > 15 && !this.reverse) {
+      const n = T.n, D = 26; // a gentle 2.6 g: leaves margin, the player can always brake harder
+      let need = 0;
+      for (let k = 2; k < 90; k += 3) {
+        const j = (this.idx + k) % n, dist = k * T.ds, allow = Math.sqrt(T.lineV[j] * T.lineV[j] * 1.04 + 2 * D * dist);
+        if (vxa > allow) need = Math.max(need, clamp((vxa - allow) / 5, 0.35, 1));
+      }
+      if (need > brk) { brk = need; thr = 0; }
+      this.assisting = need > 0;
+    } else this.assisting = false;
+    // stability control: rear sliding past a small angle -> trim the throttle (the yaw correction comes after the forces)
+    const stab = this.assist.stab || 0, slideR = Math.abs(this.slipR || 0) - (stab === 2 ? 0.06 : 0.1);
+    if (stab && slideR > 0 && vxa > 8) thr *= clamp(1 - slideR * (stab === 2 ? 9 : 5), 0.15, 1);
     const tgtSteer = clamp(inp.steer, -1, 1) * p.maxSteer;
-    const rate = p.steerRate * (1 + (inp.steerFast ? 2 : 0));
+    // when the rear steps out, the wheel moves faster so on/off keys and buttons can still catch the slide
+    const rate = p.steerRate * (1 + (inp.steerFast ? 2 : 0)) * (Math.abs(this.slipR || 0) > 0.08 && vxa > 8 ? 2.5 : 1);
     this.delta += clamp(tgtSteer - this.delta, -rate * dt, rate * dt);
 
     // reverse: hold brake while stationary
@@ -533,7 +548,12 @@ class Car {
     const Mz = p.a * (FyF * cd + FxF * sd) - p.b * FyR;
     const ax = Fx / p.m + this.vy * this.r, ay = Fy / p.m - this.vx * this.r;
     const prevVx = this.vx;
-    this.vx += ax * dt; this.vy += ay * dt; this.r += (Mz / p.Iz) * dt;
+    let Mzs = 0;
+    if (stab && slideR > 0 && vxa > 8) { // like a road car's ESC: a counter-yaw toward the path the wheels are steering
+      const rKin = (this.vx * Math.tan(this.delta)) / p.L;
+      Mzs = -(this.r - rKin) * p.Iz * (stab === 2 ? 7 : 3.5) * Math.min(1, slideR * 12);
+    }
+    this.vx += ax * dt; this.vy += ay * dt; this.r += ((Mz + Mzs) / p.Iz) * dt;
     if (!this.reverse && prevVx > 0 && this.vx < 0 && Fdrive <= 0) this.vx = 0;
     if (this.reverse && prevVx < 0 && this.vx > 0 && revDrive < 0.05) this.vx = 0;
     // low-speed: blend to kinematic model to avoid the singular slip angles
@@ -572,10 +592,19 @@ class Car {
       let wx = this.vx * ch - this.vy * sh, wy = this.vx * sh + this.vy * ch;
       const vn = wx * nx + wy * ny;
       if (vn > 0) {
-        wx -= 1.3 * vn * nx; wy -= 1.3 * vn * ny;
-        const scrub = clamp(1 - vn * 0.03, 0.55, 0.97); wx *= scrub; wy *= scrub;
-        this.vx = wx * ch + wy * sh; this.vy = -wx * sh + wy * ch;
-        this.r *= 0.5; this.impact = vn;
+        const spd = Math.hypot(wx, wy), glancing = vn < spd * 0.42; // under ~25 degrees: slide along the wall
+        if (glancing) {
+          wx -= 1.08 * vn * nx; wy -= 1.08 * vn * ny; const scrub = 1 - clamp(vn * 0.015, 0, 0.15); wx *= scrub; wy *= scrub; // speed lost scales with how hard it hit, so a light scrape costs almost nothing
+          // the car turns along the wall instead of being kicked back across the track
+          const along = Math.atan2(wy, wx); if (Math.hypot(wx, wy) > 3 && Math.cos(along - this.h) > 0) this.h += angleDiff(along, this.h) * 0.6;
+          this.r *= 0.15;
+        } else {
+          wx -= 1.3 * vn * nx; wy -= 1.3 * vn * ny;
+          const scrub = 1 - clamp(vn * 0.03, 0, 0.45); wx *= scrub; wy *= scrub;
+          this.r *= 0.5;
+        }
+        const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
+        this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
         if (vn > 12) this.wingHealth = Math.max(0, this.wingHealth - (vn - 12) * 0.035); // a proper hit costs part of the wing, glancing touches nothing
       }
       this.locate(false);

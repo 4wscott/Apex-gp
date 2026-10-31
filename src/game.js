@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -21,7 +21,8 @@ if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
 if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
 if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; }
 if (settings.v < 5) settings.v = 5;
-if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first // image quality first: undo automatic step-downs
+if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first
+if (settings.v < 7) { if (settings.stab === undefined || settings.v < 7) settings.stab = 1; settings.v = 7; } // light stability control for everyone who had none // image quality first: undo automatic step-downs
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -385,7 +386,7 @@ const App = {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
         replaceCode: cfg && cfg.replaceCode, upgrades: cfg && cfg.upgrades, gridOrder: cfg && cfg.gridOrder, quali: cfg && cfg.quali,
         remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed,
-        assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear },
+        assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear, stab: settings.stab, brakeAssist: !!settings.brakeAssist },
       });
       if (cfg && cfg.online) race.lightsT = -(4 - (Date.now() - cfg.ref) / 1000); // lights start 4 s after the host pressed start, for everyone
       this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0, online: !!(cfg && cfg.online), netT: 0 };
@@ -604,7 +605,7 @@ const App = {
   },
   applyPlayerControls(inp, P, race) {
     const S = this.session;
-    P.assist.tc = settings.tc; P.assist.abs = settings.abs; P.assist.autoGear = settings.autoGear;
+    P.assist.tc = settings.tc; P.assist.abs = settings.abs; P.assist.autoGear = settings.autoGear; P.assist.stab = settings.stab; P.assist.brakeAssist = !!settings.brakeAssist;
     if (inp.cameraPressed) { const modes = ['cockpit', 'tcam', 'chase', 'far']; S.camMode = modes[(modes.indexOf(S.camMode) + 1) % modes.length]; settings.camera = S.camMode; saveSettings(); }
     if (settings.aeroAuto) P.aeroReq = race.track.aeroZone[P.idx] === 1;
     else { if (inp.aeroPressed) P.aeroReq = !P.aeroReq; if (P.aeroReq && !P.aeroX && P.brake > 0.05) P.aeroReq = false; }
@@ -1499,6 +1500,7 @@ const Menu = {
         const key = el.dataset.set; let v = btn.dataset.v;
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
         if (key === 'preset') { this.applyPreset(v); this.sync(); return; }
+        if (key === 'difficulty') { this.applyLevel(v); this.sync(); return; }
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
@@ -1639,7 +1641,7 @@ const Menu = {
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
-    settings.preset = this.presetOf(); $('#perf').hidden = !settings.showPerf || !App.session;
+    settings.preset = this.presetOf(); settings.difficulty = this.levelOf(); $('#perf').hidden = !settings.showPerf || !App.session;
     $$('[data-set]').forEach((el) => $$('button[data-v]', el).forEach((b) => b.setAttribute('aria-pressed', String(settings[el.dataset.set]) === b.dataset.v)));
     const spec = TRACKS.find((t) => t.id === settings.track), team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     const career = settings.mode === 'career';
@@ -1664,6 +1666,20 @@ const Menu = {
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
     $('#pickers').hidden = career; $('.startbar').hidden = career; $('#start').textContent = settings.mode === 'race' && settings.weekend === 'quali' ? 'Start qualifying' : { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
+  },
+  // difficulty: one tap sets every driving aid and the AI pace
+  levels() {
+    return {
+      beginner: { tc: 2, abs: true, steerAssist: true, stab: 2, brakeAssist: true, aiPace: 0.88 },
+      intermediate: { tc: 1, abs: true, steerAssist: true, stab: 1, brakeAssist: false, aiPace: 0.96 },
+      pro: { tc: 0, abs: false, steerAssist: false, stab: 0, brakeAssist: false, aiPace: 1.0 },
+    };
+  },
+  levelOf() { const L = this.levels(); return Object.keys(L).find((k) => Object.entries(L[k]).every(([o, v]) => Math.abs((+settings[o]) - (+v)) < 0.005)) || 'custom'; },
+  applyLevel(name) {
+    const L = this.levels()[name]; if (!L) return;
+    Object.assign(settings, L); saveSettings();
+    const r = $('#aipace'); if (r) { r.value = Math.round(settings.aiPace * 100); r.dispatchEvent(new Event('input')); }
   },
   // graphics presets: each sets the options that matter most for smoothness vs looks; any other mix shows as Custom
   presets() {

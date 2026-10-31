@@ -245,7 +245,7 @@ body.touch #radio span { font-size: 13px; }
   #pick-team { max-width: none; }
   #open-opts { display: grid; max-width: none; }
   #start { min-width: 0; width: 100%; }
-  .menu-inner { bottom: 12px; z-index: 7; }
+  .menu-inner { bottom: 12px; z-index: 7; background: rgb(13,16,21) !important; }
 }
 
 .modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
@@ -538,11 +538,14 @@ body.touch #h-track { display: none; }
 
       <section class="panel" id="p-assist" hidden>
         <p class="hint">The physics are the same with or without assists: a tyre model with temperature and wear, aero load that builds with speed, weight transfer, and a power unit that deploys and harvests electric energy. Assists help you stay inside the limits.</p>
+        <div class="row"><label>Difficulty</label><div class="ctl seg preset" data-set="difficulty"><button type="button" data-v="beginner"><b>Beginner</b><small>The car helps you a lot</small></button><button type="button" data-v="intermediate"><b>Intermediate</b><small>Some help</small></button><button type="button" data-v="pro"><b>Pro</b><small>No help, fastest AI</small></button><button type="button" data-v="custom" disabled><b>Custom</b><small>Your own mix</small></button></div></div>
         <div class="row"><label>Traction control</label><div class="ctl seg" data-set="tc"><button type="button" data-v="0">Off</button><button type="button" data-v="1">Medium</button><button type="button" data-v="2">Full</button></div></div>
         <div class="row"><label>Anti-lock brakes</label><div class="ctl seg" data-set="abs"><button type="button" data-v="false">Off</button><button type="button" data-v="true">On</button></div></div>
         <div class="row"><label>Gearbox</label><div class="ctl seg" data-set="autoGear"><button type="button" data-v="true">Automatic</button><button type="button" data-v="false">Manual paddles</button></div></div>
         <div class="row"><label>Active aero</label><div class="ctl seg" data-set="aeroAuto"><button type="button" data-v="true">Automatic in zones</button><button type="button" data-v="false">Driver activated</button></div></div>
         <div class="row"><label>Steering assist</label><div class="ctl seg" data-set="steerAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Off</button></div></div>
+        <div class="row"><label>Stability control</label><div class="ctl seg" data-set="stab"><button type="button" data-v="0">Off</button><button type="button" data-v="1">Light</button><button type="button" data-v="2">Strong</button></div></div>
+        <div class="row"><label>Braking assist</label><div class="ctl seg" data-set="brakeAssist"><button type="button" data-v="false">Off</button><button type="button" data-v="true">On: brakes for corners</button></div></div>
         <div class="row"><label>Racing line</label><div class="ctl seg" data-set="line"><button type="button" data-v="off">Off</button><button type="button" data-v="corners">Braking zones</button><button type="button" data-v="full">Full lap</button></div></div>
         <p class="hint">Straight-mode zones are marked green on the minimap. In a race you get overtake mode for a lap when you cross the line within one second of the car ahead. Hold it to deploy full electric power at high speed.</p>
       </section>
