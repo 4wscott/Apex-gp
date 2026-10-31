@@ -328,6 +328,7 @@ const App = {
     const car = settings.mode === 'career' && Career.data;
     const team = car ? Career.team() : TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     this.previewCar = makeCar(team, car ? Career.data.num : dr.num, GFX.geo, GFX.mats);
+    if (car) addUpgradeParts(this.previewCar, Career.data.rd, team);
     this.worldRoot.add(this.previewCar.grp);
     // showroom spot: on the start/finish line, with the main grandstand across the track behind it
     const st = GFX.mainStand, off = st ? ((st.mid > T.n / 2 ? st.mid - T.n : st.mid) * T.ds) : 0;
@@ -403,6 +404,7 @@ const App = {
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
       Replay.reset(race); applySetup(race.player); Radio.reset();
+      if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
       Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
@@ -1276,6 +1278,26 @@ function drawBigScreen(race, dt) {
     });
   }
   B.tex.needsUpdate = true;
+}
+
+
+// ---- career development you can see: extra wing elements, floor edge wings and cooling louvres per level ----
+function addUpgradeParts(m, rd, team) {
+  if (!m || !rd || m.upgradeParts) return;
+  const g = new THREE.Group(); g.name = 'upgrades'; m.upgradeParts = g; m.body.add(g);
+  const carbon = GFX.mats.carbon, accent = new THREE.MeshPhysicalMaterial({ color: team.c2, roughness: 0.35, clearcoat: 0.8 });
+  const box = (w, h, d, mat, x, y, z, rz = 0, rx = 0) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); b.position.set(x, y, z); b.rotation.set(rx, 0, rz); b.castShadow = true; g.add(b); return b; };
+  // aero: a third front-wing flap (1+), a stacked rear-wing gurney element (3+), endplate fences (5)
+  if (rd.aero >= 1) box(0.16, 0.022, 1.5, accent, 2.32, 0.27, 0, 0.42);
+  if (rd.aero >= 3) box(0.14, 0.028, 1.02, accent, -2.38, 1.12, 0, -0.35);
+  if (rd.aero >= 5) for (const z of [-0.78, 0.78]) box(0.5, 0.16, 0.012, carbon, 2.25, 0.2, z);
+  // grip: floor edge wings along each side (1+), a second element (3+), an edge strake (5)
+  if (rd.grip >= 1) for (const z of [-0.87, 0.87]) box(1.5, 0.018, 0.12, carbon, 0.05, 0.075, z, 0, z > 0 ? 0.25 : -0.25);
+  if (rd.grip >= 3) for (const z of [-0.84, 0.84]) box(1.1, 0.016, 0.09, accent, 0.25, 0.11, z, 0, z > 0 ? 0.35 : -0.35);
+  if (rd.grip >= 5) for (const z of [-0.8, 0.8]) box(0.6, 0.12, 0.012, carbon, -0.9, 0.12, z);
+  // power: cooling louvres cut into the top of the sidepods (2+), more of them (4+)
+  const louvres = rd.power >= 4 ? 6 : rd.power >= 2 ? 3 : 0;
+  for (let k = 0; k < louvres; k++) for (const z of [-0.5, 0.5]) box(0.05, 0.02, 0.26, carbon, -0.15 - k * 0.12, 0.6, z, 0.3);
 }
 
 // ---- car setup: four choices that change the player's car in the physics -----------------------

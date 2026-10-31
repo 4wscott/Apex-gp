@@ -155,6 +155,18 @@ body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replay
 @keyframes radioin { from { transform: translateX(20px); opacity: 0; } }
 body.touch #radio { top: auto; bottom: max(150px, calc(env(safe-area-inset-bottom, 0px) + 146px)); right: 50%; transform: translateX(50%); max-width: min(420px, 60vw); animation: none; }
 body.touch #radio span { font-size: 13px; }
+/* career: rival head-to-head and contract offers */
+#career { display: grid; gap: 22px; }
+.h2h { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.h2h > div { background: var(--panel-2); border-radius: 8px; padding: 8px; text-align: center; display: grid; }
+.h2h b { font-family: var(--f-display); font-size: 24px; }
+.h2h small { color: var(--muted); font-size: 12px; }
+.cr-sub { margin: 4px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.offers { display: grid; gap: 8px; }
+.offer { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.offer .livery { width: 34px; height: 22px; border-radius: 4px; display: block; }
+.offer small { color: var(--muted); }
+.offer .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; background: var(--accent); color: var(--accent-ink); padding: 1px 6px; border-radius: 3px; margin-left: 4px; }
 /* showroom menu: top bar, the car in the middle, pickers + start at the bottom, panels slide in from the right */
 #menu { background: linear-gradient(180deg, rgba(10,12,16,0.92) 0, rgba(10,12,16,0.35) 64px, rgba(10,12,16,0) 22%, rgba(10,12,16,0) 72%, rgba(10,12,16,0.9) 100%) !important; overflow: hidden !important; }
 /* below the iPhone status bar / notch: the app draws under it, and iOS keeps taps in that strip for itself */

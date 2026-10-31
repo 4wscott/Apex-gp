@@ -56,6 +56,7 @@ const Career = {
     const rd = this.data.rd, lvl = rd[key], cost = (lvl + 1) * 20;
     if (lvl >= 5 || rd.points < cost) return;
     rd.points -= cost; rd[key] = lvl + 1; this.save(); this.render();
+    if (window.App && !App.session) App.preview(this.track() ? this.track().id : settings.track); // show the new parts on the car
   },
   // qualifying grid: AI simulated times plus the player's best lap
   qualiGrid(T, playerBest) {
@@ -73,10 +74,41 @@ const Career = {
     const earned = 10 + (me ? me.pts * 2 + Math.max(0, grid - me.pos) * 2 : 0);
     d.rd.points += earned;
     d.results.push({ track: race.track.spec.id, pos: me ? me.pos : null, pts: me ? me.pts : 0, grid });
-    d.last = { track: race.track.spec.id, pos: me ? me.pos : null, pts: me ? me.pts : 0, earned };
+    this.ensureRival();
+    const rv = res.find((r) => r.code === d.rival);
+    if (me && rv) { if (me.pos < rv.pos) d.h2h.ahead++; else d.h2h.behind++; }
+    d.last = { track: race.track.spec.id, pos: me ? me.pos : null, pts: me ? me.pts : 0, earned, rivalPos: rv ? rv.pos : null };
     d.round++;
     this.save();
     return d.last;
+  },
+  // ---- rival: the closest-matched driver in another team, with a running head-to-head ----
+  ensureRival() {
+    const d = this.data; if (d) d.h2h = d.h2h || { ahead: 0, behind: 0 };
+    if (!d || (d.rival && this.roster().some((e) => e.dr.code === d.rival && !e.me && e.tm.id !== d.teamId))) return;
+    const myRank = teamStats(this.team()).rank;
+    const cand = this.roster().filter((e) => !e.me && e.tm.id !== d.teamId).sort((a, b) => Math.abs(teamStats(a.tm).rank - myRank) - Math.abs(teamStats(b.tm).rank - myRank) || b.dr.skill - a.dr.skill);
+    d.rival = cand[0].dr.code; d.h2h = { ahead: 0, behind: 0 };
+  },
+  rival() { const d = this.data; if (!d || !d.rival) return null; return this.roster().find((e) => e.dr.code === d.rival) || null; },
+  // ---- contracts: end-of-season offers, better teams for better seasons ----
+  makeOffers() {
+    const d = this.data, st = this.standings(), myPos = st.drivers.findIndex((x) => x.me) + 1, field = st.drivers.length;
+    const perf = 1 - (myPos - 1) / Math.max(1, field - 1); // 1 = champion
+    const target = Math.max(1, Math.round(1 + (1 - perf) * (TEAMS.length - 1) * 0.8));
+    const pool = TEAMS.filter((t) => t.id !== d.teamId).map((t) => ({ t, rank: teamStats(t).rank })).sort((a, b) => Math.abs(a.rank - target) - Math.abs(b.rank - target) || a.rank - b.rank);
+    d.offers = pool.slice(0, 3).map(({ t, rank }) => {
+      const seat = t.drivers.slice().sort((a, b) => a.skill - b.skill)[0];
+      const role = rank < teamStats(this.team()).rank ? 'Step up' : rank === teamStats(this.team()).rank ? 'Sideways move' : 'Lead driver';
+      return { team: t.id, replaces: seat.code, years: 1 + ((hashStr(t.id + d.season) >>> 0) % 3), role };
+    });
+  },
+  acceptOffer(i) {
+    const d = this.data, o = d.offers && d.offers[i]; if (!o) return;
+    d.history.push({ season: d.season, note: `signed for ${TEAMS.find((t) => t.id === o.team).name}` });
+    d.teamId = o.team; d.replaces = o.replaces; d.rd = { points: d.rd.points, power: 0, aero: 0, grip: 0 }; // a new car to develop; points carry over
+    d.rival = null; d.offers = null; this.ensureRival(); this.nextSeason();
+    if (window.App && !App.session) App.preview(this.track().id);
   },
   standings() {
     const d = this.data;
@@ -87,7 +119,7 @@ const Career = {
   nextSeason() {
     const d = this.data, st = this.standings();
     d.history.push({ season: d.season, pos: st.drivers.findIndex((x) => x.me) + 1, pts: d.points[d.code] || 0 });
-    d.season++; d.round = 0; d.points = {}; d.teamPoints = {}; d.results = []; d.last = null; d.rd.points += 30;
+    d.season++; d.round = 0; d.points = {}; d.teamPoints = {}; d.results = []; d.last = null; d.rd.points += 30; d.offers = null; d.h2h = { ahead: 0, behind: 0 };
     this.save(); this.render();
   },
   retire() { this.data = null; store.set('career', null); if (this.db && this.uid) this.db.doc(`data/users/${this.uid}/career`).delete().catch(() => {}); this.render(); },
@@ -118,6 +150,8 @@ const Career = {
       Menu.sync && Menu.sync();
       return;
     }
+    this.ensureRival();
+    if (d.round >= d.calendar.length && !d.offers) { this.makeOffers(); this.save(); }
     const st = this.standings(), tm = this.team(), done = d.round >= d.calendar.length;
     const myPos = st.drivers.findIndex((x) => x.me) + 1;
     const T = done ? null : App.getTrack(d.calendar[d.round]);
@@ -134,8 +168,14 @@ const Career = {
         ${d.last ? `<p class="hint">Last race: ${TRACKS.find((t) => t.id === d.last.track).name}, ${d.last.pos ? 'P' + d.last.pos : 'did not finish'}, ${d.last.pts} pts, +${d.last.earned} development points.</p>` : ''}
         <p class="hint" id="career-sync">Career saved on this device.</p>
       </div>
+      ${(() => { const r = this.rival(); if (!r) return ''; const rp = d.points[r.dr.code] || 0, mp = d.points[d.code] || 0, h = d.h2h || { ahead: 0, behind: 0 };
+        return `<div class="group rival"><h2>Rival</h2><div class="career-me"><span class="livery" style="background:linear-gradient(100deg, ${r.tm.c1} 0 58%, ${r.tm.c2} 58% 74%, ${r.tm.c3} 74% 100%)"></span><b>${r.dr.name}</b> ${r.tm.name}</div>
+          <div class="h2h"><div><b>${h.ahead}</b><small>you ahead</small></div><div><b>${h.behind}</b><small>${r.dr.name.split(' ').pop()} ahead</small></div><div><b>${mp} – ${rp}</b><small>points</small></div></div></div>`; })()}
       ${done ? `<div class="group"><h2>Season review</h2><p class="champ">${st.drivers[0].me ? 'You are the champion!' : `${st.drivers[0].name} wins the title. You finished P${myPos}.`}</p>
-        <div class="actions"><button type="button" class="btn primary" id="cr-next">Start season ${d.season + 1}</button></div></div>`
+        <h3 class="cr-sub">Contract offers</h3>
+        <div class="offers">${(d.offers || []).map((o, i) => { const t = TEAMS.find((x) => x.id === o.team), ts = teamStats(t), seat = t.drivers.find((x) => x.code === o.replaces);
+          return `<div class="offer"><span class="livery" style="background:linear-gradient(100deg, ${t.c1} 0 58%, ${t.c2} 58% 74%, ${t.c3} 74% 100%)"></span><div><b>${t.name}</b> <span class="tag">${o.role}</span><br><small>${ts.tierLabel} · P${ts.rank} car · overall ${ts.overall} · ${o.years}-year deal, replacing ${seat.name}</small></div><button type="button" class="btn" data-offer="${i}">Sign</button></div>`; }).join('')}</div>
+        <div class="actions"><button type="button" class="btn primary" id="cr-next">Stay at ${tm.name} for season ${d.season + 1}</button></div></div>`
       : `<div class="group"><h2>Next race</h2>
         <div class="next-race"><canvas width="240" height="150" id="cr-map"></canvas><div><b class="c-name">${T.spec.name}</b><br><span class="c-meta">${T.spec.country} · ${(T.length / 1000).toFixed(3)} km · ${d.laps} laps</span><br><span class="c-style">${T.spec.style}</span></div></div>
         <div class="actions"><button type="button" class="btn primary" id="cr-quali">Qualifying</button><button type="button" class="btn" id="cr-skip">Skip to race</button></div>
@@ -143,11 +183,12 @@ const Career = {
       <div class="group"><h2>Car development · ${d.rd.points} points</h2>${rdRows}</div>
       <div class="group"><h2>Drivers' championship</h2><div class="table-wrap"><table><tbody>${st.drivers.map((x, i) => `<tr class="${x.me ? 'me' : ''}"><td class="num">${i + 1}</td><td><span class="swatch" style="background:${x.team.c1}"></span>${x.name}</td><td>${x.team.name}</td><td class="num">${x.pts}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="group"><h2>Constructors' championship</h2><div class="table-wrap"><table><tbody>${st.teams.map((x, i) => `<tr class="${x.team.id === d.teamId ? 'me' : ''}"><td class="num">${i + 1}</td><td><span class="swatch" style="background:${x.team.c1}"></span>${x.team.name}</td><td class="num">${x.pts}</td></tr>`).join('')}</tbody></table></div></div>
-      <div class="group"><h2>Career</h2>${d.history.length ? `<p class="hint">${d.history.map((h) => `Season ${h.season}: P${h.pos}, ${h.pts} pts`).join(' · ')}</p>` : ''}
+      <div class="group"><h2>Career</h2>${d.history.length ? `<p class="hint">${d.history.map((h) => (h.note ? `Season ${h.season}: ${h.note}` : `Season ${h.season}: P${h.pos}, ${h.pts} pts`)).join(' · ')}</p>` : ''}
         <div class="actions"><button type="button" class="btn" id="cr-retire">Retire from career</button><span id="cr-confirm" hidden><button type="button" class="btn" id="cr-retire-yes">Yes, delete this career</button> <button type="button" class="btn" id="cr-retire-no">Keep racing</button></span></div></div>`;
     if (T) drawMiniMap($('#cr-map'), T);
     $$('[data-up]', root).forEach((b) => (b.onclick = () => this.upgrade(b.dataset.up)));
     if ($('#cr-next')) $('#cr-next').onclick = () => this.nextSeason();
+    $$('[data-offer]', root).forEach((b) => (b.onclick = () => this.acceptOffer(+b.dataset.offer)));
     if ($('#cr-quali')) $('#cr-quali').onclick = () => this.startQuali();
     if ($('#cr-skip')) $('#cr-skip').onclick = () => this.startRace(null);
     $('#cr-retire').onclick = () => { $('#cr-confirm').hidden = false; $('#cr-retire').hidden = true; };

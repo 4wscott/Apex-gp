@@ -42,7 +42,12 @@ const Radio = {
         if (lapsLeft === 1) this.say('Final lap. Bring it home.', 2);
         else if (P.lap >= 2 && (race.laps <= 12 || P.lap % 2 === 0)) {
           const ahead = i > 0 ? race.gapBetween(st[i - 1], P) : 0, behind = i < st.length - 1 ? race.gapBetween(P, st[i + 1]) : 0;
-          this.say(`P${i + 1}.${i > 0 && ahead > 0 ? ` Gap ahead ${gap(ahead)}.` : ''}${behind > 0 && behind < 30 ? ` ${st[i + 1].driver.name.split(' ').pop()} is ${gap(behind)} behind.` : ''}`);
+          // career: call out the rival when they are close
+          const rc = App.cfg && App.cfg.career && Career.data && Career.data.rival, rv = rc && st.find((c) => c.driver.code === rc);
+          if (rv && Math.abs(st.indexOf(rv) - i) <= 2) {
+            const ri = st.indexOf(rv), g2 = ri < i ? race.gapBetween(rv, P) : race.gapBetween(P, rv), nm = rv.driver.name.split(' ').pop();
+            this.say(ri < i ? `Your rival ${nm} is ${gap(g2)} ahead. Go get him.` : `Your rival ${nm} is ${gap(g2)} behind. Keep him there.`);
+          } else this.say(`P${i + 1}.${i > 0 && ahead > 0 ? ` Gap ahead ${gap(ahead)}.` : ''}${behind > 0 && behind < 30 ? ` ${st[i + 1].driver.name.split(' ').pop()} is ${gap(behind)} behind.` : ''}`);
         }
       } else if ((race.mode === 'practice' || race.mode === 'trial') && e.time) {
         this.say(e.valid ? `Lap ${fmtTime(e.time)}${e.best ? ', personal best. Good job.' : '.'}` : 'That lap was deleted for track limits.');
