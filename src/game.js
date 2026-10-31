@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -514,6 +514,7 @@ const App = {
     $('#pause').hidden = !this.paused;
     $('#pc-btns').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
+    $('#p-pad').innerHTML = Pads.summary(); $('#p-pad').hidden = !$('#p-pad').innerHTML;
     $('#p-garage').hidden = this.session.race.mode !== 'practice' || !!this.session.race.player.pit;
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
@@ -889,7 +890,9 @@ const App = {
     if (this.touchOn && this.input.buzz) { if (P.impact > 3) this.input.buzz(60); else if (P.kerbHit && Math.random() < 0.08) this.input.buzz(6); }
     if (P.impact > 3) { this.audio.thud(P.impact); Hud.rumble(1, 0.8, 150); }
     else if (P.kerbHit) Hud.rumble(0.25, 0.5, 60);
-    else if (P.lockF || P.lockR || P.spin) Hud.rumble(0.15, 0.35, 60);
+    else if (P.lockF || P.lockR) Hud.rumble(0.12, 0.45, 60); // lock-up: a fast buzz
+    else if (P.spin) Hud.rumble(0.3, 0.15, 70); // wheelspin: a deeper shudder
+    else if (P.rpm > P.p.redline - 80 && P.throttle > 0.8) Hud.rumble(0, 0.18, 40); // the rev limiter ticking
   },
 };
 
@@ -1208,8 +1211,93 @@ const Hud = {
   },
   flash(text) { const f = $('#flash'); f.textContent = text; f.hidden = false; f.dataset.until = performance.now() + 1200; },
   rumble(strong, weak, dur) {
-    const now = performance.now(); if (now - this.lastFlash < dur) return; this.lastFlash = now;
-    const p = App.input.pad(); if (p && p.vibrationActuator && p.vibrationActuator.playEffect) p.vibrationActuator.playEffect('dual-rumble', { duration: dur, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+    const k = Pads.strength(); if (!k) return;
+    const now = performance.now(); if (now - (this.lastRumble || 0) < dur) return; this.lastRumble = now;
+    const p = App.input.pad(); if (p && p.vibrationActuator && p.vibrationActuator.playEffect) p.vibrationActuator.playEffect('dual-rumble', { duration: dur, strongMagnitude: Math.min(1, strong * k), weakMagnitude: Math.min(1, weak * k) }).catch(() => {});
+  },
+};
+
+
+// ---- controllers: recognise the pad, name its buttons, vibration, and driving the menus with it ----------
+const Pads = {
+  kind(p) {
+    const id = (p && p.id) || '';
+    if (p && p.mapping !== 'standard') return 'wheel';
+    if (/xbox|xinput|045e/i.test(id)) return 'xbox';
+    if (/playstation|dualshock|dualsense|054c|wireless controller/i.test(id)) return 'ps';
+    if (/nintendo|057e|pro controller/i.test(id)) return 'switch';
+    return 'generic';
+  },
+  name(k) { return { xbox: 'Xbox controller', ps: 'PlayStation controller', switch: 'Switch Pro controller', wheel: 'Wheel / custom controller', generic: 'Controller' }[k]; },
+  LABELS: {
+    xbox: ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'Left stick press', 'Right stick press', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'Xbox'],
+    ps: ['✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2', 'Create', 'Options', 'L3', 'R3', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'PS'],
+    switch: ['B', 'A', 'Y', 'X', 'L', 'R', 'ZL', 'ZR', '−', '+', 'Left stick press', 'Right stick press', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'Home'],
+  },
+  label(b, k) {
+    if (!b) return 'Not set';
+    if (b.type === 'axis') { if (k !== 'wheel' && k !== 'generic' && b.index <= 3) return `${b.index < 2 ? 'Left' : 'Right'} stick ${b.index % 2 ? (b.full > b.rest ? 'down' : 'up') : (b.full > b.rest ? 'right' : 'left')}`; return `Axis ${b.index} ${b.full > b.rest ? '+' : '−'}`; }
+    const L = this.LABELS[k]; return L && L[b.index] ? L[b.index] : `Button ${b.index}`;
+  },
+  // how strong vibration is: Off / Light / Strong
+  strength() { return { off: 0, light: 0.5, strong: 1 }[settings.rumbleLevel || 'strong']; },
+  init() {
+    addEventListener('gamepadconnected', (e) => { const k = this.kind(e.gamepad); this.toast(`${this.name(k)} connected`); Menu.buildBinds && Menu.buildBinds(); Menu.padStatus && Menu.padStatus(); });
+    addEventListener('gamepaddisconnected', (e) => { this.toast(`${this.name(this.kind(e.gamepad))} disconnected`); if (App.session && !App.paused && !App.session.online) App.togglePause(true); });
+  },
+  toast(text) {
+    if (App.session) { Hud.flash(text); return; }
+    const t = $('#pad-toast'); t.textContent = text; t.hidden = false; clearTimeout(this.tt); this.tt = setTimeout(() => (t.hidden = true), 2600);
+  },
+  // menus with a controller: D-pad / left stick moves between buttons, A (Cross) presses, B (Circle) goes back, LB/RB change mode
+  nav() {
+    const p = App.input.pad(); if (!p || p.mapping !== 'standard') return;
+    const b = (i) => !!(p.buttons[i] && p.buttons[i].pressed), ax = p.axes;
+    const dir = b(12) || ax[1] < -0.6 ? 'up' : b(13) || ax[1] > 0.6 ? 'down' : b(14) || ax[0] < -0.6 ? 'left' : b(15) || ax[0] > 0.6 ? 'right' : null;
+    const now = performance.now(), held = (this.held = this.held || {});
+    const edge = (k, on, rep = 0) => { const was = held[k]; if (!on) { held[k] = 0; return false; } if (!was) { held[k] = now; return true; } if (rep && now - was > 380) { held[k] = now - 380 + rep; return true; } return false; };
+    const scope = this.scope(); if (!scope) return;
+    if (edge('dir', !!dir, 140)) this.move(scope, dir);
+    if (edge('a', b(0))) { const f = document.activeElement; if (f && scope.contains(f) && f.click) f.click(); else this.move(scope, 'down'); }
+    if (edge('b', b(1))) this.back();
+    if (!App.session && edge('lb', b(4))) this.mode(-1);
+    if (!App.session && edge('rb', b(5))) this.mode(1);
+  },
+  scope() {
+    if (!$('#replay').hidden) return $('#rp-bar');
+    if (!$('#results').hidden) return $('#results');
+    if (App.session && !$('#pause').hidden) return $('#pause');
+    if (!$('#menu').hidden) return $('#menu');
+    return null;
+  },
+  visible(scope) { return [...scope.querySelectorAll('button, input[type=range], select, summary')].filter((e) => !e.disabled && e.offsetParent && e.getBoundingClientRect().width > 0 && !e.closest('[hidden]')); },
+  move(scope, dir) {
+    const list = this.visible(scope); if (!list.length) return;
+    const cur = document.activeElement && list.includes(document.activeElement) ? document.activeElement : null;
+    if (!cur) { list[0].focus({ preventScroll: false }); return; }
+    if (cur.type === 'range' && (dir === 'left' || dir === 'right')) { cur.value = +cur.value + (dir === 'right' ? 1 : -1) * (+cur.step || 1); cur.dispatchEvent(new Event('input', { bubbles: true })); return; }
+    const r0 = cur.getBoundingClientRect(), c0 = [r0.left + r0.width / 2, r0.top + r0.height / 2];
+    const v = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
+    let best = null, bd = Infinity;
+    for (const e of list) {
+      if (e === cur) continue; const r = e.getBoundingClientRect(), c = [r.left + r.width / 2, r.top + r.height / 2], d = [c[0] - c0[0], c[1] - c0[1]];
+      const along = d[0] * v[0] + d[1] * v[1]; if (along <= 4) continue;
+      const across = Math.abs(d[0] * v[1] - d[1] * v[0]), score = along + across * 2.2;
+      if (score < bd) { bd = score; best = e; }
+    }
+    if (best) { best.focus(); best.scrollIntoView({ block: 'nearest' }); }
+  },
+  back() {
+    if (!$('#replay').hidden) { $('#rp-exit').click(); return; }
+    if (App.session && !$('#pause').hidden) { if (document.body.classList.contains('race-settings')) Menu.raceSettings(false); else App.togglePause(false); return; }
+    if ($('#menu').dataset.drawer) { Menu.drawer(null); return; }
+  },
+  mode(d) { const ms = $$('.modes button'), k = ms.findIndex((x) => x.dataset.v === settings.mode); ms[(k + d + ms.length) % ms.length].click(); },
+  // a line for the pause card: the main controls in this controller's button names
+  summary() {
+    const p = App.input.pad(); if (!p) return '';
+    const k = this.kind(p), m = App.input.binds.map, L = (a) => this.label(m[a], k);
+    return `<b>${this.name(k)}:</b> ${L('throttle')} accelerate · ${L('brake')} brake · ${L('steerLeft').replace(/ left$/, '')} steer · ${L('shiftUp')}/${L('shiftDown')} gears · ${L('camera')} camera${m.pit ? ` · ${L('pit')} pit` : ''} · ${L('pause')} pause`;
   },
 };
 
@@ -1612,7 +1700,8 @@ const Menu = {
     $('#p-replay').onclick = () => Replay.open('pause');
     $('#r-replay').onclick = () => Replay.open('results');
     $('#r-high').onclick = () => Replay.open('highlights');
-    Replay.init();
+    Replay.init(); Pads.init();
+    setInterval(() => { const S = App.session; if (!S || App.paused || !$('#results').hidden || Replay.on) Pads.nav(); }, 16);
     $('#p-garage').onclick = () => { const r = App.session.race, P = r.player, cmp = P.pitReq || P.compound; if (r.toBox(P, cmp)) { App.togglePause(false); Hud.banner(`In the pit box: ${COMPOUNDS[cmp].name} tyres going on`, 'info'); } };
     // PC race buttons drive the same actions as the keys: held while the mouse is down, a press when released
     $$('#pc-btns [data-act]').forEach((b) => {
@@ -1756,7 +1845,7 @@ const Menu = {
   },
   buildBinds() {
     const tb = $('#binds'); tb.innerHTML = '';
-    const desc = (b) => !b ? 'Not set' : b.type === 'axis' ? `Axis ${b.index} ${b.full > b.rest ? '+' : '−'}` : `Button ${b.index}`;
+    const pk = Pads.kind(App.input.pad()), desc = (b) => Pads.label(b, pk);
     ACTIONS.forEach(([a, label]) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${label}</td><td class="keys">${(KEYMAP[a] || []).map((k) => `<kbd>${k.startsWith('Arrow') ? { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓' }[k] : k.replace('Key', '').replace('Bracket', '').replace(/(Shift|Control|Alt)Right/, '$1 R').replace(/(Shift|Control|Alt)Left/, '$1 L')}</kbd>`).join(' ')}</td><td class="pad">${desc(App.input.binds.map[a])}</td><td><button type="button" class="bind" data-a="${a}">Bind</button></td>`;
@@ -1771,7 +1860,7 @@ const Menu = {
   },
   padStatus() {
     const pads = App.input.pads();
-    $('#pads').textContent = pads.length ? pads.map((p) => `${p.id.replace(/\(.*?\)/g, '').trim() || 'Controller'} (${p.mapping === 'standard' ? 'gamepad layout' : 'wheel / custom layout'})`).join(', ') : 'No controller detected. Connect one and press any button.';
+    $('#pads').textContent = pads.length ? pads.map((p) => `${Pads.name(Pads.kind(p))}: ${p.id.replace(/\(.*?\)/g, '').trim() || 'connected'}${store.get('bindsByPad', {})[p.id] ? ' · your saved setup' : ''}`).join(', ') : 'No controller detected. Connect one and press any button.';
   },
 };
 
@@ -1787,5 +1876,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.Replay = Replay; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

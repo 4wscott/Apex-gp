@@ -329,7 +329,7 @@ const PAD_DEFAULT = {
   throttle: { type: 'button', index: 7 }, brake: { type: 'button', index: 6 },
   shiftUp: { type: 'button', index: 5 }, shiftDown: { type: 'button', index: 4 }, aero: { type: 'button', index: 0 }, overtake: { type: 'button', index: 2 },
   ers: { type: 'button', index: 1 }, biasF: { type: 'button', index: 12 }, biasR: { type: 'button', index: 13 }, camera: { type: 'button', index: 3 },
-  lookBack: { type: 'button', index: 10 }, reset: { type: 'button', index: 8 }, pause: { type: 'button', index: 9 },
+  lookBack: { type: 'button', index: 10 }, reset: { type: 'button', index: 8 }, pause: { type: 'button', index: 9 }, pit: { type: 'button', index: 11 },
 };
 
 class Input {
@@ -443,7 +443,8 @@ class Input {
   }
   key(action) { return (KEYMAP[action] || []).some((k) => this.keys.has(k)); }
   poll(dt, speed, opts) {
-    const p = this.pad(), m = this.binds.map, s = {};
+    const p0 = this.pad(); if (p0) this.usePad(p0);
+    const p = p0, m = this.binds.map, s = {};
     const padVal = (a) => this.readBind(p, m[a]);
     let padSteer = 0, padThr = 0, padBrk = 0;
     if (p) {
@@ -510,16 +511,24 @@ class Input {
     }
     for (let i = 0; i < p.buttons.length; i++) if (p.buttons[i].value > 0.6 && c.btn[i] < 0.3) {
       this.capture = null; this.binds.padId = c.pad;
-      const b = { type: 'button', index: i }; this.binds.map[c.action] = b; store.set('binds', this.binds); c.done(b); return;
+      const b = { type: 'button', index: i }; this.binds.map[c.action] = b; this.saveBinds(); c.done(b); return;
     }
     if (c.best && Math.abs(p.axes[c.best.i] - c.best.v) < 0.05 && performance.now() - c.t0 > 400 && Math.abs(c.best.d) > 0.6) {
       this.capture = null; this.binds.padId = c.pad;
       const full = Math.sign(c.best.d) * Math.max(Math.abs(c.best.v), 0.95) * (Math.abs(c.best.v) > 0.95 ? 1 : 1);
       const b = { type: 'axis', index: c.best.i, rest: c.rest[c.best.i], full: Math.abs(c.best.v) > 0.98 ? Math.sign(c.best.v) : c.best.v };
-      this.binds.map[c.action] = b; store.set('binds', this.binds); c.done(b);
+      this.binds.map[c.action] = b; this.saveBinds(); c.done(b);
     }
   }
-  resetBinds() { this.binds = { pad: null, map: JSON.parse(JSON.stringify(PAD_DEFAULT)) }; store.set('binds', this.binds); }
+  resetBinds() { const id = this.curPad; this.binds = { pad: null, map: JSON.parse(JSON.stringify(PAD_DEFAULT)) }; if (id) { const all = store.get('bindsByPad', {}); delete all[id]; store.set('bindsByPad', all); } store.set('binds', this.binds); }
+  // each controller keeps its own bindings: saved under its id, loaded when it is the active pad
+  saveBinds() { const id = this.binds.padId || this.curPad; if (id) this.binds.padId = id; store.set('binds', this.binds); if (id) { const all = store.get('bindsByPad', {}); all[id] = this.binds.map; store.set('bindsByPad', all); } }
+  usePad(p) {
+    if (!p || p.id === this.curPad) return; this.curPad = p.id;
+    const saved = store.get('bindsByPad', {})[p.id];
+    // a controller with no saved setup of its own starts from the defaults (never another pad's setup)
+    this.binds = saved ? { padId: p.id, map: saved } : { padId: null, map: JSON.parse(JSON.stringify(PAD_DEFAULT)) };
+  }
 }
 
 const store = {
