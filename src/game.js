@@ -402,7 +402,7 @@ const App = {
       this.buildRacingLine(T);
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
-      Replay.reset(race); applySetup(race.player); Radio.reset();
+      Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null;
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
       Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
@@ -630,6 +630,38 @@ const App = {
       else this.resetPlayer(race);
     }
   },
+  spawnDebris(c) {
+    if (!this.debris) {
+      const N = 240, g = new THREE.BufferGeometry();
+      const shard = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.015, 0.12), GFX.mats.carbon, N); shard.count = 0; shard.castShadow = true; this.worldRoot.add(shard);
+      this.debris = { shard, k: 0, N, m4: new THREE.Matrix4(), q: new THREE.Quaternion(), e: new THREE.Euler() };
+    }
+    const D = this.debris, n = 4 + Math.floor(Math.min(8, c.impact / 6));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 5, sc = 0.5 + Math.random() * 1.4;
+      D.e.set(0, Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.3); D.q.setFromEuler(D.e);
+      D.m4.compose(new THREE.Vector3(c.x + Math.cos(a) * r, 0.012, -(c.y + Math.sin(a) * r)), D.q, new THREE.Vector3(sc, 1, sc * (0.6 + Math.random())));
+      D.shard.setMatrixAt(D.k, D.m4); D.k = (D.k + 1) % D.N; D.shard.count = Math.max(D.shard.count, D.k || D.N);
+    }
+    D.shard.instanceMatrix.needsUpdate = true;
+    if (this.particles.sets.smoke) for (let i = 0; i < 6; i++) this.particles.spawn('smoke', c.x + (Math.random() - 0.5) * 2, 0.4, -c.y + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 3, 1, (Math.random() - 0.5) * 3);
+  },
+  // the safety car: a silver road car with a roof light bar that flashes orange
+  scMesh(on) {
+    if (!on) { if (this.sc) this.sc.grp.visible = false; return; }
+    if (!this.sc) {
+      const g = new THREE.Group(), silver = new THREE.MeshPhysicalMaterial({ color: 0xb9c0c8, metalness: 0.6, roughness: 0.3, clearcoat: 1 }), dark = new THREE.MeshStandardMaterial({ color: 0x111418, roughness: 0.3 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.62, 1.95).translate(0, 0.55, 0), silver); body.castShadow = true; g.add(body);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 1.7).translate(-0.35, 1.1, 0), dark); g.add(cabin);
+      const wingR = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.06, 1.8).translate(-2.15, 1.05, 0), dark); g.add(wingR);
+      for (const [x, z] of [[1.45, 0.92], [1.45, -0.92], [-1.4, 0.92], [-1.4, -0.92]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.28, 18).rotateX(Math.PI / 2), dark); w.position.set(x, 0.36, z); g.add(w); }
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 1.3).translate(-0.3, 1.42, 0), new THREE.MeshStandardMaterial({ color: 0x331a00, emissive: 0xff9800, emissiveIntensity: 0 })); g.add(bar);
+      const text = canvasTex(256, 64, (c, w, h) => { c.fillStyle = '#0b1a3a'; c.fillRect(0, 0, w, h); c.fillStyle = '#fff'; c.font = '800 38px "Saira Condensed", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('SAFETY CAR', w / 2, h / 2 + 2); });
+      for (const z of [0.99, -0.99]) { const t = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.42), new THREE.MeshStandardMaterial({ map: text, roughness: 0.5 })); t.position.set(0.2, 0.62, z); if (z < 0) t.rotation.y = Math.PI; g.add(t); }
+      this.sc = { grp: g, bar };
+    }
+    this.sc.grp.visible = true; if (!this.sc.grp.parent) this.worldRoot.add(this.sc.grp);
+  },
   // back on the racing line, standing still, with every sliding/pit state cleared and the camera behind the car
   resetPlayer(race, why) {
     const P = race.player, T = race.track, S = this.session;
@@ -659,6 +691,9 @@ const App = {
       else if (e.type === 'rainstop') Hud.banner('Rain has stopped: the track will dry', 'info');
       else if (e.type === 'yellow') Hud.banner(`Yellow flag · sector ${e.sector}`, 'warn');
       else if (e.type === 'vsc') Hud.banner('Virtual Safety Car deployed: slow to the delta', 'warn');
+      else if (e.type === 'sc') { Hud.banner('SAFETY CAR deployed: no overtaking, close up behind', 'warn'); this.scMesh(true); }
+      else if (e.type === 'scin') Hud.banner('Safety car in this lap: get ready for the restart', 'info');
+      else if (e.type === 'scend') { Hud.banner('Green flag: racing resumes', 'go'); this.scMesh(false); }
       else if (e.type === 'vscending') Hud.banner('VSC ending', 'info');
       else if (e.type === 'vscend') Hud.banner('Green flag: racing resumes', 'go');
       else if (e.type === 'blue') Hud.banner(`Blue flag: let ${e.car.driver.abbr || e.car.driver.code} through`, 'info');
@@ -702,6 +737,8 @@ const App = {
     const race = S.race, P = race.player, T = race.track;
     // lights gantry
     this.lightMats.forEach((m, k) => { const on = race.phase !== 'green' && race.lightsOn > k; m.emissiveIntensity = on ? 8 : 0; m.color.setHex(on ? 0xff3030 : 0x1a0000); });
+    if (race.sc && !race.sc.gone) { if (!this.sc || !this.sc.grp.visible) this.scMesh(true); this.sc.grp.position.set(race.sc.x, 0, -race.sc.y); this.sc.grp.rotation.y = race.sc.h; this.sc.bar.material.emissiveIntensity = performance.now() % 500 < 250 ? 6 : 0.5; }
+    else if (this.sc && this.sc.grp.visible) this.sc.grp.visible = false;
     for (const c of race.cars) {
       const m = c.mesh;
       m.grp.position.set(c.x, 0, -c.y); m.grp.rotation.y = c.h;
@@ -735,6 +772,19 @@ const App = {
       // a badly damaged front wing loses its flaps and one endplate until it is replaced in the pits
       const broken = c.wingHealth < 0.5;
       if (m.fwParts && broken !== !!m.wingBroken) { m.wingBroken = broken; m.fw.forEach((g) => (g.visible = !broken)); m.fwParts.end.visible = !broken; if (broken && this.particles.sparks) this.particles.sparks(c); }
+      // imported car body: a broken endplate and flap hang off the nose and judder with speed
+      if (!m.fwParts && (c.wingHealth < 0.6 || m.dmg)) {
+        if (!m.dmg) {
+          const g = new THREE.Group(), cm = GFX.mats.carbon;
+          const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, 0.02), cm); plate.position.set(2.32, 0.12, 0.86); plate.castShadow = true; g.add(plate);
+          const flap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.02, 0.24), cm); flap.position.set(2.15, 0.05, 0.6); flap.castShadow = true; g.add(flap);
+          m.body.add(g); m.dmg = { g, plate, flap };
+        }
+        const on = c.wingHealth < 0.6; m.dmg.g.visible = on;
+        if (on) { const j = Math.sin(performance.now() * 0.05 + c.x) * Math.min(1, c.vx / 60); m.dmg.plate.rotation.set(0.35 + j * 0.08, 0.2, 0.55 + j * 0.05); m.dmg.flap.rotation.set(0.12 + j * 0.06, 0, -0.18); }
+      }
+      // big hits throw carbon pieces onto the track (they stay for the session)
+      if (c.impact > 12 && (c === P || Math.hypot(c.x - P.x, c.y - P.y) < 250)) this.spawnDebris(c);
       // particles near the camera
       const dx = c.x - P.x, dy = c.y - P.y;
       if (dx * dx + dy * dy < 160 * 160) { this.particles.emitFor(c, dt); if (this.skids && !Replay.on) this.skids.update(c); }
@@ -1097,7 +1147,9 @@ const Hud = {
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
     $('#h-wear').innerHTML = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? `<span class="h-box">BOX → ${COMPOUNDS[P.pitReq].name}</span>` : ''}${S.race.env.wet > 0.05 ? `<span class="h-box wet">Track ${Math.round(S.race.env.wet * 100)}% wet</span>` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = P.wingHealth > 0.85;
-    { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc; if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`; }
+    { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc && !r.sc;
+      if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`;
+      else if (r.sc) { const k = r.sc.order.indexOf(P), ahead = k <= 0 ? r.sc : r.sc.order[k - 1], gap = ahead.dist - P.dist; el.textContent = `SAFETY CAR · ${k <= 0 ? 'SC' : ahead.driver.abbr || ahead.driver.code} ${Math.max(0, Math.round(gap))} m`; } }
     $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.mode !== 'race' ? 'Out lap' : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the race clock runs from lights out
     $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid && P.lap >= 1);
@@ -1172,7 +1224,7 @@ const Results = {
       const lapsBehind = winner.laps - r.laps;
       const time = i === 0 ? fmtTime(r.total) : r.car.finished && lapsBehind === 0 ? fmtGap(r.total - winner.total) : r.car.finished ? `+${lapsBehind} lap${lapsBehind > 1 ? 's' : ''}` : 'Running';
       const fastest = rows.every((o) => o.best >= r.best) && isFinite(r.best);
-      tr.innerHTML = `<td>${i + 1}</td><td><span class="swatch" style="background:${r.car.team.c1}"></span>${r.car.driver.name}</td><td>${r.car.team.name}</td><td class="num">${time}</td><td class="num ${fastest ? 'purple' : ''}">${fmtTime(r.best)}</td><td class="num">${r.penalty ? '+' + r.penalty + 's' : ''}</td><td class="num">${r.car.gridPos}</td>`;
+      tr.innerHTML = `<td>${i + 1}</td><td><span class="swatch" style="background:${r.car.team.c1}"></span>${r.car.driver.name}</td><td>${r.car.team.name}</td><td class="num">${time}</td><td class="num ${fastest ? 'purple' : ''}">${fmtTime(r.best)}</td><td class="num" title="${(r.car.penalties || []).join(', ')}">${r.penalty ? '+' + r.penalty + 's' + (r.car === P && r.car.penalties ? `<small class="pen-why">${r.car.penalties.join(', ')}</small>` : '') : ''}</td><td class="num">${r.car.gridPos}</td>`;
       body.appendChild(tr);
     });
     const pos = rows.findIndex((r) => r.car === P) + 1;

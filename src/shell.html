@@ -155,6 +155,8 @@ body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replay
 @keyframes radioin { from { transform: translateX(20px); opacity: 0; } }
 body.touch #radio { top: auto; bottom: max(150px, calc(env(safe-area-inset-bottom, 0px) + 146px)); right: 50%; transform: translateX(50%); max-width: min(420px, 60vw); animation: none; }
 body.touch #radio span { font-size: 13px; }
+/* penalty reason under the time in the results */
+.pen-why { display: block; font-size: 10px; color: var(--muted); white-space: normal; max-width: 140px; }
 /* career: rival head-to-head and contract offers */
 #career { display: grid; gap: 22px; }
 .h2h { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }

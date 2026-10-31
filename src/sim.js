@@ -603,6 +603,7 @@ class Car {
           const scrub = 1 - clamp(vn * 0.03, 0, 0.45); wx *= scrub; wy *= scrub;
           this.r *= 0.5;
         }
+        if (vn > 30) this.bigHit = vn;
         const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
         this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
         if (vn > 12) this.wingHealth = Math.max(0, this.wingHealth - (vn - 12) * 0.035); // a proper hit costs part of the wing, glancing touches nothing
@@ -706,6 +707,7 @@ class AIDriver {
     if (blocked && gapAhead < 12 && blocked.vx < c.vx) vT = Math.min(vT, blocked.vx + gapAhead * 0.4);
     vT *= Math.pow(c.gripWet ?? 1, 0.7); // slower where the grip is lower (rain)
     if (race && race.vsc) vT = Math.min(vT, race.vscCap(c));
+    if (race && race.sc && race.scLimit) vT = Math.min(vT, race.scLimit(c));
     if (race && race.beingLapped(c)) vT *= 0.94; // blue flag: back off to let the leaders by
     const err = vT - v;
     if (err > 0) { inp.throttle = clamp(0.55 + err * 0.35, 0, 1); }
@@ -845,7 +847,7 @@ class Race {
   }
   compoundRule(c) {
     const used = c.usedCompounds || [c.compound];
-    if (this.twoCompounds && !used.some((k) => COMPOUNDS[k].wet) && new Set(used).size < 2) { c.penalty += 20; this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
+    if (this.twoCompounds && !used.some((k) => COMPOUNDS[k].wet) && new Set(used).size < 2) { c.penalty += 20; (c.penalties = c.penalties || []).push('Two-compound rule'); this.emit('msg', { car: c, text: 'Did not use two tyre compounds: 20 second penalty', kind: 'warn' }); }
   }
   // ---- online: other players' cars follow their latest broadcast state, extrapolated and smoothed -----
   setRemoteState(key, st, now) {
@@ -903,7 +905,9 @@ class Race {
         R.yellowUntil[sec] = this.time + 6;
         if (c.incT > 3 && !this.vsc && R.vscCool <= 0 && !c.vscRolled) {
           c.vscRolled = true;
-          if ((R.vscCount || 0) < 2 && Math.random() < 0.35) { R.vscCount = (R.vscCount || 0) + 1; this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
+          const onTrack = Math.abs(c.d) < T.hw + 2, big = (c.bigHit || 0) > 30;
+          if (!this.sc && (R.scCount || 0) < 1 && (big || (onTrack && Math.random() < 0.5)) && this.lapsLeft(this.leader()) > 3) this.deploySC();
+          else if ((R.vscCount || 0) < 2 && Math.random() < 0.35) { R.vscCount = (R.vscCount || 0) + 1; this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
         }
       } else if (c.incT === 0) c.vscRolled = false;
     }
@@ -915,9 +919,10 @@ class Race {
       const P = this.player;
       if (this.vsc && !P.pit) {
         R.over = P.vx > this.vscCap(P) * 1.06 + 1.5 ? R.over + dt : Math.max(0, R.over - dt);
-        if (R.over > 1.5) { R.over = 0; R.vscWarn++; if (R.vscWarn % 3 === 0) { P.penalty += 5; this.emit('msg', { car: P, text: 'Speeding under VSC: 5 second penalty', kind: 'warn' }); } else this.emit('msg', { car: P, text: `Too fast under the VSC (warning ${R.vscWarn % 3} of 2)`, kind: 'warn' }); }
+        if (R.over > 1.5) { R.over = 0; R.vscWarn++; if (R.vscWarn % 3 === 0) { P.penalty += 5; (P.penalties = P.penalties || []).push('Speeding under the VSC'); this.emit('msg', { car: P, text: 'Speeding under VSC: 5 second penalty', kind: 'warn' }); } else this.emit('msg', { car: P, text: `Too fast under the VSC (warning ${R.vscWarn % 3} of 2)`, kind: 'warn' }); }
       }
     }
+    if (this.sc) this.scStep(dt);
     // blue flag for the player
     R.blueT -= dt;
     const lapper = this.beingLapped(this.player);
@@ -928,6 +933,53 @@ class Race {
     const P = this.player;
     if (P.wingHealth < 0.6 && !P.wingMsg) { P.wingMsg = true; this.emit('msg', { car: P, text: this.mode === 'race' ? 'Front wing damaged: the car will understeer. Press PIT for a new nose' : 'Front wing damaged: press Reset to repair it', kind: 'warn' }); }
     if (P.wingHealth > 0.9) P.wingMsg = false;
+  }
+  leader() { return this.standings().find((c) => !c.finished) || this.cars[0]; }
+  // ---- safety car: joins ahead of the leader, the field queues behind it, no overtaking, 2-3 laps, restart at the line
+  deploySC() {
+    const R = this.rc, L = this.leader(), T = this.track;
+    R.scCount = (R.scCount || 0) + 1; R.vscCool = 120;
+    this.vsc = null;
+    // a long race gets two laps behind the safety car, a short one a single lap
+    this.sc = { dist: L.dist + 180, laps: this.laps >= 15 ? 2 : 1, startLap: L.lap, inLap: false, x: 0, y: 0, h: 0, order: this.standings().filter((c) => !c.finished).map((c) => c), warn: 0 };
+    this.scPlace(); this.emit('sc', {});
+  }
+  scPlace() {
+    const T = this.track, S = this.sc, s = ((S.dist % T.length) + T.length) % T.length, i = Math.floor(s / T.ds) % T.n;
+    S.idx = i; S.x = T.px[i] + T.nx[i] * T.lineO[i]; S.y = T.py[i] + T.ny[i] * T.lineO[i]; S.h = Math.atan2(T.ty[i], T.tx[i]);
+  }
+  scPace(i) { return Math.min(this.track.lineV[i] * 0.7, 52); }
+  // speed limit for a car under the safety car: no faster than the car ahead once within 18 m of it
+  scLimit(c) {
+    const S = this.sc, k = S.order.indexOf(c);
+    if (k < 0) return Infinity;
+    const ahead = k <= 0 ? { dist: S.dist, vx: S.v || 30 } : S.order[k - 1];
+    const gap = ahead.dist - c.dist;
+    if (gap > 60) return Infinity; // far behind: catch up at racing speed
+    return Math.max(4, (ahead.vx || 20) + (gap - 16) * 0.6);
+  }
+  scStep(dt) {
+    const S = this.sc, T = this.track, P = this.player;
+    S.order = this.standings().filter((c) => !c.finished && !c.pit);
+    const L = S.order[0];
+    // the safety car drives at its pace, but waits for the leader to catch up before it leaves
+    const gapL = L ? S.dist - L.dist : 100;
+    S.v = S.inLap && gapL > 40 ? Math.min(T.lineV[S.idx], 62) : Math.min(this.scPace(S.idx), gapL > 40 ? this.scPace(S.idx) * 0.6 : this.scPace(S.idx));
+    S.gone = S.inLap && gapL > 220; // it has pulled into the pits (out of sight): the field holds position to the line
+    S.dist += S.v * dt; this.scPlace();
+    if (L && !S.inLap && L.lap >= S.startLap + S.laps) { S.inLap = true; this.emit('scin', {}); }
+    // in this lap: the car peels off into the pits at the end of the lap, racing resumes at the line
+    if (S.inLap && L && L.lap > S.startLap + S.laps) { this.sc = null; this.emit('scend', {}); return; }
+    // the player may not overtake under the safety car (pit stops don't count)
+    if (!P.pit && !P.finished) {
+      // only a real pass counts: the car that was right ahead is now behind, still running and not in the pits
+      const k = S.order.indexOf(P), was = S.aheadCar;
+      if (was && !was.pit && !was.finished && was.vx > 12 && was.dist < P.dist - 1 && this.time - (S.lastPen || -99) > 8) {
+        S.lastPen = this.time; P.penalty += 5; (P.penalties = P.penalties || []).push('Overtaking under the safety car');
+        this.emit('msg', { car: P, text: 'Overtaking under the safety car: 5 second penalty', kind: 'warn' });
+      }
+      S.aheadCar = k > 0 ? S.order[k - 1] : null;
+    }
   }
   // player asks to pit (or changes the tyre choice / cancels); returns the requested compound or null
   requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
@@ -1077,7 +1129,8 @@ class Race {
         if (this.mode !== 'race') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap invalidated', kind: 'warn' }); c.lapValid = false; }
         else {
           c.trackLimits++;
-          if (c.trackLimits % 4 === 0) { c.penalty += 5; this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }
+          if (c.trackLimits % 4 === 0) { c.penalty += 5; (c.penalties = c.penalties || []).push('Track limits'); this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }
+          else if (c.trackLimits % 4 === 3) this.emit('msg', { car: c, text: 'Black and white flag: one more track limits offence is a penalty', kind: 'warn' });
           else this.emit('msg', { car: c, text: `Track limits warning ${c.trackLimits % 4} of 3`, kind: 'info' });
         }
       } else if (!over && Math.abs(c.d) < T.hw) c.offTrack = false;

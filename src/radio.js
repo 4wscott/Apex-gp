@@ -59,6 +59,9 @@ const Radio = {
     else if (e.type === 'pitdone' && me) this.say(`Good stop, ${e.time.toFixed(1)} seconds. ${COMPOUNDS[e.compound].name}s are on. Push now.`, 2);
     else if (e.type === 'rainstart') this.say(race.mode === 'race' ? 'Rain is starting. Intermediates when the track gets wet.' : 'Rain is starting, be careful.', 1, 'rain' + Math.floor(race.time / 120));
     else if (e.type === 'rainstop') this.say('Rain has stopped. The track will dry.', 1);
+    else if (e.type === 'sc') this.say('Safety car, safety car. No overtaking, close up to the car ahead.', 2);
+    else if (e.type === 'scin') this.say('Safety car in this lap. Get ready for the restart.', 2);
+    else if (e.type === 'scend') this.say('Green flag! Go, go, go!', 2);
     else if (e.type === 'vsc') this.say('Virtual safety car. Slow down and keep to the delta.', 2);
     else if (e.type === 'vscend') this.say('Green flag, green flag. Racing resumes.', 2);
     else if (e.type === 'blue' && me) this.say('Blue flags. Let the leaders through.', 1, 'blue' + Math.floor(race.time / 60));
