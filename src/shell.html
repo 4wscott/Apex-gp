@@ -155,6 +155,11 @@ body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replay
 @keyframes radioin { from { transform: translateX(20px); opacity: 0; } }
 body.touch #radio { top: auto; bottom: max(150px, calc(env(safe-area-inset-bottom, 0px) + 146px)); right: 50%; transform: translateX(50%); max-width: min(420px, 60vw); animation: none; }
 body.touch #radio span { font-size: 13px; }
+/* online lobby: one row per player with team colours and device */
+#on-players { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+#on-players li { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; background: var(--panel-2); border-radius: 8px; padding: 6px 10px; }
+#on-players .livery { grid-row: span 2; width: 34px; height: 22px; border-radius: 4px; }
+#on-players small { color: var(--muted); }
 /* controller: connect toast, and a clear focus ring when the menus are driven with a pad */
 #pad-toast { position: fixed; left: 50%; top: max(70px, calc(env(safe-area-inset-top, 0px) + 66px)); transform: translateX(-50%); z-index: 40; background: rgba(10,12,16,0.92); border: 1px solid var(--accent, #ffd21f); border-radius: 20px; padding: 8px 16px; font-weight: 600; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent, #ffd21f); outline-offset: 2px; }
@@ -506,6 +511,7 @@ body.touch #h-track { display: none; }
           <div class="actions"><button type="button" class="btn primary" id="on-create">Create room</button></div>
           <div class="row"><label for="on-code">Room code</label><div class="ctl"><input id="on-code" type="text" maxlength="5" autocomplete="off" style="text-transform:uppercase;max-width:9ch"> <button type="button" class="btn" id="on-join">Join</button></div></div>
           <p class="hint" id="on-msg" aria-live="polite"></p>
+          <p class="hint" id="on-cfg" hidden></p>
           <ol id="on-players"></ol>
           <div class="actions"><button type="button" class="btn primary" id="on-start" hidden>Start race for everyone</button><button type="button" class="btn" id="on-leave" hidden>Leave room</button></div>
         </div>
@@ -679,7 +685,7 @@ body.touch #h-track { display: none; }
     <div class="card">
       <h2 id="res-title">Results</h2>
       <div class="table-wrap"><table><thead id="res-head"><tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr></thead><tbody id="res-body"></tbody></table></div>
-      <div class="actions"><button type="button" class="btn primary" id="r-again">Race again</button><button type="button" class="btn" id="r-high">Highlights</button><button type="button" class="btn" id="r-replay">Full replay</button><button type="button" class="btn" id="r-menu">Main menu</button></div>
+      <div class="actions"><button type="button" class="btn primary" id="r-again">Race again</button><button type="button" class="btn" id="r-high">Highlights</button><button type="button" class="btn" id="r-replay">Full replay</button><button type="button" class="btn" id="r-menu">Main menu</button><span class="hint" id="res-wait" hidden>Waiting for the host to start a rematch…</span></div>
     </div>
   </div>
 </div>

@@ -249,11 +249,11 @@ const App = {
     });
     this.worldRoot = null;
   },
-  buildScene(T) {
+  buildScene(T, todOverride) {
     this.clearWorld();
     const root = new THREE.Group(); this.worldRoot = root;
     // time of day: the circuit's own, or day / sunset / night on any circuit (the theme is swapped for this build only)
-    const theme = T.spec.theme, base = THEMES[theme], tod = settings.tod || 'auto';
+    const theme = T.spec.theme, base = THEMES[theme], tod = todOverride || settings.tod || 'auto';
     const th = tod === 'night' ? { ...base, sky: THEMES.desert.sky, sunColor: THEMES.desert.sunColor, time: 'night' }
       : tod === 'sunset' ? { ...base, sky: ['#3d4f78', '#f5a463'], sunColor: '#ff9e52', time: 'sunset' }
       : tod === 'day' && base.time === 'night' ? { ...base, sky: THEMES.parkland.sky, sunColor: THEMES.parkland.sunColor, time: 'day' } : base;
@@ -366,7 +366,7 @@ const App = {
     const me = all.find((p) => p.key === Net.me) || all[0];
     this.start({ online: true, mode: 'race', track: m.track, laps: m.laps, weather: m.weather, team: me.team, driver: me.driver, opponents: 0,
       remotes: all.filter((p) => p !== me), gridOrder: m.grid.map((k) => all.find((p) => p.key === k).driver.code),
-      lightsOutAt: m.lightsOutAt, seed: m.seed, ref: Date.now() - (Net.host ? 0 : 150) });
+      lightsOutAt: m.lightsOutAt, seed: m.seed, tod: m.tod, ref: Date.now() - (Net.host ? 0 : 150) });
   },
   // cfg (career) overrides the free-play settings
   start(cfg) {
@@ -377,7 +377,7 @@ const App = {
     const T = this.getTrack(cfg ? cfg.track : settings.track);
     $('#loading').hidden = false; $('#menu').hidden = true; document.activeElement?.blur?.(); // menu focus must not hold on to keys in the car
     setTimeout(() => {
-      this.buildScene(T);
+      this.buildScene(T, cfg && cfg.tod);
       this.previewCar = null; this.fireworks = null;
       const team = cfg ? cfg.team : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
       const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
@@ -549,6 +549,7 @@ const App = {
       Replay.sample(race);
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
+      if (S.online && race.phase === 'green') for (const c of race.cars) if (c.remote && performance.now() - (c.netSeen || S.netStart || (S.netStart = performance.now())) > 6000) { const key = c.remote; Net.players = Net.players.filter((p) => p.key !== key); if (race.adoptAI(c)) Hud.flash(`${c.driver.name} lost connection: the AI brings their car home`); }
       if (race.mode === 'race' && P.finished && !S.finishedAt) { S.finishedAt = performance.now(); if (S.online) Net.send({ t: 'fin', k: Net.me, time: P.finishTime }); }
       if (S.finishedAt && performance.now() - S.finishedAt > 6000 && $('#results').hidden) Results.show(race);
     }
@@ -1306,6 +1307,8 @@ const Results = {
   show(race) {
     const rows = race.results(), P = race.player, winner = rows[0];
     $('#r-high').hidden = race.mode !== 'race' || race.quali;
+    if (race.online) { Net.racing = false; $('#r-again').hidden = !Net.host; $('#r-again').textContent = 'Rematch (same room)'; $('#res-wait').hidden = Net.host; }
+    else { $('#r-again').hidden = false; $('#res-wait').hidden = true; }
     const body = $('#res-body'); body.innerHTML = '';
     rows.forEach((r, i) => {
       const tr = document.createElement('tr'); if (r.car === P) tr.className = 'me';
@@ -1613,14 +1616,26 @@ const Menu = {
     Net.onChange = () => {
       $('#on-msg').textContent = Net.msg ? Net.msg.text : ''; $('#on-msg').dataset.kind = Net.msg ? Net.msg.kind || '' : '';
       const ol = $('#on-players'); ol.innerHTML = '';
-      for (const p of Net.players) { const li = document.createElement('li'); const tm = TEAMS.find((t) => t.id === p.team); li.textContent = `${p.name}${p.key === Net.me ? ' (you)' : ''}${p.host ? ' · host' : ''} · ${tm ? tm.name : ''} #${p.num}`; ol.appendChild(li); }
+      for (const p of Net.players) {
+        const li = document.createElement('li'), tm = TEAMS.find((t) => t.id === p.team), dev = { pc: '💻 PC', phone: '📱 Phone', tablet: '📱 Tablet' }[p.device] || '';
+        li.innerHTML = `<span class="livery" style="background:linear-gradient(100deg, ${tm ? tm.c1 : '#888'} 0 58%, ${tm ? tm.c2 : '#666'} 58% 74%, ${tm ? tm.c3 : '#444'} 74% 100%)"></span><b></b><small></small>`;
+        li.querySelector('b').textContent = `${p.name}${p.key === Net.me ? ' (you)' : ''}${p.host ? ' · host' : ''}`;
+        li.querySelector('small').textContent = `${tm ? tm.name : ''} #${p.num}${dev ? ' · ' + dev : ''}`; ol.appendChild(li);
+      }
+      // the race everyone will get: the host's settings
+      const hc = Net.host ? Net.cfg() : Net.hostCfg, ht = hc && TRACKS.find((t) => t.id === hc.track);
+      $('#on-cfg').hidden = !ht || !Net.peer;
+      if (ht) $('#on-cfg').textContent = `Race: ${ht.name} · ${hc.laps} laps · ${{ dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[hc.weather] || hc.weather} · ${{ auto: 'Circuit time of day', day: 'Day', sunset: 'Sunset', night: 'Night' }[hc.tod] || 'Day'}${Net.host ? ' (change these at the bottom and in Race settings)' : ''}`;
       $('#on-start').hidden = !(Net.host && Net.me); $('#on-leave').hidden = !Net.peer;
       $('#on-start').textContent = Net.players.length > 1 ? `Start race for everyone (${Net.players.length} drivers)` : 'Start race (waiting for friends… or race alone)';
     };
     Net.onStart = (m) => App.startOnline(m);
-    Net.onState = (k, st) => { const S = App.session; if (S && S.online) S.race.setRemoteState(k, st, S.race.time); };
+    Net.onState = (k, st) => { const S = App.session; if (S && S.online) { S.race.setRemoteState(k, st, S.race.time); const c = S.race.cars.find((x) => x.remote === k); if (c) c.netSeen = performance.now(); } };
     Net.onFinish = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (c) Hud.flash(`${c.driver.name} finished`); };
-    Net.onLeft = (k) => { const S = App.session; if (!S || !S.online) return; const c = S.race.cars.find((x) => x.remote === k); if (!c) return; c.net = null; c.x = 1e5; c.y = 1e5; if (c.mesh) c.mesh.grp.visible = false; Hud.banner(`${c.driver.name} left the race`, 'warn'); };
+    Net.onLeft = (k) => {
+      const S = App.session; if (!S || !S.online) return;
+      for (const c of S.race.cars.filter((x) => x.remote && (k === '*' || x.remote === k))) if ((Net.players = Net.players.filter((p) => p.key !== c.remote)), S.race.adoptAI(c)) Hud.flash(`${c.driver.name} lost connection: the AI brings their car home`);
+    };
   },
   init() {
     this.initOnline(); this.initSpotify(); this.initYouTube();
@@ -1722,6 +1737,7 @@ const Menu = {
     setInterval(reclaim, 1000);
     $('#p-quit').onclick = () => App.quit();
     $('#r-again').onclick = () => {
+      if (App.cfg && App.cfg.online) { if (Net.host) Net.startRace(); return; }
       if (App.cfg && App.cfg.quali && App.cfg.gp) { Weekend.startRace(); return; }
       if (App.cfg && App.cfg.quali) { const g = Career.pendingGrid; App.quit(); setTimeout(() => Career.startRace(g), 50); return; }
       if (App.cfg && App.cfg.career) { $('#r-menu').hidden = false; App.quit(); return; }
@@ -1786,7 +1802,8 @@ const Menu = {
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
-    settings.preset = this.presetOf(); settings.difficulty = this.levelOf(); $('#perf').hidden = !settings.showPerf || !App.session;
+    settings.preset = this.presetOf(); settings.difficulty = this.levelOf();
+    if (typeof Net !== 'undefined' && Net.host && Net.peer) { const k = JSON.stringify(Net.cfg()); if (k !== this.lastCfg) { this.lastCfg = k; Net.pushCfg(); Net.onChange && Net.onChange(); } } $('#perf').hidden = !settings.showPerf || !App.session;
     $$('[data-set]').forEach((el) => $$('button[data-v]', el).forEach((b) => b.setAttribute('aria-pressed', String(settings[el.dataset.set]) === b.dataset.v)));
     const spec = TRACKS.find((t) => t.id === settings.track), team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
     const career = settings.mode === 'career';
@@ -1809,7 +1826,8 @@ const Menu = {
     const st = teamStats(team);
     $('#pt-stats').innerHTML = [['PWR', st.power], ['AERO', st.aero], ['DRV', st.drivers]].map(([k, v]) => `<i><em>${k}</em><u><s style="width:${Math.max(0, (v - 40) / 59 * 100).toFixed(0)}%"></s></u></i>`).join('') + `<i class="ovr"><em>OVR</em><b>${st.overall}</b></i>`;
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
-    $('#pickers').hidden = career; $('.startbar').hidden = career; $('#start').textContent = settings.mode === 'race' && settings.weekend === 'quali' ? 'Start qualifying' : { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
+    $('#pickers').hidden = career; $('.startbar').hidden = career;
+    { const guest = online && typeof Net !== 'undefined' && Net.peer && !Net.host; $('#pick-circuit').hidden = guest; $('#open-opts').hidden = guest; } // a guest races the host's circuit and settings $('#start').textContent = settings.mode === 'race' && settings.weekend === 'quali' ? 'Start qualifying' : { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
   },
   // difficulty: one tap sets every driving aid and the AI pace

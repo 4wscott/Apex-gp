@@ -803,6 +803,7 @@ class Race {
     const playerEntry = { tm: opts.team, dr: opts.driver, player: true };
     // online: other human players, driven by network updates
     if (opts.remotes) field = opts.remotes.map((r) => ({ tm: r.team, dr: r.driver, remote: r.key }));
+    this.online = !!opts.remotes;
     let grid;
     if (opts.gridOrder && this.mode === 'race') {
       // qualifying order (driver codes, player included)
@@ -906,7 +907,8 @@ class Race {
         if (c.incT > 3 && !this.vsc && R.vscCool <= 0 && !c.vscRolled) {
           c.vscRolled = true;
           const onTrack = Math.abs(c.d) < T.hw + 2, big = (c.bigHit || 0) > 30;
-          if (!this.sc && (R.scCount || 0) < 1 && (big || (onTrack && Math.random() < 0.5)) && this.lapsLeft(this.leader()) > 3) this.deploySC();
+          if (this.online) { /* online: no safety car / VSC, each player's game would decide differently */ }
+          else if (!this.sc && (R.scCount || 0) < 1 && (big || (onTrack && Math.random() < 0.5)) && this.lapsLeft(this.leader()) > 3) this.deploySC();
           else if ((R.vscCount || 0) < 2 && Math.random() < 0.35) { R.vscCount = (R.vscCount || 0) + 1; this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
         }
       } else if (c.incT === 0) c.vscRolled = false;
@@ -933,6 +935,14 @@ class Race {
     const P = this.player;
     if (P.wingHealth < 0.6 && !P.wingMsg) { P.wingMsg = true; this.emit('msg', { car: P, text: this.mode === 'race' ? 'Front wing damaged: the car will understeer. Press PIT for a new nose' : 'Front wing damaged: press Reset to repair it', kind: 'warn' }); }
     if (P.wingHealth > 0.9) P.wingMsg = false;
+  }
+  // a player who dropped out: their car is driven home by the AI from where it was
+  adoptAI(c) {
+    if (!c || !c.remote) return false;
+    c.remote = null; c.net = null; c.vy = 0; c.r = 0; c.locate(true);
+    if (!Number.isFinite(c.x) || Math.abs(c.d) > 40) { const d0 = c.dist; c.place(c.idx, this.track.lineO[c.idx], 20); c.dist = d0; c.lastS = c.s; }
+    this.ais.push(new AIDriver(c, 0.95, hashStr(c.driver.code)));
+    return true;
   }
   leader() { return this.standings().find((c) => !c.finished) || this.cars[0]; }
   // ---- safety car: joins ahead of the leader, the field queues behind it, no overtaking, 2-3 laps, restart at the line
