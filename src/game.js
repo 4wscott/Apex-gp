@@ -256,7 +256,9 @@ const App = {
     const theme = T.spec.theme, base = THEMES[theme], tod = todOverride || settings.tod || 'auto';
     const th = tod === 'night' ? { ...base, sky: THEMES.desert.sky, sunColor: THEMES.desert.sunColor, time: 'night' }
       : tod === 'sunset' ? { ...base, sky: ['#3d4f78', '#f5a463'], sunColor: '#ff9e52', time: 'sunset' }
-      : tod === 'day' && base.time === 'night' ? { ...base, sky: THEMES.parkland.sky, sunColor: THEMES.parkland.sunColor, time: 'day' } : base;
+      : tod === 'overcast' ? { ...base, sky: THEMES.airfield.sky, sunColor: THEMES.airfield.sunColor, time: 'overcast' }
+      // default ('Circuit default' or 'Day'): sunny with a few clouds; only the floodlit night race keeps its night
+      : (tod === 'day' && base.time === 'night') || base.time === 'overcast' ? { ...base, sky: THEMES.parkland.sky, sunColor: THEMES.parkland.sunColor, time: 'day' } : base;
     THEMES[theme] = th; try {
     const night = th.time === 'night';
     const hdriName = night ? 'night' : { parkland: 'sky', airfield: 'sky', forest: 'forest', street: 'city', tropical: 'sky', island: 'bridge', desert: 'sky', prairie: 'dawn' }[theme];
@@ -277,7 +279,8 @@ const App = {
     const sky = buildSky(theme, sunDir); root.add(sky); this.sky = sky;
     const { world, lightMats, wetMats } = buildWorld(T, theme, settings.quality); root.add(world); this.lightMats = lightMats; this.wetMats = wetMats;
     const dusk = th.time === 'sunset';
-    const fogCol = night ? new THREE.Color('#1a1828') : dusk ? new THREE.Color('#e7b48c') : new THREE.Color(th.sky[1]).lerp(new THREE.Color('#c9d6e3'), 0.4);
+    // distance haze: a light sky blue on clear days (it used to lean grey), grey only when it is overcast
+    const fogCol = night ? new THREE.Color('#1a1828') : dusk ? new THREE.Color('#e7b48c') : th.time === 'overcast' ? new THREE.Color(th.sky[1]).lerp(new THREE.Color('#c9d6e3'), 0.4) : new THREE.Color('#b8d2ec');
     this.scene.fog = new THREE.FogExp2(fogCol, night ? 0.00035 : 0.00011);
     this.scene.background = fogCol;
     const hemi = (this.hemi = new THREE.HemisphereLight(night ? 0x9fb0d8 : dusk ? 0xffb27a : 0xdfe9f5, night ? 0x3a3024 : dusk ? 0x3a2418 : 0x5a5040, night ? 1.4 : dusk ? 0.6 : 0.35)); root.add(hemi);
@@ -1665,7 +1668,7 @@ const Menu = {
       // the race everyone will get: the host's settings
       const hc = Net.host ? Net.cfg() : Net.hostCfg, ht = hc && TRACKS.find((t) => t.id === hc.track);
       $('#on-cfg').hidden = !ht || !Net.peer;
-      if (ht) $('#on-cfg').textContent = `Race: ${ht.name} · ${hc.laps} laps · ${{ dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[hc.weather] || hc.weather} · ${{ auto: 'Circuit time of day', day: 'Day', sunset: 'Sunset', night: 'Night' }[hc.tod] || 'Day'}${Net.host ? ' (change these at the bottom and in Race settings)' : ''}`;
+      if (ht) $('#on-cfg').textContent = `Race: ${ht.name} · ${hc.laps} laps · ${{ dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[hc.weather] || hc.weather} · ${{ auto: 'Sunny', day: 'Sunny', overcast: 'Overcast', sunset: 'Sunset', night: 'Night' }[hc.tod] || 'Sunny'}${Net.host ? ' (change these at the bottom and in Race settings)' : ''}`;
       $('#on-start').hidden = !(Net.host && Net.me); $('#on-leave').hidden = !Net.peer;
       $('#on-start').textContent = Net.players.length > 1 ? `Start race for everyone (${Net.players.length} drivers)` : 'Start race (waiting for friends… or race alone)';
     };

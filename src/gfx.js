@@ -948,11 +948,28 @@ function flagMaterial(team) {
 function buildSky(themeKey, sunDir) {
   const th = THEMES[themeKey], night = th.time === 'night', group = new THREE.Group();
   if (!night) {
-    const sky = new Sky(); sky.scale.setScalar(20000);
-    const u = sky.material.uniforms;
-    u.turbidity.value = th.time === 'overcast' ? 9 : 3.5; u.rayleigh.value = th.time === 'overcast' ? 1.0 : 1.5; u.mieCoefficient.value = 0.004; u.mieDirectionalG.value = 0.82;
-    u.sunPosition.value.copy(sunDir);
-    group.add(sky);
+    // a painted sky with exact colours: deep blue overhead, pale blue at the horizon, a warm glow round the sun.
+    // (The physical Sky model is so bright that tone mapping washed it out to grey-white.)
+    const oc = th.time === 'overcast', dusk = th.time === 'sunset';
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false, toneMapped: false, fog: false,
+      uniforms: {
+        zen: { value: new THREE.Color(oc ? '#8e98a4' : dusk ? '#3b5584' : '#2a63b8') },
+        mid: { value: new THREE.Color(oc ? '#b4bcc6' : dusk ? '#c88a74' : '#5b95d8') },
+        hor: { value: new THREE.Color(oc ? '#cfd4da' : dusk ? '#f6b06a' : '#b9d6ef') },
+        sun: { value: sunDir.clone().normalize() }, glow: { value: new THREE.Color(oc ? '#e6e6e2' : dusk ? '#ffb060' : '#fff6dc') }, k: { value: oc ? 0.25 : 1 },
+      },
+      vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+      fragmentShader: `varying vec3 vD; uniform vec3 zen, mid, hor, glow, sun; uniform float k;
+        void main(){ vec3 d = normalize(vD); float h = clamp(d.y, 0., 1.);
+          vec3 c = mix(hor, mid, smoothstep(0.0, 0.22, h)); c = mix(c, zen, smoothstep(0.18, 0.85, h));
+          if (d.y < 0.) c = hor * 0.92;
+          float a = max(dot(d, sun), 0.);
+          c += glow * (pow(a, 8.) * 0.35 + pow(a, 64.) * 0.6) * k;     // broad glow and a tighter halo
+          c = mix(c, vec3(1.0, 0.98, 0.9), smoothstep(0.9992, 0.9997, a) * k); // the sun disc
+          gl_FragColor = vec4(c, 1.); }`,
+    });
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(18000, 48, 24), mat));
   } else {
     const mat = new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false,
@@ -966,8 +983,8 @@ function buildSky(themeKey, sunDir) {
     group.add(new THREE.Mesh(new THREE.SphereGeometry(18000, 32, 16), mat));
   }
   const cloudMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, side: THREE.BackSide,
-    uniforms: { sunDir: { value: sunDir.clone() }, cover: { value: th.time === 'overcast' ? 0.5 : night ? 0.62 : 0.5 }, bright: { value: night ? 0.06 : 1.6 }, t: { value: 0 } },
+    transparent: true, depthWrite: false, side: THREE.BackSide, toneMapped: false, fog: false,
+    uniforms: { sunDir: { value: sunDir.clone() }, cover: { value: th.time === 'overcast' ? 0.42 : night ? 0.62 : 0.6 }, bright: { value: night ? 0.06 : 0.92 }, t: { value: 0 } },
     vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: `varying vec3 vD; uniform vec3 sunDir; uniform float cover, bright, t;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
@@ -979,7 +996,7 @@ function buildSky(themeKey, sunDir) {
         float sh2 = fbm(uv + normalize(sunDir.xz + 1e-4)*0.08);
         float lit = clamp((n - sh2) * 4. + 0.55, 0.25, 1.0);
         float sunGlow = pow(max(dot(d, normalize(sunDir)), 0.), 6.);
-        vec3 col = mix(vec3(0.55,0.58,0.64), vec3(1.0,0.98,0.95), lit) * (bright + sunGlow * bright);
+        vec3 col = mix(vec3(0.66,0.71,0.80), vec3(1.0,0.99,0.97), lit) * (bright + sunGlow * bright); // white tops, soft blue-grey undersides
         gl_FragColor = vec4(col, c * smoothstep(0.005, 0.18, d.y) * 0.95); }`,
   });
   const clouds = new THREE.Mesh(new THREE.SphereGeometry(15000, 48, 24), cloudMat); clouds.renderOrder = -1;
