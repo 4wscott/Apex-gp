@@ -396,7 +396,8 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
     const g = new THREE.Group(); place(g, c, front, 0);
     // interior: epoxy floor, team-coloured back wall with the team name, light ceiling, side walls
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.25, metalness: 0.1 })); floor.position.set(0, 0.04, D / 2); g.add(floor);
-    const backTex = canvasTex(1024, 512, (q, w, h) => { q.fillStyle = tm.c1; q.fillRect(0, 0, w, h); q.fillStyle = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3; q.fillRect(0, h * 0.62, w, h * 0.08); q.fillStyle = lum(tm.c1) > 0.55 ? '#121417' : '#fff'; q.font = `800 ${h * 0.2}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w / 2, h * 0.42); });
+    // the back wall is only seen across the pit lane: painted at half size (a quarter of the memory), same picture
+    const backTex = scaledTex(1024, 512, 2, (q, w, h) => { q.fillStyle = tm.c1; q.fillRect(0, 0, w, h); q.fillStyle = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3; q.fillRect(0, h * 0.62, w, h * 0.08); q.fillStyle = lum(tm.c1) > 0.55 ? '#121417' : '#fff'; q.font = `800 ${h * 0.2}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w / 2, h * 0.42); });
     const back = new THREE.Mesh(new THREE.PlaneGeometry(bw, 7), new THREE.MeshStandardMaterial({ map: backTex, roughness: 0.6 })); back.position.set(0, 3.5, D - 0.3); back.rotation.y = Math.PI; g.add(back);
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.6 })); ceil.position.set(0, 7, D / 2); g.add(ceil);
     for (const sd of [-1, 1]) { const w2 = new THREE.Mesh(new THREE.PlaneGeometry(D, 7), new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.7 })); w2.position.set(sd * bw / 2, 3.5, D / 2); w2.rotation.y = -sd * Math.PI / 2; g.add(w2); }
@@ -411,7 +412,7 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
       const scr = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.08), new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x1d3b5a, emissiveIntensity: 0.8 })); scr.position.set(0, 4.6, D - 0.5); g.add(scr);
     }
     // painted box on the working lane: outline in team colour with yellow front-wheel marks
-    const boxTex = canvasTex(512, 256, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#888' : tm.c1; q.lineWidth = 14; q.strokeRect(8, 8, w - 16, h - 16); q.fillStyle = '#f4c20d'; for (const y of [h * 0.18, h * 0.82]) { q.fillRect(w * 0.79, y - 6, w * 0.12, 12); q.fillRect(w * 0.84, y - 22, 12, 44); } q.fillStyle = 'rgba(255,255,255,0.85)'; q.font = `800 ${h * 0.3}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.save(); q.translate(w * 0.42, h / 2); q.fillText(tm.name.split(' ')[0].toUpperCase(), 0, 0); q.restore(); }, { clamp: true });
+    const boxTex = scaledTex(512, 256, 2, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#888' : tm.c1; q.lineWidth = 14; q.strokeRect(8, 8, w - 16, h - 16); q.fillStyle = '#f4c20d'; for (const y of [h * 0.18, h * 0.82]) { q.fillRect(w * 0.79, y - 6, w * 0.12, 12); q.fillRect(w * 0.84, y - 22, 12, 44); } q.fillStyle = 'rgba(255,255,255,0.85)'; q.font = `800 ${h * 0.3}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.save(); q.translate(w * 0.42, h / 2); q.fillText(tm.name.split(' ')[0].toUpperCase(), 0, 0); q.restore(); }, { clamp: true });
     const bx = new THREE.Mesh(new THREE.PlaneGeometry(7, 3.4).rotateX(-Math.PI / 2), decal(new THREE.MeshStandardMaterial({ map: boxTex, transparent: true, roughness: 0.7 }), 6)); place(bx, c, P.workDist, 0.035);
     // release light hanging over the nose of the stopped car
     const rig = new THREE.Group(), post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 5, 0.15).translate(0, 2.5, 0), steel); rig.add(post);
@@ -1005,11 +1006,24 @@ function buildSky(themeKey, sunDir) {
 }
 
 // decode a bundled EXR; the sun direction is taken from its brightest texel
+// the installed app ships these as files (a/....exr, fetched once and kept offline); the single-file build has them inline
+const HDRI_BUF = {};
+function hdriIsFile(name) { return typeof HDRI !== 'undefined' && /^a\//.test(HDRI[name] || ''); }
+function preloadHDRI() {
+  if (typeof HDRI === 'undefined') return Promise.resolve();
+  return Promise.all(Object.keys(HDRI).filter(hdriIsFile).map((k) => fetch(HDRI[k]).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) HDRI_BUF[k] = b; }).catch(() => {})));
+}
 function loadHDRI(name) {
-  const bin = atob(HDRI[name]), buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  let buffer;
+  if (hdriIsFile(name)) buffer = HDRI_BUF[name] || HDRI_BUF[Object.keys(HDRI_BUF)[0]];
+  else { const bin = atob(HDRI[name]), buf = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i); buffer = buf.buffer; }
+  if (!buffer) { // offline before the first download finished: a plain sky light so the game still runs
+    const w = 8, h = 4, data = new Float32Array(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4, k = 0.4 + 0.5 * (y / (h - 1)); data[i] = 0.6 * k; data[i + 1] = 0.7 * k; data[i + 2] = 0.9 * k; data[i + 3] = 1; }
+    const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.FloatType); tex.mapping = THREE.EquirectangularReflectionMapping; tex.needsUpdate = true;
+    return { tex, sunDir: new THREE.Vector3(0.4, 0.6, 0.3).normalize(), peak: 1 };
+  }
   const loader = new EXRLoader(); loader.setDataType(THREE.FloatType);
-  const d = loader.parse(buf.buffer);
+  const d = loader.parse(buffer);
   const tex = new THREE.DataTexture(d.data, d.width, d.height, d.format, d.type);
   tex.colorSpace = THREE.LinearSRGBColorSpace; tex.mapping = THREE.EquirectangularReflectionMapping;
   tex.minFilter = tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
@@ -1296,7 +1310,9 @@ const lum = (c) => { const n = parseInt(c.slice(1), 16); return (0.299 * (n >> 1
 function loadModels() {
   if (typeof MODEL_DATA === 'undefined') return Promise.resolve();
   const L = new GLTFLoader(); L.setMeshoptDecoder(MeshoptDecoder);
-  const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no)));
+  // packed models arrive with interleaved vertex data; the merging below wants plain attributes
+  const plain = (g) => { g.scene.traverse((o) => { if (!o.geometry) return; for (const [k, a] of Object.entries(o.geometry.attributes)) if (a.isInterleavedBufferAttribute) o.geometry.setAttribute(k, a.clone()); }); return g; };
+  const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no))).then(plain);
   return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null, MODEL_DATA.carhq ? get('carhq') : null, MODEL_DATA.crew ? get('crew') : null]).then(([h, d, c, hq, cr]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null, carhq: hq ? prepCar(hq.scene) : null, crew: cr ? prepDriver(cr.scene) : null }; })
     .catch((e) => console.warn('driver models unavailable', e));
 }

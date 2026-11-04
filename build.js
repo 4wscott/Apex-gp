@@ -1,8 +1,9 @@
 // Joins src/ into a single self-contained index.html
 const fs = require('fs'), path = require('path');
 const src = (f) => fs.readFileSync(path.join(__dirname, 'src', f), 'utf8');
-let js = ['hdri.js', 'photo.js', 'engine.js', 'models.js'].map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')).join('\n') + '\n' + ['data.js', 'sim.js', 'gfx.js', 'audio.js', 'career.js', 'net.js', 'spotify.js', 'pitcrew.js', 'crowd.js', 'youtube.js', 'replay.js', 'radio.js', 'game.js'].map(src).join('\n');
-js = js.replace(/\nif \(typeof module !== 'undefined'\)[^\n]*\n/, '\n');
+const ASSETS = ['hdri.js', 'photo.js', 'engine.js', 'models.js'];
+const appJs = ['data.js', 'sim.js', 'gfx.js', 'audio.js', 'career.js', 'net.js', 'spotify.js', 'pitcrew.js', 'crowd.js', 'youtube.js', 'replay.js', 'radio.js', 'game.js'].map(src).join('\n').replace(/\nif \(typeof module !== 'undefined'\)[^\n]*\n/, '\n');
+const js = ASSETS.map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')).join('\n') + '\n' + appJs;
 const html = src('shell.html').replace('/*__SCRIPTS__*/', () => js);
 fs.writeFileSync(path.join(__dirname, 'index.html'), html);
 console.log('index.html', (html.length / 1024).toFixed(0) + ' KB');
@@ -34,8 +35,20 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then
 addEventListener('load', () => { const m = document.querySelector('#menu'); if (m) { const v = document.createElement('div'); v.className = 'hint'; v.style.cssText = 'opacity:.55;font-size:11px;padding:8px 16px'; v.textContent = 'Version ' + window.APEX_BUILD; m.appendChild(v); } });
 </script>
 </body></html>`;
-fs.writeFileSync(path.join(site, 'index.html'), head + html + reg);
-fs.writeFileSync(path.join(site, 'sw.js'), fs.readFileSync(path.join(__dirname, 'pwa', 'sw.js'), 'utf8').replace('__BUILD__', BUILD));
+// the installed app: the bundled models, sky lighting, engine sounds and track photos become real files in a/, named by
+// a hash of their contents (so they can be cached for good). A smaller page, no base64 overhead, less memory on phones.
+const crypto = require('crypto');
+fs.mkdirSync(path.join(site, 'a'), { recursive: true });
+const EXT = { 'model/gltf-binary': 'glb', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/wav': 'wav' };
+let moved = 0;
+const toFile = (b64, ext) => { const bin = Buffer.from(b64, 'base64'), name = 'a/' + crypto.createHash('sha1').update(bin).digest('hex').slice(0, 16) + '.' + ext; fs.writeFileSync(path.join(site, name), bin); moved += bin.length; return name; };
+const siteJs = ASSETS.map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')
+  .replace(/"data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]{200,})"/g, (m, mime, b) => JSON.stringify(toFile(b, EXT[mime] || 'bin')))
+  .replace(/"([A-Za-z0-9+/=]{2000,})"/g, (m, b) => JSON.stringify(toFile(b, f === 'hdri.js' ? 'exr' : 'bin')))).join('\n');
+const siteHtml = src('shell.html').replace('/*__SCRIPTS__*/', () => siteJs + '\n' + appJs);
+console.log('site page', (siteHtml.length / 1024).toFixed(0) + ' KB, plus', (moved / 1024).toFixed(0) + ' KB of files in a/');
+fs.writeFileSync(path.join(site, 'index.html'), head + siteHtml + reg);
+fs.writeFileSync(path.join(site, 'sw.js'), fs.readFileSync(path.join(__dirname, 'pwa', 'sw.js'), 'utf8').replace('__BUILD__', BUILD).replace('__ASSETS__', () => JSON.stringify(fs.readdirSync(path.join(site, 'a')).map((f) => './a/' + f))));
 fs.copyFileSync(path.join(__dirname, 'pwa', 'manifest.webmanifest'), path.join(site, 'manifest.webmanifest'));
 for (const f of fs.readdirSync(path.join(__dirname, 'pwa', 'icons'))) fs.copyFileSync(path.join(__dirname, 'pwa', 'icons', f), path.join(site, 'icons', f));
 fs.writeFileSync(path.join(site, '.nojekyll'), '');

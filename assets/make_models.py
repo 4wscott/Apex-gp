@@ -92,6 +92,14 @@ def process(path, keep_mesh, tex_max, keep_images=True):
 helmet = process('assets/models_src/helmet.glb', lambda n: 'Plane.002' not in n and 'Cube.007' not in n, 512)  # Cube.007 is a hidden inner liner
 driver = process('assets/models_src/driver.glb', lambda n: any(k in n for k in ('Outfit_Top', 'Wolf3D_Body')), 512)
 crew = process('assets/models_src/driver.glb', lambda n: any(k in n for k in ('Outfit_Top', 'Outfit_Bottom', 'Footwear', 'Wolf3D_Body', 'Headwear')), 256)  # full-body pit crew in helmets
+# the people and the helmet are packed with meshoptimizer (tools/compress_people.mjs: same shapes, about 2.7x smaller)
+import subprocess, tempfile, os
+def packed(name, glb):
+    d = tempfile.mkdtemp(); a, b = os.path.join(d, name + '.glb'), os.path.join(d, name + '.c.glb')
+    open(a, 'wb').write(glb)
+    subprocess.run(['node', 'compress_people.mjs', a, b], cwd='tools', check=True, capture_output=True)
+    return open(b, 'rb').read()
+helmet, driver, crew = packed('helmet', helmet), packed('driver', driver), packed('crew', crew)
 car = open('assets/models_src/car2026_game.glb', 'rb').read()  # made by tools/prep_car.mjs (distant cars)
 carhq = open('assets/models_src/car2026_hq.glb', 'rb').read()  # tools/prep_car.mjs 0.6 0.02 hq (nearby cars)
 js = ('// Driver, helmet and car models (Sketchfab, CC BY 4.0): "race driver" by asset_for_games, "Racing helmet" by mizucorp4,\n// "My take on the 2026 f1 regulations" by MaG80.\n'

@@ -4,9 +4,14 @@
 const BUILD = '__BUILD__';
 const PAGE = 'apex-page', LIBS = 'apex-libs-v1', HQ = 'apex-hq-v1';
 const CORE = ['./', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+// the game's model, sound, sky and track files for this build (named by content, so unchanged ones are not fetched again)
+const ASSETS = __ASSETS__;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(PAGE).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'no-cache' })))).then(() => self.skipWaiting()));
+  e.waitUntil(Promise.all([
+    caches.open(PAGE).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'no-cache' })))),
+    caches.open(HQ).then(async (c) => { for (const u of ASSETS) if (!(await c.match(u))) await c.add(u).catch(() => {}); }),
+  ]).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== PAGE && k !== LIBS && k !== HQ).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
@@ -38,7 +43,8 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   // the high-resolution pack: fetched once, then from the cache (bump HQ when its files change)
-  if (url.origin === location.origin && url.pathname.includes('/hq/')) {
+  // a/ holds the game's models, sounds, sky lighting and track photos, named by their contents: fetched once, kept for good
+  if (url.origin === location.origin && (url.pathname.includes('/hq/') || url.pathname.includes('/a/'))) {
     e.respondWith(caches.open(HQ).then(async (c) => (await c.match(req)) || fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; })));
     return;
   }
