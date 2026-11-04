@@ -14,7 +14,8 @@ const Replay = {
   },
   sample(race) {
     const R = this.rec; if (!R || race.time - R.last < 1 / REC_HZ - 1e-6) return;
-    if (R.times.length >= REC_HZ * 60 * 40) return; // 40 minutes is plenty
+    // long sessions (unlimited practice): keep the latest 40 minutes, dropping the oldest 5 at a time
+    if (R.times.length >= REC_HZ * 60 * 40) { const drop = REC_HZ * 60 * 5; R.data.copyWithin(0, drop * R.n * REC_F, R.times.length * R.n * REC_F); R.times.splice(0, drop); }
     R.last = race.time;
     if (R.green === undefined && race.phase === 'green') R.green = race.time - (race.greenT || 0);
     const need = (R.times.length + 1) * R.n * REC_F;

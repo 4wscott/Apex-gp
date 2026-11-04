@@ -178,6 +178,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .tilt-meter { position: relative; height: 14px; border-radius: 7px; background: rgba(255,255,255,0.08); }
 .tilt-meter span { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.4); }
 .tilt-meter i { left: calc(50% - 7px); }
+/* practice lap list in the pause card: every lap, the best highlighted, deleted laps greyed */
+#p-laps { display: grid; gap: 6px; margin-top: 6px; }
+#p-laps ol { list-style: none; margin: 0; padding: 0; max-height: 150px; overflow-y: auto; display: grid; gap: 2px; font-family: var(--f-mono, ui-monospace, monospace); font-size: 13px; }
+#p-laps li { display: grid; grid-template-columns: 70px 90px 1fr; padding: 2px 6px; border-radius: 4px; }
+#p-laps li.best { background: rgba(180,107,255,0.22); color: #d9b8ff; }
+#p-laps li.del { color: var(--muted); text-decoration: line-through; }
 /* the game is not a document: no text selection or iOS long-press callout while playing (it can swallow a finger lifting off a pedal) */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; }
@@ -681,6 +687,7 @@ body.touch #h-track { display: none; }
         <tr><td>Camera / look back / reset to track</td><td><kbd>C</kbd> / <kbd>B</kbd> / <kbd>R</kbd></td></tr>
         <tr><td>Pause / music next track, play-pause</td><td><kbd>Esc</kbd> or <kbd>P</kbd> / <kbd>N</kbd>, <kbd>K</kbd></td></tr>
       </tbody></table></div>
+      <div id="p-laps" hidden></div>
       <p class="hint" id="p-pad" hidden></p>
       <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-replay">Replay</button><button type="button" class="btn" id="p-garage" hidden>Return to pit box</button><button type="button" class="btn" id="p-settings">Settings</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
     </div>

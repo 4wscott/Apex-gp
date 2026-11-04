@@ -1174,7 +1174,7 @@ class Race {
         c.sectorTimes[2] = s3; this.sectorDone(c, 2, s3);
         c.lastSectors = c.sectorTimes.slice(); c.sectorTimes = [NaN, NaN, NaN];
         const valid = this.mode === 'race' || c.lapValid;
-        c.lapTimes.push(lt);
+        c.lapTimes.push(lt); (c.lapLog = c.lapLog || []).push({ t: lt, valid });
         if (valid && lt < c.bestLap) c.bestLap = lt;
         let overall = false;
         if (valid && lt < this.bestLap) { this.bestLap = lt; overall = true; }

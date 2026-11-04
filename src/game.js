@@ -504,6 +504,13 @@ const App = {
     $('#pc-btns').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
     $('#p-pad').innerHTML = Pads.summary(); $('#p-pad').hidden = !$('#p-pad').innerHTML;
+    { const P = this.session.race.player, log = P.lapLog || [], el = $('#p-laps');
+      el.hidden = !(this.paused && this.session.race.mode !== 'race' && log.length);
+      if (!el.hidden) {
+        const best = Math.min(...log.filter((l) => l.valid).map((l) => l.t));
+        el.innerHTML = `<b>This session · ${log.length} lap${log.length === 1 ? '' : 's'}${isFinite(best) ? ` · best ${fmtTime(best)}` : ''}</b><ol>${log.map((l, i) => `<li class="${l.valid ? (l.t === best ? 'best' : '') : 'del'}"><span>Lap ${i + 1}</span><span>${fmtTime(l.t)}</span><span>${l.valid ? (l.t === best ? 'Best' : isFinite(best) ? '+' + (l.t - best).toFixed(3) : '') : 'Deleted'}</span></li>`).join('')}</ol>`;
+        el.querySelector('ol').scrollTop = 1e6;
+      } }
     $('#p-garage').hidden = this.session.race.mode !== 'practice' || !!this.session.race.player.pit;
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
@@ -1180,7 +1187,7 @@ const Hud = {
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc && !r.sc;
       if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`;
       else if (r.sc) { const k = r.sc.order.indexOf(P), ahead = k <= 0 ? r.sc : r.sc.order[k - 1], gap = ahead.dist - P.dist; el.textContent = `SAFETY CAR · ${k <= 0 ? 'SC' : ahead.driver.abbr || ahead.driver.code} ${Math.max(0, Math.round(gap))} m`; } }
-    $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : String(Math.max(1, P.lap));
+    $('#h-lap').textContent = race.mode === 'race' ? `${clamp(P.lap, 1, race.laps)}/${race.laps}` : race.mode === 'practice' ? `${Math.max(1, P.lap)} · ∞` : String(Math.max(1, P.lap));
     $('#h-time').textContent = P.lap >= 1 ? fmtTime(lapT) : race.mode !== 'race' ? 'Out lap' : race.phase === 'green' && race.greenT > 0 ? fmtTime(race.greenT) : '0:00.000'; // the race clock runs from lights out
     $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid && P.lap >= 1);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
