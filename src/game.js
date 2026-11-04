@@ -481,6 +481,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    document.body.classList.remove('starting');
     Radio.reset();
     if (Replay.on) { Replay.on = false; $('#replay').hidden = true; document.body.classList.remove('replaying'); }
     $('#perf').hidden = true;
@@ -1203,6 +1204,7 @@ const Hud = {
     });
     // start lights overlay
     const lb = $('#lightsbar');
+    document.body.classList.toggle('starting', race.mode === 'race' && (race.phase !== 'green' || race.greenT < 1.5) && !Replay.on);
     if (race.mode === 'race' && race.phase !== 'green') { lb.hidden = false; $$('.lamp', lb).forEach((l, i) => l.classList.toggle('on', race.lightsOn > i)); }
     else if (race.greenT > 1.5) lb.hidden = true; else $$('.lamp', lb).forEach((l) => l.classList.remove('on'));
     // timing tower

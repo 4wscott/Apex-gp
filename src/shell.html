@@ -184,6 +184,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 #p-laps li { display: grid; grid-template-columns: 70px 90px 1fr; padding: 2px 6px; border-radius: 4px; }
 #p-laps li.best { background: rgba(180,107,255,0.22); color: #d9b8ff; }
 #p-laps li.del { color: var(--muted); text-decoration: line-through; }
+/* race visibility: messages live in a slim strip along the top edge, never over the car; start lights sit at the very top */
+#banner { top: max(56px, calc(env(safe-area-inset-top, 0px) + 52px)) !important; font-size: 16px !important; padding: 5px 14px !important; max-width: min(560px, calc(100vw - 480px)) !important; white-space: normal !important; text-align: center; line-height: 1.25; }
+#flash { top: max(96px, calc(env(safe-area-inset-top, 0px) + 92px)) !important; bottom: auto !important; max-width: min(520px, calc(100vw - 480px)); white-space: normal; text-align: center; font-size: 13px !important; }
+#lightsbar { top: max(10px, env(safe-area-inset-top, 0px)) !important; z-index: 5; }
+body.starting #pc-btns, body.starting .t-top { visibility: hidden; } /* the button row steps aside until lights out */
+body.touch #banner { top: max(46px, calc(env(safe-area-inset-top, 0px) + 42px)) !important; font-size: 13px !important; padding: 4px 10px !important; max-width: calc(100vw - 420px) !important; }
+body.touch #flash { top: max(84px, calc(env(safe-area-inset-top, 0px) + 80px)) !important; font-size: 12px !important; max-width: calc(100vw - 420px); }
+body.touch #lightsbar { top: max(6px, env(safe-area-inset-top, 0px)) !important; padding: 6px 10px; gap: 8px; }
+body.touch #lightsbar .lamp { width: 20px; height: 20px; }
+body.touch #radio { top: max(140px, calc(env(safe-area-inset-top, 0px) + 136px)) !important; bottom: auto !important; left: max(16px, env(safe-area-inset-left, 0px)) !important; right: auto !important; transform: none !important; max-width: 150px !important; padding: 5px 8px !important; }
+body.touch #radio b { font-size: 9px; } body.touch #radio span { font-size: 11px !important; line-height: 1.25; }
+@media (max-width: 900px) { #banner, #flash { max-width: calc(100vw - 440px) !important; } }
 /* the game is not a document: no text selection or iOS long-press callout while playing (it can swallow a finger lifting off a pedal) */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; }
