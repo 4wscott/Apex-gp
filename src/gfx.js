@@ -1325,10 +1325,19 @@ function prepHelmet(root) {
   return out;
 }
 // each driver's own helmet design: team colours plus a personal colour and one of several classic patterns
-function driverHelmetTexture(team, dr) {
+// painted images are shared: the same image for every car of a team (or every car) is built once.
+// iPhones cap the total size of painted images a page may hold; one copy per car went over it in a full race.
+const TEXMEMO = {};
+function memoTex(key, make) { return TEXMEMO[key] || (TEXMEMO[key] = make()); }
+// paint with the drawing code written for W x H into a canvas `k` times smaller (same picture, a quarter of the memory at k=2)
+function scaledTex(W, H, k, draw) { return canvasTex(W / k, H / k, (g) => { g.scale(1 / k, 1 / k); draw(g, W, H); }); }
+const PHONE_GFX = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+
+function driverHelmetTexture(team, dr) { return memoTex('dh' + team.id + dr.code, () => driverHelmetTexture0(team, dr)); }
+function driverHelmetTexture0(team, dr) {
   const hsh = hashStr(dr.code), pat = hsh % 5, hue = (hsh >> 3) % 360;
   const personal = `hsl(${hue}, 85%, ${45 + ((hsh >> 9) % 15)}%)`, base = lum(team.c2) > 0.18 && lum(team.c2) < 0.92 ? team.c2 : team.c1, alt = base === team.c1 ? team.c2 : team.c1;
-  return canvasTex(1024, 512, (g, w, h) => {
+  return scaledTex(1024, 512, 2, (g, w, h) => {
     // u: 0..1 around the head (front/visor at 0.5), v: crown at the top
     g.fillStyle = base; g.fillRect(0, 0, w, h);
     g.fillStyle = alt;
@@ -1374,9 +1383,9 @@ function prepCar(root) {
 }
 // team livery painted onto the model's own texture layout: base -> team colour, stripes and panels -> accents,
 // carbon stays carbon, the original logos are painted out and our own sponsor names / race number added
-function liveryFromModel(team, num) {
+function liveryFromModel(team, num, small = false) {
   GFX.carLivery = GFX.carLivery || {};
-  const key = team.id + num; if (GFX.carLivery[key]) return GFX.carLivery[key];
+  const key = team.id + num + (small ? 's' : ''); if (GFX.carLivery[key]) return GFX.carLivery[key];
   const img = GFX.models.car.tex.image, w = img.width, h = img.height, c = document.createElement('canvas'); c.width = w; c.height = h;
   const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, w, h), p = d.data;
   const rgb = (hx) => [1, 3, 5].map((i) => parseInt(hx.slice(i, i + 2), 16));
@@ -1398,7 +1407,10 @@ function liveryFromModel(team, num) {
   text(sp[pick % sp.length][0], 488, 106, 21, 'v'); text(sp[pick % sp.length][0], 488, 258, 21, 'r');
   text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'r');
   text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, 'v'); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, 'v');
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = GFX.maxAniso; t.userData.keep = true;
+  // other cars on a phone: half-size copy (they are never seen close enough to tell), and the full-size canvas released
+  let src = c;
+  if (small) { const h2 = document.createElement('canvas'); h2.width = c.width / 2; h2.height = c.height / 2; const g2 = h2.getContext('2d'); g2.imageSmoothingQuality = 'high'; g2.drawImage(c, 0, 0, h2.width, h2.height); c.width = c.height = 1; src = h2; }
+  const t = new THREE.CanvasTexture(src); t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = GFX.maxAniso; t.userData.keep = true;
   return (GFX.carLivery[key] = t);
 }
 function prepDriver(root) {
@@ -1448,6 +1460,10 @@ function makeAvatar(team, body) {
   return { root: pivot, ik, hands, bones };
 }
 function liveryTexture(team, num, hi) {
+  if (GFX.models && GFX.models.car) return memoTex('blank', () => canvasTex(4, 4, (g) => { g.fillStyle = '#888'; g.fillRect(0, 0, 4, 4); })); // hidden body: no livery needed
+  return memoTex('lv' + team.id + num + (hi ? 'h' : ''), () => liveryTexture0(team, num, hi));
+}
+function liveryTexture0(team, num, hi) {
   return canvasTex(hi ? 2048 : 1024, hi ? 1024 : 512, (g, w, h) => {
     if (hi) g.scale(2, 2), (w /= 2), (h /= 2);
     // u: nose (0) -> tail (1); v around the section, 0.25 = top centre, 0.75 = underside
@@ -1528,7 +1544,7 @@ function panelNormalMap() {
 // front elements carry it once per side
 function wingMaterial(team, kind) {
   const sp = GFX.tex.sponsors, pick = hashStr(team.id);
-  const tex = canvasTex(1024, 128, (g, w, h) => {
+  const tex = TEXMEMO['wg' + team.id + kind] || (TEXMEMO['wg' + team.id + kind] = canvasTex(1024, 128, (g, w, h) => {
     g.fillStyle = team.c1; g.fillRect(0, 0, w, h);
     g.fillStyle = lum(team.c2) > 0.18 ? team.c2 : team.c3; g.fillRect(0, h * 0.86, w, h * 0.14);   // trailing-edge stripe
     if (kind === 'plain') return;
@@ -1536,14 +1552,14 @@ function wingMaterial(team, kind) {
     const name = sp[(pick + (kind === 'rear' ? 2 : 3)) % sp.length][0];
     if (kind === 'rear') { g.font = '800 92px "Saira Condensed", Arial Narrow, sans-serif'; g.fillText(name, w / 2, h * 0.45); }
     else { g.translate(w, h); g.rotate(Math.PI); g.font = '800 70px "Saira Condensed", Arial Narrow, sans-serif'; g.fillText(name, w * 0.24, h * 0.45); g.fillText(name, w * 0.76, h * 0.45); }
-  });
+  }));
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
   return new THREE.MeshPhysicalMaterial({ map: tex, roughness: team.matte ? 0.5 : 0.32, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.8, side: THREE.DoubleSide });
 }
 // sponsor-branded wing endplate; uv comes from the plate's shape coordinates
 function endplateMaterial(team, x0, x1, y0, y1, mirror, big) {
-  const sp = GFX.tex.sponsors, pick = hashStr(team.id);
-  const tex = canvasTex(512, 256, (g, w, h) => {
+  const sp = GFX.tex.sponsors, pick = hashStr(team.id), ek = 'ep' + team.id + [x0, x1, y0, y1, mirror, big].join();
+  const tex = TEXMEMO[ek] || (TEXMEMO[ek] = canvasTex(512, 256, (g, w, h) => {
     g.fillStyle = team.c1; g.fillRect(0, 0, w, h);
     const top = big ? (lum(team.split ? team.c3 : team.c2) > 0.18 ? (team.split ? team.c3 : team.c2) : team.c1) : team.c1;
     if (big) { g.fillStyle = top; g.fillRect(0, 0, w, h * 0.55); g.fillStyle = team.c1; g.fillRect(0, h * 0.55, w, h * 0.04); }
@@ -1553,13 +1569,14 @@ function endplateMaterial(team, x0, x1, y0, y1, mirror, big) {
     g.fillStyle = ink(top); g.textAlign = 'center'; g.textBaseline = 'middle';
     g.font = `800 ${big ? 64 : 60}px "Saira Condensed", Arial Narrow, sans-serif`; g.fillText(sp[(pick + 1) % sp.length][0], w / 2, h * 0.42);
     g.fillStyle = ink(team.c1); g.font = '700 24px "Saira Condensed", Arial Narrow, sans-serif'; g.fillText(team.name.toUpperCase(), w / 2, h * 0.68);
-  });
+  }));
   const sx = 1 / (x1 - x0), sy = 1 / (y1 - y0);
   if (mirror) { tex.repeat.set(-sx, sy); tex.offset.set(1 + x0 * sx, -y0 * sy); } else { tex.repeat.set(sx, sy); tex.offset.set(-x0 * sx, -y0 * sy); }
   return new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.4, metalness: 0.05, clearcoat: 0.6 });
 }
 // helmet livery: u wraps around (front at 0.5), v runs top to bottom
-function helmetTexture(team, num = '') {
+function helmetTexture(team, num = '') { return memoTex('hm' + team.id + num, () => helmetTexture0(team, num)); }
+function helmetTexture0(team, num = '') {
   return canvasTex(512, 256, (g, w, h) => {
     g.fillStyle = team.c2; g.fillRect(0, 0, w, h);
     const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
@@ -1572,7 +1589,8 @@ function helmetTexture(team, num = '') {
     g.fillStyle = '#16181b'; g.fillRect(0, h * 0.82, w, h * 0.18);
   });
 }
-function suitTexture(team) {
+function suitTexture(team) { return memoTex('st' + team.id, () => suitTexture0(team)); }
+function suitTexture0(team) {
   return canvasTex(256, 128, (g, w, h) => {
     g.fillStyle = team.c1; g.fillRect(0, 0, w, h);
     g.fillStyle = team.c2; g.fillRect(0, h * 0.42, w, h * 0.12);
@@ -1666,7 +1684,7 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     const keep = new Set([hans, shoulders, ...mirrors]);
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
     fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
-    const mat = new THREE.MeshPhysicalMaterial({ map: liveryFromModel(team, num), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
+    const mat = new THREE.MeshPhysicalMaterial({ map: liveryFromModel(team, num, PHONE_GFX && !hero), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
     // nearby: full-detail body; beyond 45 m the lighter one (switched in the game loop)
     modelBody = new THREE.Mesh(M.carhq ? M.carhq.livery : M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
     modelBody.userData.lod = M.carhq ? [M.carhq.livery, M.car.livery] : null;
@@ -1736,7 +1754,8 @@ function makeSteeringWheel(team, lite = false) {
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.05, 20).rotateX(Math.PI / 2), alu); hub.position.z = -0.03; face.add(hub);
   // printed labels and graphics on the faceplate
   GFX.wheelLabels = GFX.wheelLabels || {};
-  const labels = GFX.wheelLabels[team.id + team.name] || (GFX.wheelLabels[team.id + team.name] = canvasTex(1024, 560, (c, w, h) => {
+  // the button labels are only legible from the cockpit: other cars' wheels get a plain face
+  const labels = lite ? memoTex('clear', () => canvasTex(4, 4, (g) => g.clearRect(0, 0, 4, 4))) : GFX.wheelLabels[team.id + team.name] || (GFX.wheelLabels[team.id + team.name] = canvasTex(1024, 560, (c, w, h) => {
     c.clearRect(0, 0, w, h);
     const X = (x) => (x / 0.256 + 0.5) * w, Y = (y) => (0.5 - y / 0.15) * h;
     c.fillStyle = '#e9edf2'; c.font = '700 22px Arial, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';

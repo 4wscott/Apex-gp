@@ -23,6 +23,7 @@ if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings
 if (settings.v < 5) settings.v = 5;
 if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first
 if (settings.v < 7) { if (settings.stab === undefined || settings.v < 7) settings.stab = 1; settings.v = 7; } // light stability control for everyone who had none // image quality first: undo automatic step-downs
+if (settings.v < 8) { if (IS_TOUCH && settings.quality === 1 && settings.autoRes) { settings.quality = 2; } settings.v = 8; } // undo the automatic drop to Medium after the memory crash (fixed)
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -1530,8 +1531,7 @@ function crashCheck() {
   if (!r || Date.now() - r.at > 6 * 3600e3) return;
   const msg = { msg: `The game was closed unexpectedly during a session (${r.mode || 'race'} at ${r.track || 'a circuit'}, graphics ${['Low', 'Medium', 'High', 'Ultra'][r.q] || r.q}).`, at: new Date().toISOString(), build: window.APEX_BUILD || '' };
   store.set('lastError', msg);
-  if (IS_TOUCH && settings.quality >= 2) { settings.quality = Math.min(settings.quality, 1); settings.autoRes = true; saveSettings(); }
-  setTimeout(() => { const t = $('#pad-toast'); if (!t) return; t.textContent = IS_TOUCH ? 'The game closed unexpectedly last time. Graphics set to Medium to keep it stable (change it in Settings).' : 'The game closed unexpectedly last time.'; t.hidden = false; setTimeout(() => (t.hidden = true), 7000); }, 1500);
+  setTimeout(() => { const t = $('#pad-toast'); if (!t) return; t.textContent = 'The game closed unexpectedly last time. If it keeps happening, try Settings → Graphics → Smooth.'; t.hidden = false; setTimeout(() => (t.hidden = true), 7000); }, 1500);
 }
 
 // ---- car setup: four choices that change the player's car in the physics -----------------------
