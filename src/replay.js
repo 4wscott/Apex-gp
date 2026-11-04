@@ -9,17 +9,19 @@ const Replay = {
   // ---- recording -------------------------------------------------------------------------------
   reset(race) {
     const n = race.cars.length;
-    this.rec = { n, times: [], data: new Float32Array(REC_HZ * 60 * n * REC_F * 4), len: 0, last: -1, pos: [], marks: [] };
+    // one fixed block, allocated once (growing it by doubling briefly needed ~125 MB in a long session: enough for an
+    // iPhone to close the page). Phones keep the last 10 minutes, computers the last 30; the oldest minutes roll off.
+    const phone = matchMedia('(pointer: coarse)').matches, minutes = phone ? 10 : 30;
+    this.cap = REC_HZ * 60 * minutes;
+    this.rec = { n, times: [], data: new Float32Array(this.cap * n * REC_F), len: 0, last: -1, pos: [], marks: [] };
     this.on = false;
   },
   sample(race) {
     const R = this.rec; if (!R || race.time - R.last < 1 / REC_HZ - 1e-6) return;
-    // long sessions (unlimited practice): keep the latest 40 minutes, dropping the oldest 5 at a time
-    if (R.times.length >= REC_HZ * 60 * 40) { const drop = REC_HZ * 60 * 5; R.data.copyWithin(0, drop * R.n * REC_F, R.times.length * R.n * REC_F); R.times.splice(0, drop); }
+    // full: drop the oldest eighth in place (no new memory) and carry on
+    if (R.times.length >= this.cap) { const drop = Math.floor(this.cap / 8); R.data.copyWithin(0, drop * R.n * REC_F, R.times.length * R.n * REC_F); R.times.splice(0, drop); R.marks = R.marks.filter((m) => m.t >= R.times[0]); }
     R.last = race.time;
     if (R.green === undefined && race.phase === 'green') R.green = race.time - (race.greenT || 0);
-    const need = (R.times.length + 1) * R.n * REC_F;
-    if (need > R.data.length) { const d = new Float32Array(R.data.length * 2); d.set(R.data); R.data = d; }
     let o = R.times.length * R.n * REC_F;
     for (const c of race.cars) {
       const d = R.data;

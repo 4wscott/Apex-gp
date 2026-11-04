@@ -77,6 +77,7 @@ const App = {
     Menu.init();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+    crashCheck();
     this.preview(settings.track);
     setTimeout(() => this.loadHQ(), 2500);
   },
@@ -405,6 +406,7 @@ const App = {
       this.buildRacingLine(T);
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
+      store.set('running', { at: Date.now(), q: settings.quality, track: T.spec.id, mode });
       Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null;
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
@@ -484,6 +486,8 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    store.set('running', null);
+    if (this.session && this.session.mirror) { this.session.mirror.sides.forEach((sd) => sd.rt.dispose()); this.session.mirror = null; } // free the mirror pictures
     document.body.classList.remove('starting');
     Radio.reset();
     if (Replay.on) { Replay.on = false; $('#replay').hidden = true; document.body.classList.remove('replaying'); }
@@ -1517,6 +1521,18 @@ function reportError(err) {
 }
 addEventListener('error', (e) => reportError(e.error || e.message));
 addEventListener('unhandledrejection', (e) => { const r = e.reason; if (r && /googlevideo|youtube|spotify|peer/i.test(String(r.message || r))) return; reportError(r); });
+
+// if the game was closed by the phone mid-race last time (out of memory), say so and lower the graphics a step
+addEventListener('pagehide', () => store.set('running', null));
+document.addEventListener('visibilitychange', () => { if (document.hidden) store.set('running', null); else if (App.session) store.set('running', { at: Date.now(), q: settings.quality }); });
+function crashCheck() {
+  const r = store.get('running', null); store.set('running', null);
+  if (!r || Date.now() - r.at > 6 * 3600e3) return;
+  const msg = { msg: `The game was closed unexpectedly during a session (${r.mode || 'race'} at ${r.track || 'a circuit'}, graphics ${['Low', 'Medium', 'High', 'Ultra'][r.q] || r.q}).`, at: new Date().toISOString(), build: window.APEX_BUILD || '' };
+  store.set('lastError', msg);
+  if (IS_TOUCH && settings.quality >= 2) { settings.quality = Math.min(settings.quality, 1); settings.autoRes = true; saveSettings(); }
+  setTimeout(() => { const t = $('#pad-toast'); if (!t) return; t.textContent = IS_TOUCH ? 'The game closed unexpectedly last time. Graphics set to Medium to keep it stable (change it in Settings).' : 'The game closed unexpectedly last time.'; t.hidden = false; setTimeout(() => (t.hidden = true), 7000); }, 1500);
+}
 
 // ---- car setup: four choices that change the player's car in the physics -----------------------
 function setupEffect() {
