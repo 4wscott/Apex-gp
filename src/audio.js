@@ -355,7 +355,7 @@ class Input {
     const big = { S: 0.8, M: 1, L: 1.25 }[o.touchSize] || 1;
     root.style.setProperty('--tb', big);
     // arrows sit under the left thumb, so both pedals go to the right (brake left of throttle)
-    root.className = 'tside-' + (o.touchSteer === 'buttons' ? 'std' : o.touchLayout || 'split');
+    root.className = 'tside-' + (o.touchSteer === 'buttons' ? 'std' : o.touchLayout || 'split'); this.tiltMode = false;
     this.touchArrows = o.touchSteer === 'buttons';
     const btn = (act, label, extra = '') => `<button type="button" data-act="${act}" ${extra}>${label}</button>`;
     root.innerHTML = `
@@ -369,7 +369,8 @@ class Input {
             <circle cx="-62" cy="-16" r="6" fill="#f2f2f2"/><circle cx="-62" cy="2" r="6" fill="#f6c400"/><circle cx="62" cy="-16" r="6" fill="#b46bff"/><circle cx="62" cy="2" r="6" fill="#2b2b2b"/>
             <circle cx="-22" cy="30" r="7" fill="#b8bec6"/><circle cx="0" cy="30" r="7" fill="#b8bec6"/><circle cx="22" cy="30" r="7" fill="#b8bec6"/>
             <circle cx="-48" cy="42" r="6" fill="#2bd46a"/><circle cx="48" cy="42" r="6" fill="#ff7a00"/>
-          </svg>` : o.touchSteer === 'pad' ? '<span id="t-rail"></span><span id="t-knob"></span><span class="t-label">Drag to steer</span>'
+          </svg>` : o.touchSteer === 'tilt' ? '<div id="t-tilt"><span id="t-tilt-bar"></span><span id="t-tilt-dot"></span></div><button type="button" id="t-centre" aria-label="Centre the steering">Centre</button>'
+          : o.touchSteer === 'pad' ? '<span id="t-rail"></span><span id="t-knob"></span><span class="t-label">Drag to steer</span>'
           : '<div class="t-arrows"><button type="button" id="t-left" aria-label="Steer left">◀</button><button type="button" id="t-right" aria-label="Steer right">▶</button></div>'}
       </div>
       <div class="t-pedals">
@@ -399,6 +400,14 @@ class Input {
         const g = root.querySelector('#t-gear'); if (g.textContent !== String(gear)) g.textContent = gear;
         const lit = Math.round(rpmFrac * 15); root.querySelectorAll('.t-led').forEach((l, k) => l.setAttribute('opacity', k < lit ? 1 : 0.25));
       };
+    } else if (o.touchSteer === 'tilt') {
+      // tilt: turn the phone like a wheel; straight ahead is wherever it was held when the race started (or Centre was tapped)
+      Tilt.start(); Tilt.centre(); this.tiltMode = true;
+      // iPhones forget the motion permission when the app restarts: the first tap on any control asks again
+      root.addEventListener('pointerdown', () => { if (!Tilt.active) Tilt.ask().then(() => Tilt.centre()); }, { capture: true });
+      root.querySelector('#t-centre').addEventListener('pointerdown', (e) => { Tilt.centre(); buzz(15); e.preventDefault(); });
+      const dot = root.querySelector('#t-tilt-dot');
+      this.drawTouchWheel = (steer) => { dot.style.transform = `translateX(${-steer * 46}px)`; };
     } else if (o.touchSteer === 'pad') {
       const knob = root.querySelector('#t-knob'); let sid = null, x0 = 0;
       pad.addEventListener('pointerdown', (e) => { sid = e.pointerId; x0 = e.clientX; pad.setPointerCapture(sid); this.lastDevice = 'touch'; e.preventDefault(); });
@@ -477,6 +486,7 @@ class Input {
     const useKb = this.lastDevice === 'keyboard', useTouch = this.lastDevice === 'touch';
     if (useTouch) {
       // arrows build steering up gradually (like a keyboard); wheel and pad follow the thumb directly
+      if (this.tiltMode) { this.touch.steer = Tilt.steer(opts); if (Tilt.active) this.lastDevice = 'touch'; }
       const tgt = this.touch.steer, cur = this.tSteer || 0;
       const rate = this.touchArrows ? (tgt === 0 ? 5 : Math.sign(tgt) !== Math.sign(cur) && cur !== 0 ? 6 : 2.4) : 9;
       this.tSteer = cur + clamp(tgt - cur, -rate * dt, rate * dt);
@@ -538,6 +548,42 @@ class Input {
   }
 }
 
+// ---- tilt steering: the phone's gravity sensor, as a steering wheel ----------------------------------
+// Gravity is read in the device's own axes, turned into the current screen orientation, and the angle it makes
+// in the screen plane is the wheel angle. iPhones need permission, asked from a tap (Settings or Start).
+const Tilt = {
+  active: false, ang: 0, zero: 0, have: false, need: false,
+  supported() { return typeof DeviceMotionEvent !== 'undefined'; },
+  // iOS 13+: must be called from a tap. Resolves 'granted', 'denied' or 'unsupported'
+  ask() {
+    if (!this.supported()) return Promise.resolve('unsupported');
+    if (typeof DeviceMotionEvent.requestPermission === 'function') return DeviceMotionEvent.requestPermission().then((r) => { if (r === 'granted') this.start(); return r; }).catch(() => 'denied');
+    this.start(); return Promise.resolve('granted');
+  },
+  start() {
+    if (this.listening || !this.supported()) return; this.listening = true;
+    addEventListener('devicemotion', (e) => {
+      const g = e.accelerationIncludingGravity; if (!g || g.x === null) return;
+      const o = ((screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0) * Math.PI / 180;
+      // device axes -> screen axes (landscape swaps x and y)
+      const sx = g.x * Math.cos(o) + g.y * Math.sin(o), sy = -g.x * Math.sin(o) + g.y * Math.cos(o);
+      if (Math.hypot(sx, sy) < 2) return; // lying nearly flat: no reliable wheel angle
+      const a = Math.atan2(sx, -sy);
+      this.ang = this.have ? this.ang + angleDiff(a, this.ang) * 0.35 : a; // a little smoothing against hand shake
+      if (!this.have) { this.have = true; if (this.wantCentre) this.centre(); }
+      this.active = true; this.seen = performance.now();
+    });
+  },
+  centre() { if (this.have) { this.zero = this.ang; this.wantCentre = false; } else this.wantCentre = true; },
+  // steering -1..1: sensitivity sets how far you turn for full lock (about 40 degrees at 1x), with a small dead zone
+  steer(opts) {
+    if (!this.have || performance.now() - (this.seen || 0) > 600) return 0;
+    let d = angleDiff(this.ang, this.zero) * (opts && opts.tiltInvert ? -1 : 1);
+    const dz = 1.5 * Math.PI / 180, full = (40 / Math.max(0.5, (opts && opts.touchSens) || 1)) * Math.PI / 180;
+    d = Math.abs(d) < dz ? 0 : d - Math.sign(d) * dz;
+    return clamp(-d / full, -1, 1);
+  },
+};
 const store = {
   get(k, d) { try { const v = localStorage.getItem('apexgp.' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('apexgp.' + k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },

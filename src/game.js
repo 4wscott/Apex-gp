@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -1665,6 +1665,12 @@ const Menu = {
         if (v === 'true') v = true; else if (v === 'false') v = false; else if (!isNaN(+v) && key !== 'grid') v = +v;
         if (key === 'preset') { this.applyPreset(v); this.sync(); return; }
         if (key === 'difficulty') { this.applyLevel(v); this.sync(); return; }
+        if (key === 'touchSteer' && v === 'tilt') {
+          Tilt.ask().then((r) => {
+            if (r === 'granted') { $('#tilt-msg').innerHTML = 'Tilt is on. Hold the phone sideways like a steering wheel and turn it: the dot should follow. Straight ahead is however you hold it when the race starts; the <b>Centre</b> button resets it.'; Tilt.centre(); }
+            else { settings.touchSteer = 'buttons'; saveSettings(); this.sync(); $('#tilt-test').hidden = false; $('#tilt-msg').textContent = r === 'unsupported' ? 'This device has no motion sensor, so tilt steering is not available.' : 'Motion access was not allowed. On iPhone: close the game, open it again and tap Tilt the phone, then choose Allow.'; }
+          });
+        }
         settings[key] = v; saveSettings(); this.sync();
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
@@ -1699,7 +1705,7 @@ const Menu = {
     $$('.pick .arr').forEach((b) => (b.onclick = () => this.cycle(b.closest('.pick').id === 'pick-circuit' ? 'circuit' : 'team', +b.dataset.d)));
     $('#open-opts').onclick = () => this.drawer('opts');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
-    $('#start').onclick = () => (settings.mode === 'race' && settings.weekend === 'quali' ? Weekend.start() : App.start());
+    $('#start').onclick = () => { if (settings.touchSteer === 'tilt' && (IS_TOUCH || settings.touch === 'on')) Tilt.ask(); (settings.mode === 'race' && settings.weekend === 'quali' ? Weekend.start() : App.start()); };
     $('#su-reset').onclick = () => { Object.assign(settings, { setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid' }); saveSettings(); $('#su-wing').value = 0; $('#su-bias').value = 56; $('#su-wing').dispatchEvent(new Event('input')); $('#su-bias').dispatchEvent(new Event('input')); this.sync(); };
     // drag the empty showroom to spin the car
     const menu = $('#menu');
@@ -1722,6 +1728,8 @@ const Menu = {
     $('#r-replay').onclick = () => Replay.open('results');
     $('#r-high').onclick = () => Replay.open('highlights');
     Replay.init(); Pads.init();
+    // tilt test meter in Settings: the dot follows the phone while the Controls tab is open
+    setInterval(() => { const d = $('#tilt-test-dot'); if (!d || $('#tilt-test').hidden || App.session) return; if (!Tilt.zeroSet && Tilt.have) { Tilt.centre(); Tilt.zeroSet = true; } d.style.transform = `translateX(${-Tilt.steer(settings) * 0.45 * (d.parentElement.clientWidth || 200)}px)`; }, 50);
     setInterval(() => { const S = App.session; if (!S || App.paused || !$('#results').hidden || Replay.on) Pads.nav(); }, 16);
     $('#p-garage').onclick = () => { const r = App.session.race, P = r.player, cmp = P.pitReq || P.compound; if (r.toBox(P, cmp)) { App.togglePause(false); Hud.banner(`In the pit box: ${COMPOUNDS[cmp].name} tyres going on`, 'info'); } };
     // PC race buttons drive the same actions as the keys: held while the mouse is down, a press when released
@@ -1809,6 +1817,7 @@ const Menu = {
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
     settings.preset = this.presetOf(); settings.difficulty = this.levelOf();
+    $('#tilt-test').hidden = settings.touchSteer !== 'tilt' && !$('#tilt-msg').textContent.includes('not');
     if (typeof Net !== 'undefined' && Net.host && Net.peer) { const k = JSON.stringify(Net.cfg()); if (k !== this.lastCfg) { this.lastCfg = k; Net.pushCfg(); Net.onChange && Net.onChange(); } } $('#perf').hidden = !settings.showPerf || !App.session;
     $$('[data-set]').forEach((el) => $$('button[data-v]', el).forEach((b) => b.setAttribute('aria-pressed', String(settings[el.dataset.set]) === b.dataset.v)));
     const spec = TRACKS.find((t) => t.id === settings.track), team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
@@ -1900,5 +1909,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.Replay = Replay; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([loadModels(), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

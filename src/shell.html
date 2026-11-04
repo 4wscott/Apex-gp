@@ -168,6 +168,16 @@ body.touch #radio span { font-size: 13px; }
 #pad-toast { position: fixed; left: 50%; top: max(70px, calc(env(safe-area-inset-top, 0px) + 66px)); transform: translateX(-50%); z-index: 40; background: rgba(10,12,16,0.92); border: 1px solid var(--accent, #ffd21f); border-radius: 20px; padding: 8px 16px; font-weight: 600; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent, #ffd21f); outline-offset: 2px; }
 #p-pad { margin: 4px 0 0; font-size: 13px; }
+/* tilt steering: a small horizon indicator and the Centre button where the steering control would be */
+#t-steer.steer-tilt { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; pointer-events: none; }
+#t-tilt { position: relative; width: 120px; height: 14px; border-radius: 7px; background: rgba(10,12,16,0.55); border: 1px solid rgba(255,255,255,0.2); }
+#t-tilt-bar { position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px; background: rgba(255,255,255,0.45); }
+#t-tilt-dot, .tilt-meter i { position: absolute; left: calc(50% - 7px); top: -1px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent, #ffd21f); transition: transform 0.05s linear; }
+#t-centre { pointer-events: auto; min-height: 40px; padding: 0 16px; border-radius: 20px; background: rgba(10,12,16,0.7); border: 1px solid rgba(255,255,255,0.3); color: #fff; font-weight: 700; }
+.tilt-test { display: grid; gap: 10px; background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+.tilt-meter { position: relative; height: 14px; border-radius: 7px; background: rgba(255,255,255,0.08); }
+.tilt-meter span { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.4); }
+.tilt-meter i { left: calc(50% - 7px); }
 /* the game is not a document: no text selection or iOS long-press callout while playing (it can swallow a finger lifting off a pedal) */
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; }
@@ -587,7 +597,12 @@ body.touch #h-track { display: none; }
         </div>
         <div class="ctl-group" id="ctl-touch"><h3>Touch controls (phone and tablet)</h3>
         <div class="row"><label>On-screen touch controls</label><div class="ctl seg" data-set="touch"><button type="button" data-v="auto">Auto (phones and tablets)</button><button type="button" data-v="on">Always</button><button type="button" data-v="off">Off</button></div></div>
-        <div class="row"><label>Touch steering</label><div class="ctl seg" data-set="touchSteer"><button type="button" data-v="buttons">Arrows</button><button type="button" data-v="wheel">Turn the wheel</button><button type="button" data-v="pad">Drag pad</button></div></div>
+        <div class="row"><label>Touch steering</label><div class="ctl seg" data-set="touchSteer"><button type="button" data-v="buttons">Arrows</button><button type="button" data-v="wheel">Turn the wheel</button><button type="button" data-v="pad">Drag pad</button><button type="button" data-v="tilt">Tilt the phone</button></div></div>
+        <div class="tilt-test" id="tilt-test" hidden>
+          <p class="hint" id="tilt-msg">Hold the phone sideways like a steering wheel and turn it. Straight ahead is however you hold it when the race starts, and the <b>Centre</b> button on screen resets it.</p>
+          <div class="tilt-meter" aria-label="Tilt test"><span></span><i id="tilt-test-dot"></i></div>
+          <div class="row"><label>Tilt direction</label><div class="ctl seg" data-set="tiltInvert"><button type="button" data-v="false">Normal</button><button type="button" data-v="true">Reversed</button></div></div>
+        </div>
         <div class="row"><label for="tsens">Touch steering sensitivity</label><div class="ctl"><input id="tsens" type="range" min="5" max="20" step="1"><output id="tsens-out"></output></div></div>
         <div class="row"><label>Touch steering assist</label><div class="ctl seg" data-set="touchAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Direct</button></div></div>
         <div class="row"><label>Pedals</label><div class="ctl seg" data-set="analogPedals"><button type="button" data-v="true">Analogue (finger height)</button><button type="button" data-v="false">On / off</button></div></div>
