@@ -406,9 +406,7 @@ const App = {
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
       Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
-      this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
-      $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
-      if (this.touchOn) { this.input.buildTouch($('#touch'), settings); this.input.lastDevice = 'touch'; const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {}); }
+      this.setupTouch(true);
       this.paused = false;
       this.resize();
     }, 30);
@@ -452,16 +450,7 @@ const App = {
     m.arms.forEach((a, i) => { a.hand = sw.wrists[i]; a.hand.userData.wrist = true; });
     if (m.avatar && m.avatar.hands) m.avatar.hands.visible = false;
     this.session.wheel = { tilt: m.swTilt, spin: m.swSpin, canvas: sw.canvas, tex: sw.tex, ctx: sw.canvas.getContext('2d'), t: 0, leds: sw.leds, flags: sw.flags, rotaries: sw.rotaries };
-    // rear-view mirrors rendered into a texture
-    if (settings.mirrors && settings.quality >= 1) {
-      const sides = car.mesh.mirrors.map((glass, k) => {
-        const rt = new THREE.WebGLRenderTarget(384, 128, { type: THREE.HalfFloatType });
-        rt.texture.repeat.x = -1; rt.texture.offset.x = 1; rt.texture.wrapS = THREE.RepeatWrapping; // mirror image
-        glass.material = new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdfe6ee, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
-        return { glass, rt, cam: new THREE.PerspectiveCamera(30, 3, 0.2, 1500), side: k === 0 ? 1 : -1 };
-      });
-      this.session.mirror = { sides, n: 0 };
-    }
+    this.setupMirrors(car);
   },
   setupGhost(T, team) {
     const best = store.get('tt.' + T.spec.id, null);
@@ -663,6 +652,41 @@ const App = {
       this.sc = { grp: g, bar };
     }
     this.sc.grp.visible = true; if (!this.sc.grp.parent) this.worldRoot.add(this.sc.grp);
+  },
+  // on-screen touch controls for the current settings (rebuilt straight away when a touch setting changes mid-session)
+  setupTouch(first) {
+    this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
+    $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
+    if (!this.touchOn) { $('#touch').innerHTML = ''; this.input.tiltMode = false; return; }
+    this.input.buildTouch($('#touch'), settings); this.input.lastDevice = 'touch';
+    if (first) { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {}); }
+  },
+  // rear-view mirrors: live pictures on High/Ultra with Mirrors on, plain glass otherwise (switchable mid-session)
+  setupMirrors(car) {
+    const S = this.session; if (!S || !car || !car.mesh) return;
+    if (S.mirror) { S.mirror.sides.forEach((sd) => { sd.rt.dispose(); sd.glass.material = sd.glass.userData.orig || sd.glass.material; }); S.mirror = null; }
+    if (!(settings.mirrors && settings.quality >= 1)) return;
+    const sides = car.mesh.mirrors.map((glass, k) => {
+      const rt = new THREE.WebGLRenderTarget(384, 128, { type: THREE.HalfFloatType });
+      rt.texture.repeat.x = -1; rt.texture.offset.x = 1; rt.texture.wrapS = THREE.RepeatWrapping; // mirror image
+      glass.userData.orig = glass.userData.orig || glass.material;
+      glass.material = new THREE.MeshBasicMaterial({ map: rt.texture, color: 0xdfe6ee, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 });
+      return { glass, rt, cam: new THREE.PerspectiveCamera(30, 3, 0.2, 1500), side: k === 0 ? 1 : -1 };
+    });
+    S.mirror = { sides, n: 0 };
+  },
+  // a setting changed while driving: apply it now instead of at the next session
+  applyLive(key) {
+    const S = this.session; if (!S) return;
+    const P = S.race.player;
+    if (['touch', 'touchSteer', 'touchLayout', 'touchSize', 'analogPedals', 'autoGear', 'aeroAuto'].includes(key)) this.setupTouch(false);
+    else if (key === 'quality') { this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); }
+    else if (key === 'mirrors') this.setupMirrors(P);
+    else if (/^setup/.test(key)) {
+      // parc fermé: in a race the setup is locked once the lights are out; practice, time trial and the grid can change it
+      if (S.race.mode === 'race' && S.race.phase === 'green') { Hud.flash('Car setup is locked during the race: it applies next session'); return; }
+      Object.assign(P.p, P.pBase, { gears: P.pBase.gears.slice() }); applySetup(P); Hud.flash('Car setup changed');
+    } else if (key === 'tod') Hud.flash('Time of day changes at the next session');
   },
   // back on the racing line, standing still, with every sliding/pit state cleared and the camera behind the car
   resetPlayer(race, why) {
@@ -1492,6 +1516,7 @@ function setupEffect() {
   return parts.length ? 'Effect: ' + parts.join('; ') + '.' : 'Standard setup: a good all-round balance.';
 }
 function applySetup(P) {
+  if (!P.pBase) P.pBase = Object.assign({}, P.p, { gears: P.p.gears.slice() });
   const p = P.p, w = settings.setupWing || 0;
   p.ClA *= 1 + 0.025 * w; p.CdA *= 1 + 0.022 * w;
   P.bias = (settings.setupBias || 56) / 100;
@@ -1672,6 +1697,7 @@ const Menu = {
           });
         }
         settings[key] = v; saveSettings(); this.sync();
+        if (App.session) { App.applyLive(key); return; }
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
         if (key === 'tod') App.preview(settings.track);
@@ -1683,7 +1709,7 @@ const Menu = {
     const range = (id, key, fmt, scale = 1) => {
       if (!$(id)) return;
       const el = $(id); el.value = settings[key] * scale;
-      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'sfx') App.audio.setFx(settings.sfx); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); };
+      const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'sfx') App.audio.setFx(settings.sfx); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); if (App.session && /^setup/.test(key)) { clearTimeout(this.liveT); this.liveT = setTimeout(() => App.applyLive(key), 250); } };
       el.addEventListener('input', upd); out.textContent = fmt(settings[key]);
     };
     range('#su-wing', 'setupWing', (v) => (v === 0 ? 'Balanced' : v < 0 ? `Low downforce ${-v}` : `High downforce ${v}`)); range('#su-bias', 'setupBias', (v) => `${v}% front`);
@@ -1874,6 +1900,7 @@ const Menu = {
   applyPreset(name) {
     const p = this.presets()[name]; if (!p) return;
     Object.assign(settings, p); saveSettings();
+    if (App.session) { App.resScale = 1; App.applyLive('quality'); return; }
     App.setupComposer(); App.resScale = 1; App.resize(); App.preview(settings.track); App.loadHQ();
   },
   buildBinds() {

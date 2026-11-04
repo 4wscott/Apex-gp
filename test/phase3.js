@@ -15,7 +15,7 @@ await ev(()=>Menu.drawer('opts'));await page.waitForTimeout(400);
 await ev(()=>{document.querySelector('[data-set="weekend"] [data-v="quali"]').click();document.querySelector('[data-set="setupPress"] [data-v="low"]').click();document.querySelector('[data-set="setupGear"] [data-v="long"]').click();const w=document.querySelector('#su-wing');w.value=-3;w.dispatchEvent(new Event('input'));const b=document.querySelector('#su-bias');b.value=58;b.dispatchEvent(new Event('input'));});
 await page.waitForTimeout(300);
 console.log(name,'menu',JSON.stringify(await ev(()=>({start:document.querySelector('#start').textContent,sum:document.querySelector('#opts-sum').textContent,effect:document.querySelector('#su-effect').textContent,gridRowHidden:document.querySelector('[data-set="grid"]').closest('.row').hidden}))));
-await ev(()=>document.querySelector('#setup').scrollIntoView());await page.waitForTimeout(300);
+await ev(()=>document.querySelector('#p-setup').scrollIntoView());await page.waitForTimeout(300);
 await page.screenshot({path:SP0+'p3-'+name+'-setup.png',timeout:120000});
 await ev(()=>{Menu.drawer(null);document.querySelector('#start').click();});await page.waitForTimeout(7000);
 console.log(' quali session',JSON.stringify(await ev(()=>({mode:App.session.race.mode,quali:App.session.race.quali,gp:App.cfg&&App.cfg.gp,ClA:App.session.race.player.p.ClA.toFixed(3),bias:App.session.race.player.bias,gear8:App.session.race.player.p.gears[7].toFixed(0),wear:App.session.race.player.setupWear}))));

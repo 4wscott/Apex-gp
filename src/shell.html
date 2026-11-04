@@ -521,6 +521,7 @@ body.touch #h-track { display: none; }
         <button class="tab" role="tab" aria-selected="true" data-panel="p-race" type="button">Play</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-assist" type="button">Driving</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-controls" type="button">Controls</button>
+        <button class="tab" role="tab" aria-selected="false" data-panel="p-setup" type="button">Car setup</button>
         <button class="tab" role="tab" aria-selected="false" data-panel="p-gfx" type="button">Graphics &amp; sound</button>
       </div>
 
@@ -557,15 +558,7 @@ body.touch #h-track { display: none; }
           <div class="row"><label for="aipace">AI pace</label><div class="ctl"><input id="aipace" type="range" min="80" max="104" step="1"><output id="aipace-out"></output></div></div>
           <div class="row"><label>Starting position</label><div class="ctl seg" data-set="grid"><button type="button" data-v="pole">Pole</button><button type="button" data-v="mid">Midfield</button><button type="button" data-v="back">Back of grid</button><button type="button" data-v="random">Random</button></div></div>
         </div>
-          <div id="setup" class="setup">
-            <h3>Car setup</h3>
-            <div class="row"><label for="su-wing">Wings</label><div class="ctl"><input id="su-wing" type="range" min="-5" max="5" step="1"><output id="su-wing-out"></output></div></div>
-            <div class="row"><label for="su-bias">Brake balance</label><div class="ctl"><input id="su-bias" type="range" min="52" max="60" step="1"><output id="su-bias-out"></output></div></div>
-            <div class="row"><label>Tyre pressure</label><div class="ctl seg" data-set="setupPress"><button type="button" data-v="low">Low</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="high">High</button></div></div>
-            <div class="row"><label>Gearing</label><div class="ctl seg" data-set="setupGear"><button type="button" data-v="short">Short</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="long">Long</button></div></div>
-            <p class="hint" id="su-effect"></p>
-            <div class="actions"><button type="button" class="btn" id="su-reset">Reset setup</button></div>
-          </div>
+          <p class="hint">Car setup (wings, brakes, tyres, gearing) is in Settings → Car setup, and can be changed in practice and before a race starts.</p>
         </details>
       </section>
 
@@ -612,6 +605,16 @@ body.touch #h-track { display: none; }
         <p class="hint">On a phone, turn it sideways. With the F1 wheel, put your thumb on the wheel and turn it like the real thing. Slide up a pedal for more throttle or brake. Paddle-shift buttons appear when the gearbox is set to manual. Tilt steering isn't available, because the game page can't read the phone's motion sensors.</p>
         </div>
       </section>
+
+      <section class="panel setup" id="p-setup" hidden>
+            <p class="hint">Changes apply straight away in practice, time trial and on the grid; once a race is under way the setup is locked until the next session.</p>
+            <div class="row"><label for="su-wing">Wings</label><div class="ctl"><input id="su-wing" type="range" min="-5" max="5" step="1"><output id="su-wing-out"></output></div></div>
+            <div class="row"><label for="su-bias">Brake balance</label><div class="ctl"><input id="su-bias" type="range" min="52" max="60" step="1"><output id="su-bias-out"></output></div></div>
+            <div class="row"><label>Tyre pressure</label><div class="ctl seg" data-set="setupPress"><button type="button" data-v="low">Low</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="high">High</button></div></div>
+            <div class="row"><label>Gearing</label><div class="ctl seg" data-set="setupGear"><button type="button" data-v="short">Short</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="long">Long</button></div></div>
+            <p class="hint" id="su-effect"></p>
+            <div class="actions"><button type="button" class="btn" id="su-reset">Reset setup</button></div>
+          </section>
 
       <section class="panel" id="p-gfx" hidden>
         <div class="row"><label>Preset</label><div class="ctl seg preset" data-set="preset"><button type="button" data-v="smooth"><b>Smooth</b><small>Steadiest frame rate</small></button><button type="button" data-v="balanced"><b>Balanced</b><small>Recommended</small></button><button type="button" data-v="beautiful"><b>Beautiful</b><small>Most realistic, needs a strong PC</small></button><button type="button" data-v="custom" disabled><b>Custom</b><small>Your own mix</small></button></div></div>
