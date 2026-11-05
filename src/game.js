@@ -76,6 +76,9 @@ const App = {
     this.hdriCache = {};
     this.setupComposer();
     addEventListener('resize', () => this.resize()); this.resize();
+    // moved to a monitor with different scaling: no resize event in every browser, so watch the pixel ratio itself
+    const watchDpr = () => { try { matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { this.resize(); watchDpr(); }, { once: true }); } catch (e) { /* older browsers */ } };
+    watchDpr();
     Menu.init();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
@@ -210,6 +213,43 @@ const App = {
   },
   // keep driving smooth: lower the render resolution when frames run slow (and raise it again with headroom);
   // if that is not enough, step the graphics quality down once and say so
+  // ---- frame pacing ------------------------------------------------------------------------------
+  // The monitor's refresh interval, from the shortest steady gaps between animation frames (a 60, 75, 120 or 144 Hz
+  // screen all work). Each frame's time step is snapped to whole refreshes, because that is when the picture is
+  // really shown: the small jitter in the browser's timestamps then no longer makes motion jolt. Real time is kept
+  // exactly by carrying the difference over.
+  pacing(now) {
+    const F = (this.fp = this.fp || { buf: [], vs: 1000 / 60, cap: 1, k: 0, lastRaf: now, win: [], calmT: 0, probe: 0, back: 10000 });
+    const gap = now - F.lastRaf; F.lastRaf = now;
+    if (gap > 2 && gap < 60) { F.buf.push(gap); if (F.buf.length > 120) F.buf.shift(); }
+    if (F.buf.length >= 30 && (F.k % 30) === 0) { // the cluster of single-refresh gaps, averaged (timestamp jitter cancels out)
+      const s = F.buf.slice().sort((a, b) => a - b), s0 = s[Math.floor(s.length * 0.3)], one = s.filter((g) => Math.abs(g - s0) < s0 * 0.35);
+      F.vs = one.reduce((a, b) => a + b, 0) / one.length;
+    }
+    F.k++;
+    // half rate only for fast screens (above ~85 Hz), only in a session, and never while paused
+    if (F.cap === 2 && (F.k & 1) && this.session && !this.paused) return true;
+    return false;
+  },
+  smoothDt(raw) {
+    const F = this.fp; if (!F || raw <= 0 || raw > 200) return raw;
+    const step = F.vs, n = Math.max(1, Math.round(raw / step)); let d = raw;
+    if (Math.abs(raw - n * step) < step * 0.3) d = n * step;
+    F.drift = (F.drift || 0) + raw - d; const corr = clamp(F.drift, -step * 0.5, step * 0.5) * 0.03; d += corr; F.drift -= corr;
+    // is the game keeping up with the screen? count frames that took a refresh longer than they should
+    if (this.session && !this.paused && !document.hidden) {
+      const want = F.cap * step, late = raw > want * 1.45;
+      F.win.push(late ? 1 : 0); if (F.win.length > 120) F.win.shift();
+      const missRate = F.win.reduce((a, b) => a + b, 0) / F.win.length, fast = step < 11.8;
+      if (F.cap === 1 && fast && F.win.length >= 90 && missRate > 0.2) { F.cap = 2; F.win = []; F.calmT = 0; }
+      else if (F.cap === 2) {
+        F.calmT += raw; // after a calm spell, try every refresh again; if it still can't keep up, wait longer next time
+        if (F.calmT > F.back && missRate < 0.03) { F.cap = 1; F.win = []; F.probe = performance.now(); F.back = Math.min(60000, F.back * 2); }
+      }
+      if (F.cap === 1 && F.probe && performance.now() - F.probe > 6000) { F.probe = 0; F.back = 10000; } // the probe held: back to normal
+    }
+    return d;
+  },
   perf(dt) {
     const S = this.session; if (!S || this.paused || document.hidden) { this.pf = null; return; }
     const now = performance.now(), pf = (this.pf = this.pf || { t0: now + 2000, n: 0, slow: 0 }); // the first 2 s of a session don't count
@@ -228,7 +268,14 @@ const App = {
   },
   resize() {
     const w = innerWidth, h = innerHeight;
-    const dpr = devicePixelRatio || 1, pr = Math.min(dpr, [1, 1, 1.5, 2][settings.quality]) * (settings.autoRes ? this.resScale || 1 : 1);
+    const dpr = devicePixelRatio || 1;
+    let pr = Math.min(dpr, [1, 1, 1.5, 2][settings.quality]);
+    // a pixel budget per quality level, so a big or high-DPI monitor doesn't multiply the work: about 1080p on Medium,
+    // 1440p on High and 4K on Ultra, drawn at that size and scaled to fill the screen (normal screens are unaffected)
+    const budget = [1.3e6, 2.1e6, 3.7e6, 8.3e6][settings.quality] || 3.7e6;
+    if (w * h * pr * pr > budget) pr = Math.sqrt(budget / (w * h));
+    pr *= settings.autoRes ? this.resScale || 1 : 1;
+    this.renderPx = Math.round(w * pr) + '×' + Math.round(h * pr);
     this.renderer.setPixelRatio(pr); this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setPixelRatio(pr); this.composer.setSize(w, h); }
@@ -532,7 +579,9 @@ const App = {
 
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const raw = now - this.last, dt = Math.min(0.1, raw / 1000); this.last = now; // stays real time down to 10 fps instead of turning into slow motion
+    if (this.pacing(now)) return; // a fast monitor the game can't keep up with: draw on every other refresh, evenly
+    const raw = now - this.last; this.last = now;
+    const dt = Math.min(0.1, this.smoothDt(raw) / 1000); // stays real time down to 10 fps instead of turning into slow motion
     this.perf(dt); this.meter(raw);
     this.input.tickCapture();
     const S = this.session;
@@ -603,7 +652,8 @@ const App = {
     let n = 0, sum = 0, worst = 0; for (let k = 1; k <= 30; k++) { const v = M.buf[(M.i - k + 1200) % 120]; if (v > 0) { n++; sum += v; worst = Math.max(worst, v); } }
     M.t = 0; const fps = n ? 1000 / (sum / n) : 0, el = $('#perf-fps');
     el.textContent = Math.round(fps) + ' fps'; el.className = fps >= 55 ? 'ok' : fps >= 35 ? 'meh' : 'bad';
-    $('#perf-ms').textContent = `${(sum / Math.max(1, n)).toFixed(1)} ms · worst ${worst.toFixed(0)}`;
+    const F = this.fp || {};
+    $('#perf-ms').textContent = `${(sum / Math.max(1, n)).toFixed(1)} ms · worst ${worst.toFixed(0)} · ${Math.round(1000 / (F.vs || 16.7))} Hz screen${F.cap === 2 ? ', half rate' : ''} · ${this.renderPx || ''}`;
   },
   menuFrame(dt) {
     if (!this.previewCar || !this.previewTrack) return;
