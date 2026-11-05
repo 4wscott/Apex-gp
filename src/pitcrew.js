@@ -4,13 +4,12 @@
 const CREW_ROLES = (() => {
   const r = [];
   for (const [wx, sz, tag] of [[1.7, 1, 'FR'], [1.7, -1, 'FL'], [-1.7, 1, 'RR'], [-1.7, -1, 'RL']]) {
+    // ten people: a gun and a tyre carrier at each wheel, and the two jacks (no stabilisers, spare tyre men or chief:
+    // a calmer, clearer stop that is also far lighter to draw)
     r.push({ role: 'gun', wheel: tag, wx, sz, x: wx, z: sz * 1.32, face: -sz });
-    r.push({ role: 'off', wheel: tag, wx, sz, x: wx - 0.55, z: sz * 1.95, face: -sz });
     r.push({ role: 'on', wheel: tag, wx, sz, x: wx + 0.55, z: sz * 2.05, face: -sz });
   }
   r.push({ role: 'jackF', x: 3.55, z: 0, face: 'back' }, { role: 'jackR', x: -3.35, z: 0, face: 'fwd' });
-  r.push({ role: 'stab', x: 0.2, z: 1.15, face: -1 }, { role: 'stab', x: 0.2, z: -1.15, face: 1 });
-  r.push({ role: 'chief', x: 4.6, z: 2.4, face: 'back' });
   return r;
 })();
 const PitCrew = {
@@ -56,7 +55,7 @@ const PitCrew = {
     if (!GFX.models || !GFX.models.crew || !GFX.pit) return null;
     c = this.crews.find((k) => !k.car && k.team === car.team) || null;
     if (!c) {
-      if (this.crews.length >= (settings.quality === 0 ? 1 : 3)) { c = this.crews.find((k) => !k.car); if (!c) return null; this.scene.remove(c.root); this.crews.splice(this.crews.indexOf(c), 1); }
+      if (this.crews.length >= (settings.quality === 0 ? 1 : 2)) { c = this.crews.find((k) => !k.car); if (!c) return null; this.scene.remove(c.root); this.crews.splice(this.crews.indexOf(c), 1); }
       c = this.build(car.team); this.crews.push(c);
     }
     c.car = car; c.t = 0; c.walk = 0; return c;

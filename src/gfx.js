@@ -1721,6 +1721,7 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     avatar = makeAvatar(team, body); shoulders.visible = false;
     // a proper F1 wheel and gloves for every driver; the model's own bare hands are hidden
     sw = makeSteeringWheel(team, true); swSimple.forEach((o) => (o.visible = false)); swSpin.add(sw.g);
+    if (!hero) bakeMerge(sw.g); // other cars: the wheel and gloves as one shape (about 40 draws down to 1)
     if (avatar.hands) avatar.hands.visible = false;
     arms.forEach((a, i) => { a.fore.visible = a.upper.visible = false; if (a.elb) a.elb.visible = false; a.hand = sw.wrists[i]; a.hand.userData.wrist = true; });
   }
@@ -1749,6 +1750,29 @@ function makeGlove(sd, team) {
   const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.036, 0.05, 16), accent); cuff.position.set(0.032 * sd, -0.05, 0.03); cuff.rotation.set(0.9, 0, 0.5 * sd); g.add(cuff);
   const wrist = new THREE.Object3D(); wrist.position.set(0.04 * sd, -0.065, 0.055); g.add(wrist); g.userData.wrist = wrist;
   return g;
+}
+// weld every still part under a group into one shape (each part keeps its colour, baked into the vertices): one draw
+// instead of dozens. Used for the other cars' steering wheels, which nobody sees up close. The original parts stay in
+// the hierarchy, hidden, so anything that aims at them (the arms at the wrists) still works.
+function bakeMerge(root) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), parts = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.isSkinnedMesh || !o.visible) return;
+    for (let p = o.parent; p && p !== root; p = p.parent) if (!p.visible) return;
+    const m = o.material; if (!m || Array.isArray(m) || m.transparent || (m.map && m.map.isCanvasTexture)) return; // live screens stay as they are
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    const c = m.map ? new THREE.Color(0x1d1f23) : m.color ? m.color.clone() : new THREE.Color(0xffffff); // textured parts are the carbon
+    if (m.emissive && m.emissiveIntensity) c.add(m.emissive.clone().multiplyScalar(Math.min(1, m.emissiveIntensity * 0.4)));
+    const n = g.attributes.position.count, col = new Float32Array(n * 3); for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); parts.push(g); o.visible = false;
+  });
+  if (!parts.length) return null;
+  const mesh = new THREE.Mesh(mergeGeometries(parts, false), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.25 }));
+  parts.forEach((g) => g.dispose()); root.add(mesh); return mesh;
 }
 function makeSteeringWheel(team, lite = false) {
   const g = new THREE.Group(), face = new THREE.Group(); face.rotation.y = -Math.PI / 2; g.add(face);

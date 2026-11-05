@@ -351,6 +351,7 @@ const App = {
     const q = settings.quality;
     sun.castShadow = true; // phones too: without shadows the cars and scenery look pasted on
     sun.shadow.mapSize.set(...[[1024, 1024], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
+    this.renderer.shadowMap.type = q <= 1 ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // Low and Medium: one shadow lookup instead of a soft filter
     const ext = q === 0 ? 38 : q === 3 ? 48 : 60, sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 600;
     sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
     root.add(sun); root.add(sun.target); this.sun = sun;
@@ -459,7 +460,7 @@ const App = {
       this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0, online: !!(cfg && cfg.online), netT: 0 };
       race.cars.forEach((c) => {
         const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player, c === race.player && cfg ? cfg.livery : null);
-        this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m;
+        this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m; carDetailLOD(m);
       });
       PitCrew.reset(this.worldRoot);
       this.setupCockpit(race.player);
@@ -928,7 +929,7 @@ const App = {
       // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
       const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
       if (m.avatar) m.avatar.root.visible = c === P || far < lod;
-      if (m.modelBody && m.modelBody.userData.lod) m.modelBody.geometry = m.modelBody.userData.lod[c === P || far < 45 ? 0 : 1];
+      if (m.modelBody && m.modelBody.userData.lod) m.modelBody.geometry = m.modelBody.userData.lod[c === P || far < (settings.quality <= 1 ? 18 : 45) ? 0 : 1]; // the detailed body only close up (closer still on Low and Medium)
       if (c === P || far < Math.min(150, lod)) updateArms(m);
       // active aero: flaps open in X-mode
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));
@@ -939,6 +940,14 @@ const App = {
       // brake discs glow under heavy braking
       m.brakeT = clamp(m.brakeT + (c.brake * Math.max(0, c.vx) * 0.0006 - m.brakeT * 0.35) * dt * 10, 0, 1);
       m.discs.forEach((dsc) => (dsc.material.emissiveIntensity = Math.max(0, m.brakeT - 0.3) * 6));
+      // distant cars: the driver, steering wheel, mirrors, discs and nuts go out of view (they can't be seen anyway), and
+      // from further out the car stops casting a shadow. Detail goes on a camera layer that isn't drawn, so nothing
+      // that sets visibility each frame fights it
+      if (m.detail) {
+        const d0 = c === P ? 0 : dx0(c, P), far = m.isFar ? d0 > 32 : d0 > 40, noSh = m.noShadow ? d0 > 60 : d0 > 75;
+        if (far !== !!m.isFar) { m.isFar = far; for (const o of m.detail) o.layers.set(far ? 1 : 0); }
+        if (noSh !== !!m.noShadow) { m.noShadow = noSh; for (const o of m.shadowed) o.castShadow = !noSh; }
+      }
       m.frontWingOk = c.wingHealth;
       this.damageVisuals(c, m, dt, c === P || dx0(c, P) < 160);
       // a badly damaged front wing loses its flaps and one endplate until it is replaced in the pits
@@ -1073,6 +1082,13 @@ const applyAudioSession = () => {
 // music level while racing, relative to the menu
 const raceMusic = () => ({ off: 0, quiet: 0.35, full: 1 }[settings.musicRace] ?? 0.35);
 const dx0 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// split a car into what is always drawn (body, tyres, rims, ground shadow) and the small detail a distant car can do without
+function carDetailLOD(m) {
+  if (!m.modelBody) return; // the code-built body is made of many parts that all matter
+  const G = GFX.geo, keep = new Set([G.tyreF, G.tyreR, G.rimF, G.rimR, G.blob]);
+  m.detail = []; m.shadowed = [];
+  m.grp.traverse((o) => { if (!(o.isMesh || o.isPoints)) return; if (o.castShadow) m.shadowed.push(o); if (o === m.modelBody || keep.has(o.geometry)) return; m.detail.push(o); });
+}
 const _v = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _t = new THREE.Vector3(), _pole = new THREE.Vector3();
 // turn a bone (in world space) so that the point `from` on its chain moves toward `to`
@@ -2112,5 +2128,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

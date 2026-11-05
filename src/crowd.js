@@ -6,7 +6,10 @@ const Crowd = {
   U: { uTime: { value: 0 }, uExcite: { value: 0.2 }, uCar: { value: new THREE.Vector3(1e6, 0, 0) }, uWave: { value: 0 }, uWaveDir: { value: 1 } },
   spots: [],
   fanGeo() {
-    if (this.geo) return this.geo;
+    const lite = settings.quality <= 1;
+    if (this.geo && this.geoLite === lite) return this.geo;
+    this.geoLite = lite;
+    if (lite) return (this.geo = this.fanGeoLite());
     const parts = [], tag = (g, part) => { const n = g.attributes.position.count; g.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(n).fill(part), 1)); return g.toNonIndexed ? g : g; };
     const box = (w, h, d, x, y, z, part) => tag(new THREE.BoxGeometry(w, h, d).translate(x, y, z), part);
     parts.push(box(0.36, 0.12, 0.44, 0, 0.06, 0.2, 4));                // thighs on the seat
@@ -20,6 +23,12 @@ const Crowd = {
     const geos = parts.map((g) => (g.index ? g.toNonIndexed() : g));
     this.geo = mergeGeometries(geos, false);
     return this.geo;
+  },
+  // Low and Medium: the same fan as five boxes (about 60 triangles instead of 140), the same animation parts
+  fanGeoLite() {
+    const tag = (g, part) => { g.setAttribute('aPart', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(part), 1)); return g; };
+    const box = (w, h, d, x, y, z, part) => tag(new THREE.BoxGeometry(w, h, d).translate(x, y, z).toNonIndexed(), part);
+    return mergeGeometries([box(0.36, 0.5, 0.5, 0, -0.06, 0.28, 4), box(0.42, 0.52, 0.26, 0, 0.36, 0, 0), box(0.1, 0.48, 0.1, -0.27, 0.33, 0.02, 2), box(0.1, 0.48, 0.1, 0.27, 0.33, 0.02, 3), box(0.22, 0.24, 0.22, 0, 0.76, 0.01, 1)], false);
   },
   flagGeo() {
     if (this.fgeo) return this.fgeo;
@@ -84,7 +93,7 @@ const Crowd = {
   // fill a stepped stand. Stand-local frame (as built): rows step up toward -x, row r seat at x = -(r + 0.55)·depth,
   // height (r + 1)·rise, along z in [-len/2, len/2]; fans face +x (the track).
   populate(stand, len, rows, depth, rise, rng, quality) {
-    const spacing = quality >= 3 ? 0.58 : quality === 2 ? 0.62 : 0.72, perRow = Math.floor(len / spacing), empty = 0.08;
+    const spacing = quality >= 3 ? 0.58 : quality === 2 ? 0.62 : quality === 1 ? 0.8 : 0.9, perRow = Math.floor(len / spacing), empty = 0.08;
     const seats = [];
     for (let r = 0; r < rows; r++) for (let k = 0; k < perRow; k++) if (rng() > empty) seats.push([r, -len / 2 + (k + 0.5) * spacing + (rng() - 0.5) * 0.08]);
     const N = seats.length, fans = new THREE.InstancedMesh(this.fanGeo(), this.material(), N);
