@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -413,7 +413,7 @@ const App = {
       Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null;
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
-      Hud.show(race); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
+      Hud.show(race); MouseWheel.show(!this.touchOn); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.setupTouch(true);
       this.paused = false;
       this.resize();
@@ -489,6 +489,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    MouseWheel.show(false);
     store.set('running', null);
     if (this.session && this.session.mirror) { this.session.mirror.sides.forEach((sd) => sd.rt.dispose()); this.session.mirror = null; } // free the mirror pictures
     document.body.classList.remove('starting');
@@ -732,7 +733,7 @@ const App = {
   // on-screen touch controls for the current settings (rebuilt straight away when a touch setting changes mid-session)
   setupTouch(first) {
     this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
-    $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
+    $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); if (this.session) MouseWheel.show(!this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
     if (!this.touchOn) { $('#touch').innerHTML = ''; this.input.tiltMode = false; return; }
     this.input.buildTouch($('#touch'), settings); this.input.lastDevice = 'touch';
     if (first) { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {}); }
@@ -758,6 +759,7 @@ const App = {
     if (['touch', 'touchSteer', 'touchLayout', 'touchSize', 'analogPedals', 'autoGear', 'aeroAuto'].includes(key)) this.setupTouch(false);
     else if (key === 'quality') { this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); }
     else if (key === 'mirrors') this.setupMirrors(P);
+    else if (key === 'mouseSteer') MouseWheel.show(!this.touchOn);
     else if (key === 'damage') { if (!S.online) S.race.cars.forEach((c) => (c.damageMode = settings.damage)); Hud.flash({ off: 'Damage off', visual: 'Damage: visual only', real: 'Damage: realistic' }[settings.damage]); }
     else if (/^setup/.test(key)) {
       // parc fermé: in a race the setup is locked once the lights are out; practice, time trial and the grid can change it
@@ -980,6 +982,7 @@ const App = {
       // no on-screen wheel graphic: the real wheel shows in the cockpit; the same area still steers
       const ts = $('#t-steer'); if (ts && !ts.classList.contains('ghost')) ts.classList.add('ghost');
     }
+    MouseWheel.draw(P);
     if (this.touchOn && this.input.drawTouchWheel) this.input.drawTouchWheel(this.input.state.steer || 0, P.reverse ? 'R' : P.gear, clamp((P.rpm - 9500) / (P.p.redline - 9500), 0, 1));
     if (this.touchOn && this.input.buzz) { if (P.impact > 3) this.input.buzz(60); else if (P.kerbHit && Math.random() < 0.08) this.input.buzz(6); }
     if (P.impact > 3) { this.audio.thud(P.impact); Hud.rumble(1, 0.8, 150); }
@@ -1303,7 +1306,7 @@ const Hud = {
     // dashboard visibility per camera
     const showDash = settings.hud === 'full' || (settings.hud === 'auto' && S.camMode !== 'cockpit');
     $('#dash').classList.toggle('compact', !showDash);
-    $('#h-device').textContent = { keyboard: 'Keyboard', gamepad: 'Gamepad', wheel: 'Wheel' }[App.input.lastDevice];
+    $('#h-device').textContent = MouseWheel.used && settings.mouseSteer !== 'off' ? 'Mouse wheel' : { keyboard: 'Keyboard', gamepad: 'Gamepad', wheel: 'Wheel' }[App.input.lastDevice];
     // banners expire
     const bn = $('#banner'); if (bn.dataset.until && performance.now() > +bn.dataset.until) { bn.hidden = true; bn.dataset.until = ''; }
     const fl = $('#flash'); if (fl.dataset.until && performance.now() > +fl.dataset.until) { fl.hidden = true; fl.dataset.until = ''; }
@@ -2035,5 +2038,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

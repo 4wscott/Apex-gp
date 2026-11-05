@@ -332,6 +332,7 @@ const PAD_DEFAULT = {
   lookBack: { type: 'button', index: 10 }, reset: { type: 'button', index: 8 }, pause: { type: 'button', index: 9 }, pit: { type: 'button', index: 11 },
 };
 
+const padOn0 = (inp) => inp.lastDevice === 'gamepad' || inp.lastDevice === 'wheel';
 class Input {
   constructor() {
     this.keys = new Set(); this.hits = new Set(); this.prev = {}; this.state = {};
@@ -492,14 +493,20 @@ class Input {
       this.tSteer = cur + clamp(tgt - cur, -rate * dt, rate * dt);
     }
     let steer = useTouch ? this.tSteer : useKb ? this.kbSteer : padSteer;
+    // the on-screen wheel on a PC: steering keys or a controller's stick take over again the moment they are used
+    const mw = !useTouch && typeof MouseWheel !== 'undefined' ? MouseWheel.read(dt) : null;
+    if (mw && (kl || kr || (padOn0(this) && Math.abs(padSteer) > 0.2))) MouseWheel.used = false;
+    const mouseSteer = !!(mw && MouseWheel.used);
+    if (mouseSteer) steer = mw.steer;
     // speed-sensitive steering for keyboard and gamepad (off for wheels by default)
     const assistOn = this.lastDevice === 'wheel' ? opts.wheelAssist : useTouch ? opts.touchAssist !== false : opts.steerAssist;
     if (assistOn) steer *= 1 / (1 + (Math.max(0, speed) / 40) ** 2) ** 0.5 * (useKb ? 1 : 1);
-    s.steer = steer; s.steerFast = !useKb;
+    s.steer = steer; s.steerFast = !useKb || mouseSteer;
     const padOn = this.lastDevice === 'gamepad' || this.lastDevice === 'wheel'; // resting controllers contribute nothing
     s.throttle = Math.max(useKb ? this.kbThr : 0, padOn ? padThr : 0);
     s.brake = Math.max(useKb ? this.kbBrk : 0, padOn ? padBrk : 0);
     if (!useKb) { s.throttle = Math.max(s.throttle, this.kbThr); s.brake = Math.max(s.brake, this.kbBrk); }
+    if (mw) { s.throttle = Math.max(s.throttle, mw.thr); s.brake = Math.max(s.brake, mw.brk); }
     if (useTouch) { this.tThr = (this.tThr || 0) + clamp(this.touch.thr - (this.tThr || 0), -10 * dt, 5 * dt); this.tBrk = (this.tBrk || 0) + clamp(this.touch.brk - (this.tBrk || 0), -10 * dt, 8 * dt); s.throttle = Math.max(s.throttle, this.tThr); s.brake = Math.max(s.brake, this.tBrk); s.steerFast = false; }
     for (const [a, , kind] of ACTIONS) {
       if (kind !== 'button') continue;

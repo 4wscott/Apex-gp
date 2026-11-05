@@ -137,6 +137,14 @@ body.touch #perf { bottom: auto; top: max(54px, calc(env(safe-area-inset-top, 0p
 #rp-bar button.big { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 58px; font-size: 16px; }
 #rp-car { border-left-width: 4px !important; min-width: 150px !important; cursor: default !important; opacity: 1 !important; }
 .rp-sep { width: 1px; height: 26px; background: var(--line); margin: 0 4px; }
+#mwheel { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(10px, env(safe-area-inset-bottom, 0px)); width: 270px; pointer-events: auto; display: grid; justify-items: center; gap: 2px; user-select: none; -webkit-user-select: none; touch-action: none; }
+#mwheel[data-mode="grab"] { cursor: grab; } #mwheel[data-mode="grab"]:active { cursor: grabbing; }
+#mwheel[data-mode="follow"] { pointer-events: none; }
+#mw-svg { width: 270px; height: auto; filter: drop-shadow(0 6px 14px rgba(0,0,0,0.55)); transform-origin: 50% 50%; will-change: transform; }
+#mw-hint { font-family: var(--f-body); font-size: 11px; color: rgba(255,255,255,0.7); background: rgba(8,10,13,0.55); padding: 2px 8px; border-radius: 10px; text-align: center; max-width: 270px; }
+body.mwheel #dash { right: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 184px); } /* beside the minimap, clear of the wheel and the car */
+#mw-hint { order: -1; margin-bottom: 18px; transition: opacity 1s; } #mwheel.quiet #mw-hint { opacity: 0; }
+body.replaying #mwheel { display: none !important; }
 body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replaying #perf { display: none !important; }
 @media (max-width: 900px), (max-height: 500px) {
   #rp-bar { padding: 6px 8px; gap: 5px; bottom: max(6px, env(safe-area-inset-bottom, 0px)); }
@@ -695,6 +703,9 @@ body.touch #h-track { display: none; }
         <div class="row"><label for="dz">Steering deadzone</label><div class="ctl"><input id="dz" type="range" min="0" max="20" step="1"><output id="dz-out"></output></div></div>
         <div class="row"><label for="lin">Steering linearity</label><div class="ctl"><input id="lin" type="range" min="10" max="25" step="1"><output id="lin-out"></output></div></div>
         <div class="row"><label>Wheel speed sensitivity</label><div class="ctl seg" data-set="wheelAssist"><button type="button" data-v="false">Off (1:1 like a real wheel)</button><button type="button" data-v="true">On</button></div></div>
+        <div class="row"><label>Mouse steering (PC)</label><div class="ctl seg" data-set="mouseSteer"><button type="button" data-v="off">Off</button><button type="button" data-v="grab">Grab the wheel</button><button type="button" data-v="follow">Follow the mouse</button></div></div>
+        <div class="row"><label>Mouse sensitivity</label><div class="ctl seg" data-set="mouseSens"><button type="button" data-v="0.7">Low</button><button type="button" data-v="1">Normal</button><button type="button" data-v="1.4">High</button></div></div>
+        <p class="hint">Mouse steering puts an F1 wheel in the bottom right of the screen. <b>Grab the wheel:</b> press on it and turn it, and it springs back to centre when you let go. Use W/S or ↑/↓ (or a controller) for the pedals. <b>Follow the mouse:</b> move the mouse left and right to steer, hold the left button to accelerate and the right button to brake.</p>
         <p class="hint">Browsers cannot drive wheel force feedback, so wheels run without it. Gamepads get rumble on kerbs, lock-ups and impacts.</p>
         </div>
         <div class="ctl-group" id="ctl-touch"><h3>Touch controls (phone and tablet)</h3>
