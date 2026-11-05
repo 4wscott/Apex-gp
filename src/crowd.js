@@ -93,7 +93,7 @@ const Crowd = {
   // fill a stepped stand. Stand-local frame (as built): rows step up toward -x, row r seat at x = -(r + 0.55)·depth,
   // height (r + 1)·rise, along z in [-len/2, len/2]; fans face +x (the track).
   populate(stand, len, rows, depth, rise, rng, quality) {
-    const spacing = quality >= 3 ? 0.58 : quality === 2 ? 0.62 : quality === 1 ? 0.8 : 0.9, perRow = Math.floor(len / spacing), empty = 0.08;
+    const spacing = quality >= 3 ? 0.58 : quality === 2 ? 0.62 : quality === 1 ? 0.8 : 1.3 /* Lite: about a third fewer fans */, perRow = Math.floor(len / spacing), empty = 0.08;
     const seats = [];
     for (let r = 0; r < rows; r++) for (let k = 0; k < perRow; k++) if (rng() > empty) seats.push([r, -len / 2 + (k + 0.5) * spacing + (rng() - 0.5) * 0.08]);
     const N = seats.length, fans = new THREE.InstancedMesh(this.fanGeo(), this.material(), N);
@@ -113,7 +113,7 @@ const Crowd = {
       const sk = skins[(rng() * skins.length) | 0]; aSkin.set([sk.r, sk.g, sk.b, rng() < 0.3 ? 1 : 0], i * 4);
       const tc = teamCols[rng() < 0.75 ? blockTeam(z) : (rng() * TEAMS.length) | 0], shirt = rng() < 0.72 ? tc[rng() < 0.7 ? 0 : 1] : extra[(rng() * extra.length) | 0];
       aShirt.set([shirt.r, shirt.g, shirt.b], i * 3);
-      if (flag) flagSeats.push([p.clone(), sc, i, tc]);
+      if (flag && quality > 0) flagSeats.push([p.clone(), sc, i, tc]); // no waving flags on Lite
     });
     const G = fans.geometry = fans.geometry.clone();
     G.setAttribute('aFan', new THREE.InstancedBufferAttribute(aFan, 4)); G.setAttribute('aSkin', new THREE.InstancedBufferAttribute(aSkin, 4)); G.setAttribute('aShirt', new THREE.InstancedBufferAttribute(aShirt, 3));

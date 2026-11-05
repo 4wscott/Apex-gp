@@ -815,7 +815,7 @@ function buildWorld(T, themeKey, quality) {
       if (fn(x, y, i)) placed++;
     }
   };
-  const nTrees = Math.round(th.trees * [0.3, 0.6, 1, 1.5][quality]);
+  const nTrees = Math.round(th.trees * [0.15, 0.6, 1, 1.5][quality]); // Lite: half the trees it had
   if (nTrees > 0) {
     const kinds = th.treeKind === 'mixed' ? ['broad', 'pine'] : [th.treeKind];
     const barkMat = new THREE.MeshStandardMaterial({ map: tx.bark, roughness: 1 });
