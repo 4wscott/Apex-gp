@@ -1720,17 +1720,20 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   const matte = !!team.matte;
   // unlocked career finishes: chrome and gold are metallic mirrors of the main colour, carbon a dark satin weave
   const FIN = { chrome: { roughness: 0.12, metalness: 0.92, clearcoat: 1 }, gold: { roughness: 0.2, metalness: 0.88, clearcoat: 1 }, carbon: { roughness: 0.42, metalness: 0.2, clearcoat: 0.6 } }[team.finish] || null;
-  const paint = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryTexture(team, num, hero), normalMap: panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
+  // with the detailed car model loaded, the built-in body's wings, end plates, shoulders and arms are made hidden below:
+  // they get one shared plain material instead of painted pictures nobody sees (less memory, a quicker race start)
+  const modelCar = !!(GFX.models && GFX.models.car), hidden = (GFX.hiddenMat = GFX.hiddenMat || new THREE.MeshBasicMaterial({ color: 0x222222 }));
+  const paint = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryTexture(team, num, hero), normalMap: modelCar ? null : panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
   const accent = new THREE.MeshPhysicalMaterial({ color: team.c2, roughness: matte ? 0.5 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.8 });
   let fwEndR = null;
   const mk = (geo, mat, cs = true, parent = body) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cs; m.receiveShadow = true; parent.add(m); return m; };
   for (const sd of [1, -1]) {
-    const fwe = mk(G2.fwEnd[sd], endplateMaterial(team, 2.35, 3.03, 0.05, 0.35, sd < 0, false)); if (sd > 0) fwEndR = fwe;
-    mk(G2.rwEnd[sd], endplateMaterial(team, -2.55, -1.98, 0.55, 1.1, sd < 0, true));
+    const fwe = mk(G2.fwEnd[sd], modelCar ? hidden : endplateMaterial(team, 2.35, 3.03, 0.05, 0.35, sd < 0, false)); if (sd > 0) fwEndR = fwe;
+    mk(G2.rwEnd[sd], modelCar ? hidden : endplateMaterial(team, -2.55, -1.98, 0.55, 1.1, sd < 0, true));
   }
   mk(G2.body, paint); mk(G2.pods, paint); mk(G2.fin, paint); mk(G2.carbon, mats.carbon); mk(G2.dark, mats.dark, false); mk(G2.accent, new THREE.MeshPhysicalMaterial({ color: team.c1, roughness: 0.3, clearcoat: 0.8 }));
   const mirrors = [1, -1].map((sd) => { const m = mk(G2.mirrorGlass, mats.mirrorGlass || mats.visor, false); m.position.set(0.818, 0.765, 0.56 * sd); return m; });
-  const wPlain = wingMaterial(team, 'plain'), wFront = wingMaterial(team, 'front'), wRear = wingMaterial(team, 'rear');
+  const wPlain = modelCar ? hidden : wingMaterial(team, 'plain'), wFront = modelCar ? hidden : wingMaterial(team, 'front'), wRear = modelCar ? hidden : wingMaterial(team, 'rear');
   mk(G2.rwMain, wPlain); mk(G2.fwMain, wFront); mk(G2.fwFlap3, wPlain);
   mk(G2.exhaust, mats.exhaust, false);
   mk(G2.tcam, new THREE.MeshStandardMaterial({ color: team.drivers[0].num === num ? 0x111111 : 0xffd21f, roughness: 0.5 }));
@@ -1756,14 +1759,14 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     head.add(new THREE.Mesh(G2.spoiler, mats.carbon)); head.add(new THREE.Mesh(G2.visor, mats.visor));
   }
   const hans = new THREE.Mesh(G2.hans, mats.carbon); hans.position.set(-0.08, 0.86, 0); body.add(hans);
-  const shoulders = new THREE.Mesh(G2.shoulders, new THREE.MeshStandardMaterial({ map: suitTexture(team), roughness: 0.9 })); shoulders.position.set(-0.08, 0.86, 0); shoulders.castShadow = true; body.add(shoulders);
+  const shoulders = new THREE.Mesh(G2.shoulders, modelCar ? hidden : new THREE.MeshStandardMaterial({ map: suitTexture(team), roughness: 0.9 })); shoulders.position.set(-0.08, 0.86, 0); shoulders.castShadow = true; body.add(shoulders);
   const rainLight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.06, 0.12), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff0000, emissiveIntensity: 0 }));
   rainLight.position.set(-2.53, 0.33, 0); body.add(rainLight);
   // steering wheel, gloves and forearms (visible from every camera)
   const swTilt = new THREE.Group(); swTilt.position.set(0.4, 0.73, 0); swTilt.rotation.z = 0.28; body.add(swTilt);
   const swSpin = new THREE.Group(); swTilt.add(swSpin);
   const swSimple = [mk(G2.swSimple, mats.carbon, false, swSpin)];
-  const suit = new THREE.MeshStandardMaterial({ map: suitTexture(team), roughness: 0.92 }), glove = new THREE.MeshStandardMaterial({ color: 0x1e2025, roughness: 0.8 });
+  const suit = modelCar ? hidden : new THREE.MeshStandardMaterial({ map: suitTexture(team), roughness: 0.92 }), glove = new THREE.MeshStandardMaterial({ color: 0x1e2025, roughness: 0.8 });
   const arms = [];
   for (const sd of [1, -1]) {
     const hand = new THREE.Mesh(G2.fist[sd], glove); hand.position.set(-0.02, 0, 0.152 * sd); hand.rotation.x = 0.2 * sd; hand.castShadow = true; swSpin.add(hand); swSimple.push(hand);
