@@ -35,6 +35,14 @@ const App = {
     try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false }); }
     catch (e) { $('#menu-error').hidden = false; $('#menu-error').textContent = 'WebGL is not available in this browser, so the 3D view cannot start.'; return; }
     this.renderer = renderer;
+    // which graphics chip the browser draws with: a software renderer (hardware acceleration off, or the driver
+    // blocked) runs the 3D on the processor and is around ten times slower
+    try {
+      const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+      this.gpu = String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
+    } catch (e) { this.gpu = ''; }
+    this.softGPU = /swiftshader|llvmpipe|softpipe|basic render|software|microsoft basic/i.test(this.gpu);
+    this.gpuName = this.gpu.replace(/^ANGLE \((.*)\)$/, '$1').replace(/Direct3D.*$|\(0x[0-9a-f]+\)|vs_\d_\d.*$/gi, '').replace(/,\s*$/, '').split(',').slice(-1)[0].trim().slice(0, 48);
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.86;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     GFX.maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -257,9 +265,9 @@ const App = {
     pf.n++; if (now - pf.t0 < 1500) return;
     const fps = (pf.n * 1000) / (now - pf.t0); pf.t0 = now; pf.n = 0;
     if (!settings.autoRes) {
-      // full resolution: just point out the option once if it really struggles
+      // full resolution: just point out the option once if it really struggles (or the real cause: no graphics card in use)
       pf.slow = fps < 30 ? pf.slow + 1 : 0;
-      if (pf.slow >= 4 && !this.slowHint) { this.slowHint = true; Hud.flash('Running slow: Settings → Resolution → Auto keeps it smooth'); }
+      if (pf.slow >= 4 && !this.slowHint) { this.slowHint = true; Hud.flash(this.softGPU ? 'Your browser is not using the graphics card: see Settings → Graphics & sound' : 'Running slow: try the Smooth preset in Settings → Graphics & sound'); }
       return;
     }
     const sc = this.resScale || 1;
@@ -653,7 +661,7 @@ const App = {
     M.t = 0; const fps = n ? 1000 / (sum / n) : 0, el = $('#perf-fps');
     el.textContent = Math.round(fps) + ' fps'; el.className = fps >= 55 ? 'ok' : fps >= 35 ? 'meh' : 'bad';
     const F = this.fp || {};
-    $('#perf-ms').textContent = `${(sum / Math.max(1, n)).toFixed(1)} ms · worst ${worst.toFixed(0)} · ${Math.round(1000 / (F.vs || 16.7))} Hz screen${F.cap === 2 ? ', half rate' : ''} · ${this.renderPx || ''}`;
+    $('#perf-ms').textContent = `${(sum / Math.max(1, n)).toFixed(1)} ms · worst ${worst.toFixed(0)} · ${Math.round(1000 / (F.vs || 16.7))} Hz screen${F.cap === 2 ? ', half rate' : ''} · ${this.renderPx || ''} · ${this.softGPU ? 'NO GRAPHICS CARD (software)' : this.gpuName || 'GPU unknown'}`;
   },
   menuFrame(dt) {
     if (!this.previewCar || !this.previewTrack) return;
@@ -1991,6 +1999,10 @@ const Menu = {
     $('#roster-msg').textContent = msg;
   },
   sync() {
+    { const el = $('#gpu-note'); if (el && !el.dataset.done && App.renderer) { el.dataset.done = 1;
+      el.innerHTML = App.softGPU
+        ? '<b>⚠ Your browser is not using your graphics card</b> (it is drawing the 3D on the processor: <i>' + App.gpuName + '</i>), which makes the game around ten times slower. To fix it in <b>Chrome or Edge</b>: open Settings → System → turn on <b>Use graphics acceleration when available</b> → Relaunch. If it is already on, update your graphics driver. On a laptop with two graphics chips: Windows Settings → System → Display → Graphics → choose your browser → <b>High performance</b>.'
+        : 'Graphics card in use: <b>' + (App.gpuName || 'unknown') + '</b>'; el.classList.toggle('warn-box', !!App.softGPU); } }
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
