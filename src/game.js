@@ -41,7 +41,8 @@ const App = {
       const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
       this.gpu = String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
     } catch (e) { this.gpu = ''; }
-    this.softGPU = /swiftshader|llvmpipe|softpipe|basic render|software|microsoft basic/i.test(this.gpu);
+    this.softGPU = /swiftshader|llvmpipe|softpipe|basic render|software|microsoft basic|remote display|remote desktop|\brdp\b|indirect display/i.test(this.gpu);
+    this.remoteGPU = /remote display|remote desktop|\brdp\b|indirect display/i.test(this.gpu);
     this.gpuName = this.gpu.replace(/^ANGLE \((.*)\)$/, '$1').replace(/Direct3D.*$|\(0x[0-9a-f]+\)|vs_\d_\d.*$/gi, '').replace(/,\s*$/, '').split(',').slice(-1)[0].trim().slice(0, 48);
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.86;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -2000,7 +2001,9 @@ const Menu = {
   },
   sync() {
     { const el = $('#gpu-note'); if (el && !el.dataset.done && App.renderer) { el.dataset.done = 1;
-      el.innerHTML = App.softGPU
+      el.innerHTML = App.remoteGPU
+        ? '<b>⚠ You are playing through Remote Desktop</b>, which gives the game no graphics card (it draws on the processor and sends every frame over the connection), so it runs very slowly. Play directly on that computer, or stream it with a game-streaming app such as <b>Parsec</b> or <b>Moonlight</b> (both free), which use the real graphics card.'
+        : App.softGPU
         ? '<b>⚠ Your browser is not using your graphics card</b> (it is drawing the 3D on the processor: <i>' + App.gpuName + '</i>), which makes the game around ten times slower. To fix it in <b>Chrome or Edge</b>: open Settings → System → turn on <b>Use graphics acceleration when available</b> → Relaunch. If it is already on, update your graphics driver. On a laptop with two graphics chips: Windows Settings → System → Display → Graphics → choose your browser → <b>High performance</b>.'
         : 'Graphics card in use: <b>' + (App.gpuName || 'unknown') + '</b>'; el.classList.toggle('warn-box', !!App.softGPU); } }
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
