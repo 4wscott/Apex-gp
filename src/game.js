@@ -42,6 +42,7 @@ const App = {
       this.gpu = String((ext && gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
     } catch (e) { this.gpu = ''; }
     this.softGPU = /swiftshader|llvmpipe|softpipe|basic render|software|microsoft basic|remote display|remote desktop|\brdp\b|indirect display/i.test(this.gpu);
+    this.weakGPU = !this.softGPU && /intel/i.test(this.gpu) && !/\barc\b/i.test(this.gpu); // graphics built into the processor
     this.remoteGPU = /remote display|remote desktop|\brdp\b|indirect display/i.test(this.gpu);
     this.gpuName = this.gpu.replace(/^ANGLE \((.*)\)$/, '$1').replace(/Direct3D.*$|\(0x[0-9a-f]+\)|vs_\d_\d.*$/gi, '').replace(/,\s*$/, '').split(',').slice(-1)[0].trim().slice(0, 48);
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.86;
@@ -272,7 +273,8 @@ const App = {
       return;
     }
     const sc = this.resScale || 1;
-    if (fps < 50 && sc > 0.75) { this.resScale = Math.max(0.75, sc - 0.05); this.resize(); }
+    const floor = this.weakGPU ? 0.6 : 0.75; // a built-in graphics chip may go a little softer to stay smooth
+    if (fps < 50 && sc > floor) { this.resScale = Math.max(floor, sc - 0.05); this.resize(); }
     else if (fps > 58 && sc < 1) { this.resScale = Math.min(1, sc + 0.05); this.resize(); }
   },
   resize() {
@@ -2005,7 +2007,11 @@ const Menu = {
         ? '<b>⚠ You are playing through Remote Desktop</b>, which gives the game no graphics card (it draws on the processor and sends every frame over the connection), so it runs very slowly. Play directly on that computer, or stream it with a game-streaming app such as <b>Parsec</b> or <b>Moonlight</b> (both free), which use the real graphics card.'
         : App.softGPU
         ? '<b>⚠ Your browser is not using your graphics card</b> (it is drawing the 3D on the processor: <i>' + App.gpuName + '</i>), which makes the game around ten times slower. To fix it in <b>Chrome or Edge</b>: open Settings → System → turn on <b>Use graphics acceleration when available</b> → Relaunch. If it is already on, update your graphics driver. On a laptop with two graphics chips: Windows Settings → System → Display → Graphics → choose your browser → <b>High performance</b>.'
-        : 'Graphics card in use: <b>' + (App.gpuName || 'unknown') + '</b>'; el.classList.toggle('warn-box', !!App.softGPU); } }
+        : App.weakGPU
+          ? 'Graphics in use: <b>' + App.gpuName + '</b>, a light chip built into the processor. For a smooth race pick <b>Smooth</b> (Medium quality, and the resolution adjusts itself to hold the frame rate). <button type="button" class="btn" id="gpu-smooth">Use Smooth</button>'
+          : 'Graphics card in use: <b>' + (App.gpuName || 'unknown') + '</b>';
+      el.classList.toggle('warn-box', !!App.softGPU);
+      const b = $('#gpu-smooth'); if (b) b.onclick = () => { this.applyPreset('smooth'); this.sync(); Hud.flash('Smooth preset on'); }; } }
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
