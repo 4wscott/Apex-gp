@@ -344,7 +344,10 @@ const COMPOUNDS = {
 
 // ---- car damage, part by part. Health 1 = perfect, 0 = gone. sus and tyre run FL, FR, RL, RR (left = +y in the car)
 function freshDamage() { return { fwL: 1, fwR: 1, rw: 1, floor: 1, sus: [1, 1, 1, 1], tyre: [1, 1, 1, 1], punct: [0, 0, 0, 0], pu: 1, overRev: 0, noses: 0 }; }
-const DNF_SUS = 0.15; // a corner this badly bent can't be driven
+const DNF_SUS = 0.15;
+// the car's outline for wall contact (m, x forward, y left): nose tip, front wing tips, the four tyres' outer edges,
+// rear wing corners. It matches the drawn car (which is scaled 1.08)
+const CAR_OUTLINE = [[3.15, 0], [2.85, 0.95], [2.85, -0.95], [1.84, 1.0], [1.84, -1.0], [-1.84, 1.05], [-1.84, -1.05], [-2.65, 0.5], [-2.65, -0.5]]; // a corner this badly bent can't be driven
 
 class Car {
   constructor(track, team, driver, opts = {}) {
@@ -372,10 +375,18 @@ class Car {
   }
   puncture(i) { const D = this.dmg; if (this.damageMode === 'off' || D.punct[i]) return; D.punct[i] = 1; this.dmgNews = { part: 'tyre', i }; }
   // an impact: lx/ly is the direction of the hit in the car's own frame (forward / left), vn the closing speed in m/s
-  damageHit(lx, ly, vn, kind) {
+  damageHit(lx, ly, vn, kind, pt) {
     if (this.damageMode === 'off' || vn <= 12 || !this.dmg) return;
     const D = this.dmg, e = (vn - 12) * 0.035, left = ly > 0, cut = (k, a) => { D[k] = Math.max(0, D[k] - a); }, sus = (i, a) => { D.sus[i] = Math.max(0, D.sus[i] - a); };
     let part;
+    // a wheel that touches the wall: that corner's suspension and tyre take it (a cut tyre, a bent wishbone)
+    if (pt && Math.abs(pt.cx) > 1.5 && Math.abs(pt.cx) < 2 && Math.abs(pt.cy) > 0.9) {
+      const i = (pt.cx > 0 ? 0 : 2) + (pt.cy > 0 ? 0 : 1);
+      sus(i, e * 0.6); if (vn > 15 && Math.random() < 0.35) this.puncture(i); if (pt.cx > 0) cut(pt.cy > 0 ? 'fwL' : 'fwR', e * 0.25);
+      this.dmgCorner = i; this.dmgNews = { part: 'sus', vn };
+      if (this.damageMode === 'real' && !this.dnf && D.sus.some((x) => x < DNF_SUS)) this.dnf = 'Suspension damage';
+      return;
+    }
     if (lx > 0.45) { // nose first: the wing on that side takes most of it, a big one bends the front suspension too
       const near = Math.abs(ly) < 0.18 ? null : left ? 'fwL' : 'fwR';
       if (near) { cut(near, e * 1.1); cut(near === 'fwL' ? 'fwR' : 'fwL', e * 0.3); } else { cut('fwL', e * 0.8); cut('fwR', e * 0.8); }
@@ -635,35 +646,51 @@ class Car {
     this.tempF = clamp(this.tempF, 15, 150); this.tempR = clamp(this.tempR, 15, 150);
     this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * (this.setupWear || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt); // wet tyres overheat on a dry track
 
-    // --- walls
+    // --- walls: the car's real outline touches them (nose, front wing tips, the four tyres, rear wing corners), not
+    // just its centre, so an angled hit stops the bodywork at the barrier face instead of sinking in up to the cockpit
     this.locate(false);
-    const wall = (this.d >= 0 ? T.wallL : T.wallR)[this.idx] - 1.0;
     this.impact = 0;
-    if (Math.abs(this.d) > wall) {
-      const s2 = this.d >= 0 ? 1 : -1, pen = Math.abs(this.d) - wall;
-      const nx = T.nx[this.idx] * s2, ny = T.ny[this.idx] * s2;
-      this.x -= nx * pen; this.y -= ny * pen;
-      let wx = this.vx * ch - this.vy * sh, wy = this.vx * sh + this.vy * ch;
-      const vn = wx * nx + wy * ny;
-      if (vn > 0) {
-        const spd = Math.hypot(wx, wy), glancing = vn < spd * 0.42; // under ~25 degrees: slide along the wall
-        if (glancing) {
-          wx -= 1.08 * vn * nx; wy -= 1.08 * vn * ny; const scrub = 1 - clamp(vn * 0.015, 0, 0.15); wx *= scrub; wy *= scrub; // speed lost scales with how hard it hit, so a light scrape costs almost nothing
-          // the car turns along the wall instead of being kicked back across the track
-          const along = Math.atan2(wy, wx); if (Math.hypot(wx, wy) > 3 && Math.cos(along - this.h) > 0) this.h += angleDiff(along, this.h) * 0.6;
-          this.r *= 0.15;
-        } else {
-          wx -= 1.3 * vn * nx; wy -= 1.3 * vn * ny;
-          const scrub = 1 - clamp(vn * 0.03, 0, 0.45); wx *= scrub; wy *= scrub;
-          this.r *= 0.5;
-        }
-        if (vn > 30) this.bigHit = vn;
-        const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
-        this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
-        // where it hit, in the car's frame: forward / left components of the wall direction (a glancing touch does nothing)
-        if (vn > 12) this.damageHit(nx * c2 + ny * s2h, -nx * s2h + ny * c2, vn, 'wall');
+    const nearWall = Math.abs(this.d) > Math.min(T.wallL[this.idx], T.wallR[this.idx]) - 3.6;
+    if (nearWall) {
+      const hc = Math.cos(this.h), hs = Math.sin(this.h); let best = null;
+      for (const [cx, cy] of CAR_OUTLINE) {
+        const px = this.x + hc * cx - hs * cy, py = this.y + hs * cx + hc * cy;
+        const ox = px - T.px[this.idx], oy = py - T.py[this.idx], k = Math.round((ox * T.tx[this.idx] + oy * T.ty[this.idx]) / T.ds);
+        const j = (((this.idx + k) % T.n) + T.n) % T.n, dd = (px - T.px[j]) * T.nx[j] + (py - T.py[j]) * T.ny[j];
+        const pen = Math.abs(dd) - (dd >= 0 ? T.wallL : T.wallR)[j];
+        if (pen > 0 && (!best || pen > best.pen)) best = { pen, j, s2: dd >= 0 ? 1 : -1, cx, cy };
       }
-      this.locate(false);
+      if (best) {
+        const nx = T.nx[best.j] * best.s2, ny = T.ny[best.j] * best.s2, pen = best.pen;
+        this.x -= nx * pen; this.y -= ny * pen;
+        const rx = hc * best.cx - hs * best.cy, ry = hs * best.cx + hc * best.cy; // contact point from the centre (world)
+        let wx = this.vx * hc - this.vy * hs, wy = this.vx * hs + this.vy * hc;
+        const vn = (wx - this.r * ry) * nx + (wy + this.r * rx) * ny; // how fast that point closes on the wall
+        if (vn > 0) {
+          const spd = Math.hypot(wx, wy), glancing = vn < spd * 0.42; // under ~25 degrees: slide along the wall
+          const cvn = Math.max(0, wx * nx + wy * ny); // the centre's own approach
+          if (glancing) {
+            wx -= 1.08 * cvn * nx; wy -= 1.08 * cvn * ny; const scrub = 1 - clamp(vn * 0.015, 0, 0.15); wx *= scrub; wy *= scrub;
+            // the car turns along the wall instead of being kicked back across the track
+            const along = Math.atan2(wy, wx); if (Math.hypot(wx, wy) > 3 && Math.cos(along - this.h) > 0) this.h += angleDiff(along, this.h) * 0.6;
+            this.r *= 0.15;
+          } else {
+            const hitN = Math.max(cvn, vn * 0.8);
+            wx -= 1.3 * hitN * nx; wy -= 1.3 * hitN * ny;
+            const scrub = 1 - clamp(vn * 0.03, 0, 0.45); wx *= scrub; wy *= scrub;
+            // a corner hit turns the car about the contact point (nose-first into a wall swings the tail round), held back
+            // so a hit doesn't become an endless spin
+            const lever = rx * ny - ry * nx;
+            this.r = this.r * 0.5 - clamp(lever * vn * 0.055, -2.2, 2.2);
+          }
+          if (vn > 30) this.bigHit = vn;
+          const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
+          this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
+          // damage where it touched: the contact point's direction in the car's frame (a glancing touch does nothing)
+          if (vn > 12) this.damageHit(best.cx / 3.2, best.cy, vn, 'wall', best);
+        }
+        this.locate(false);
+      }
     }
     // --- progress
     let dS = this.s - this.lastS;

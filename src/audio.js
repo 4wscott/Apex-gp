@@ -319,7 +319,7 @@ const ACTIONS = [
   ['pit', 'Pit stop (press again to change tyres / cancel)', 'button'], ['spNext', 'Spotify: next track', 'button'], ['spPlay', 'Spotify: play / pause', 'button'], ['camera', 'Change camera', 'button'], ['lookBack', 'Look back (hold)', 'button'], ['reset', 'Reset to track', 'button'], ['pause', 'Pause', 'button'],
 ];
 const KEYMAP = {
-  steerLeft: ['ArrowLeft'], steerRight: ['ArrowRight'], throttle: ['KeyA', 'ArrowUp'], brake: ['KeyD', 'ArrowDown'],
+  steerLeft: ['ArrowLeft'], steerRight: ['ArrowRight'], throttle: ['KeyA', 'ArrowUp', 'KeyW'], brake: ['KeyD', 'ArrowDown', 'KeyS'],
   shiftUp: ['KeyE', 'ShiftRight'], shiftDown: ['KeyQ', 'ControlRight'], aero: ['Space'], overtake: ['KeyF'], ers: ['KeyX'],
   biasF: ['BracketLeft'], biasR: ['BracketRight'], pit: ['KeyM'], spNext: ['KeyN'], spPlay: ['KeyK'], camera: ['KeyC'], lookBack: ['KeyB'], reset: ['KeyR'], pause: ['Escape', 'KeyP'],
 };

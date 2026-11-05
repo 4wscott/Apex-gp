@@ -145,7 +145,7 @@ const MouseWheel = {
     if (vis) {
       this.el.dataset.mode = this.mode();
       clearTimeout(this.hintT); this.el.classList.remove('quiet'); this.hintT = setTimeout(() => this.el.classList.add('quiet'), 9000); // the how-to fades after a few seconds
-      $('#mw-hint').textContent = this.mode() === 'grab' ? 'Press on the wheel and turn · W/S or ↑/↓ for the pedals' : 'Mouse left/right steers · left button accelerate · right button brake';
+      $('#mw-hint').textContent = this.mode() === 'grab' ? 'Press on the wheel and turn · W/S or ↑/↓ for the pedals · hold brake when stopped to reverse' : 'Mouse left/right steers · left button accelerate · right button brake (hold it when stopped to reverse)';
     }
     if (!on) { this.tgt = this.steer = 0; this.thrOn = this.brkOn = false; this.used = false; }
   },

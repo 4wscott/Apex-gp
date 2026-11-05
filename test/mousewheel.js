@@ -39,6 +39,12 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await page.keyboard.down('ArrowUp'); await frames(11);
   ok(await ev(() => App.input.state.throttle > 0.5), 'throttle on the keyboard with the mouse wheel');
   await page.keyboard.up('ArrowUp');
+  // reverse: stopped, hold S (the brake) and the car backs up
+  await ev(() => { const P = App.session.race.player; P.vx = P.vy = P.r = 0; });
+  await page.keyboard.down('KeyS'); await frames(60); await page.waitForTimeout(1500); await frames(30);
+  const rev = await ev(() => ({ rev: App.session.race.player.reverse, vx: App.session.race.player.vx }));
+  await page.keyboard.up('KeyS'); console.log(JSON.stringify(rev));
+  ok(rev.rev && rev.vx < -0.3, 'hold S when stopped: the car reverses');
   // follow mode: mouse position steers, left button accelerates, right button brakes
   await ev(() => { SIM.settings.mouseSteer = 'follow'; App.applyLive('mouseSteer'); });
   await page.mouse.move(200, 300); await frames(10);
