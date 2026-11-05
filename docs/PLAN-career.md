@@ -9,7 +9,7 @@
 - Contract offers at season end.
 - Livery editor.
 
-**This plan adds** a reason to win every race: team goals, a real podium, rewards, and championship stakes for both titles.
+**This plan adds** a reason to win every race: team goals, a real podium, rewards, championship stakes for both titles, and real car damage.
 
 Each phase is built, tested on PC (1280×720) and iPhone (390×844 upright, 844×390 sideways), run through the full game test, then pushed.
 
@@ -127,6 +127,55 @@ Both titles should feel like a season-long fight.
 
 ---
 
+## Phase 5: Real car damage
+
+Today only the front wing takes damage, as one health number, with a hanging endplate and some debris. This phase gives the car parts that break, show it, and change how the car drives.
+
+1. **Damage by part.** Each part has its own health, and what you hit decides which part takes it:
+   - **Front wing (left and right halves):** a broken side loses downforce on that side, so the car pulls and understeers in corners toward the damaged side.
+   - **Rear wing:** less rear downforce, so the rear steps out in fast corners, and top speed changes.
+   - **Floor and sidepods:** a damaged floor loses overall grip (the biggest single loss on a ground-effect car).
+   - **Suspension at each corner:**
+     - The car pulls to one side under braking.
+     - A wheel can sit at the wrong angle.
+     - Badly damaged, it can make the car undrivable (retire).
+   - **Tyres:** a puncture after a hard hit or running over debris. The tyre deflates over a few seconds, the car is very hard to drive, and you limp to the pits on the rim.
+   - **Engine and gearbox:** only from big impacts, or from over-revving with manual gears. Less power and occasional missed gears, and a total failure means retirement.
+
+2. **What you see:**
+   - **Parts:** a broken front wing half drops off, hangs or disappears, and the rear wing flap can break off.
+   - **Wheels and body:** a damaged suspension corner tilts its wheel. Scuffs and cracks show on the bodywork.
+   - **Tyres:** a punctured tyre flattens, with sparks from the rim.
+   - **Engine:** an engine problem gives white smoke from the exhaust (and oil smoke when it fails).
+   - **Track:** pieces that come off stay on the track as debris that other cars avoid, and they can cause punctures.
+   - **On screen:** a damage diagram on the dashboard (car outline with parts coloured green, yellow or red) and a team radio report: "Front left wing damage, box for a new nose."
+
+3. **Repairs:**
+   - **Front wing:** a nose change at a pit stop (adds about 8 s).
+   - **Puncture:** fixed with a normal tyre change.
+   - **Suspension, floor, rear wing and engine:** can't be fixed in a race. You manage them or retire.
+   - **Practice and Time trial:** Reset repairs everything, as now.
+   - **Career:** repair bills come out of the development budget, so crashing has a cost, and team confidence drops after a big crash.
+
+4. **Damage settings** (Settings → Driving):
+   - **Off:** no damage at all.
+   - **Visual only:** you see it but it doesn't affect driving.
+   - **Realistic:** everything above.
+   - Difficulty presets choose a sensible level (Beginner: Visual only).
+
+5. **AI cars** take damage by the same rules. They pit for a new nose, slow down with problems, retire when the car is undrivable, and can cause a safety car.
+
+6. **Tests:**
+   - Each part takes damage from the right kind of hit (front, side, rear, kerb, car contact).
+   - Each kind of damage has the expected effect on handling (measured with the test driver: grip, pull to one side, top speed).
+   - Punctures deflate and can be changed in the pits.
+   - Nose changes cost the right time.
+   - All three damage settings behave correctly.
+   - Visuals are checked on PC and iPhone.
+   - A full race with damage on stays stable on phones (memory and frame rate).
+
+---
+
 ## Order and effort
 
 | Phase | What you get | Size |
@@ -135,8 +184,10 @@ Both titles should feel like a season-long fight.
 | 2 | 3D podium ceremony, champagne, champion finale | Large |
 | 3 | Achievements, rewards, trophy room, career stats | Medium–large |
 | 4 | Championship maths, prize money, season ceremony, hall of fame | Medium |
+| 5 | Real car damage by part: visible, changes the handling, repairs and costs | Large |
 
-**Suggested order:** 1 → 4 → 3 → 2.
+**Suggested order:** 1 → 4 → 5 → 3 → 2.
 - **Phase 1 (goals) and Phase 4 (championships)** give every race a purpose and use data the game already has.
-- **Phase 3 (rewards)** sits on top of them.
+- **Phase 5 (damage)** comes next: it changes how races play out, and the career costs and objectives build on it (for example a "Clean weekend" goal).
+- **Phase 3 (rewards)** sits on top of all of these.
 - **Phase 2 (podium)** is the biggest piece of new 3D work, so it goes last.
