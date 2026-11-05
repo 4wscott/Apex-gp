@@ -342,6 +342,10 @@ const COMPOUNDS = {
   W: { name: 'Wet', grip: 0.88, wear: 0.8, temp: 62, color: '#2f7bd6', wet: true },
 };
 
+// ---- car damage, part by part. Health 1 = perfect, 0 = gone. sus and tyre run FL, FR, RL, RR (left = +y in the car)
+function freshDamage() { return { fwL: 1, fwR: 1, rw: 1, floor: 1, sus: [1, 1, 1, 1], tyre: [1, 1, 1, 1], punct: [0, 0, 0, 0], pu: 1, overRev: 0, noses: 0 }; }
+const DNF_SUS = 0.15; // a corner this badly bent can't be driven
+
 class Car {
   constructor(track, team, driver, opts = {}) {
     this.track = track; this.team = team; this.driver = driver;
@@ -354,14 +358,50 @@ class Car {
     this.isPlayer = !!opts.player;
     this.assist = opts.assist || { tc: 2, abs: true, autoGear: true };
     this.compound = opts.compound || 'M';
+    this.damageMode = opts.damage || 'real'; // 'off' | 'visual' (shows, doesn't change the handling) | 'real'
     this.reset();
+  }
+  // the front wing as one number, for everything that only cares about the nose (pit calls, network, the HUD)
+  get wingHealth() { return this.dmg ? (this.dmg.fwL + this.dmg.fwR) / 2 : 1; }
+  set wingHealth(v) { if (!this.dmg) this.dmg = freshDamage(); this.dmg.fwL = this.dmg.fwR = v; }
+  repairAll() { this.dmg = freshDamage(); this.dnf = null; this.parked = false; }
+  // anything still wrong with the car (0 = perfect)
+  damageLevel() {
+    const D = this.dmg; if (!D) return 0;
+    return Math.max(1 - D.fwL, 1 - D.fwR, 1 - D.rw, 1 - D.floor, 1 - D.pu, ...D.sus.map((x) => 1 - x), ...D.tyre.map((x) => 1 - x));
+  }
+  puncture(i) { const D = this.dmg; if (this.damageMode === 'off' || D.punct[i]) return; D.punct[i] = 1; this.dmgNews = { part: 'tyre', i }; }
+  // an impact: lx/ly is the direction of the hit in the car's own frame (forward / left), vn the closing speed in m/s
+  damageHit(lx, ly, vn, kind) {
+    if (this.damageMode === 'off' || vn <= 12 || !this.dmg) return;
+    const D = this.dmg, e = (vn - 12) * 0.035, left = ly > 0, cut = (k, a) => { D[k] = Math.max(0, D[k] - a); }, sus = (i, a) => { D.sus[i] = Math.max(0, D.sus[i] - a); };
+    let part;
+    if (lx > 0.45) { // nose first: the wing on that side takes most of it, a big one bends the front suspension too
+      const near = Math.abs(ly) < 0.18 ? null : left ? 'fwL' : 'fwR';
+      if (near) { cut(near, e * 1.1); cut(near === 'fwL' ? 'fwR' : 'fwL', e * 0.3); } else { cut('fwL', e * 0.8); cut('fwR', e * 0.8); }
+      if (vn > 24) sus(left ? 0 : 1, (vn - 24) * 0.03);
+      part = near || 'fw';
+    } else if (lx < -0.45) { // from behind: the rear wing, then the rear corners and, hard enough, the gearbox
+      cut('rw', e * 0.8); if (vn > 22) sus(left ? 2 : 3, (vn - 22) * 0.03); if (vn > 30) cut('pu', (vn - 30) * 0.025);
+      part = 'rw';
+    } else { // side on: the corner on that side, the floor and sidepod, and maybe a cut tyre
+      const i = lx >= 0 ? (left ? 0 : 1) : (left ? 2 : 3);
+      sus(i, e * 0.55); cut('floor', e * 0.22); if (kind === 'car' && Math.abs(lx) < 0.3) cut('pu', e * 0.05);
+      if (vn > 16 && Math.random() < 0.3) this.puncture(i);
+      part = 'sus'; this.dmgCorner = i;
+    }
+    this.dmgNews = { part, vn };
+    if (this.damageMode === 'real' && !this.dnf) {
+      if (D.sus.some((x) => x < DNF_SUS)) this.dnf = 'Suspension damage';
+      else if (D.pu <= 0.02) this.dnf = 'Power unit failure';
+    }
   }
   reset() {
     this.x = 0; this.y = 0; this.h = 0; this.vx = 0; this.vy = 0; this.r = 0; this.delta = 0;
     this.gear = 1; this.rpm = 4000; this.shiftTimer = 0; this.soc = SOC_MAX * 0.8; this.ersMode = 1;
     this.bias = 0.56; this.aeroX = false; this.aeroReq = false; this.overtakeAvail = false; this.overtakeOn = false;
     this.idx = 0; this.d = 0; this.s = 0; this.dist = 0; this.lastS = 0;
-    this.tempF = 78; this.tempR = 80; this.wear = 0; this.wingHealth = 1;
+    this.tempF = 78; this.tempR = 80; this.wear = 0; this.dmg = freshDamage(); this.dnf = null; this.parked = false;
     this.throttle = 0; this.brake = 0; this.axS = 0; this.ay = 0; this.surface = 'tarmac';
     this.slipF = 0; this.slipR = 0; this.lockF = false; this.lockR = false; this.spin = false;
     this.wheelAng = 0; this.tow = 0; this.dirty = 0; this.impact = 0; this.kerbHit = 0; this.harvesting = false;
@@ -429,10 +469,20 @@ class Car {
     // stability control: rear sliding past a small angle -> trim the throttle (the yaw correction comes after the forces)
     const stab = this.assist.stab || 0, slideR = Math.abs(this.slipR || 0) - (stab === 2 ? 0.06 : 0.1);
     if (stab && slideR > 0 && vxa > 8) thr *= clamp(1 - slideR * (stab === 2 ? 9 : 5), 0.15, 1);
+    // damage: what is broken changes the handling only in 'real' mode
+    const D = this.dmg, real = this.damageMode === 'real';
+    const fw = real ? (D.fwL + D.fwR) / 2 : 1, rwH = real ? D.rw : 1, flH = real ? D.floor : 1, puH = real ? D.pu : 1;
+    if (this.damageMode !== 'off') for (let i = 0; i < 4; i++) if (D.punct[i]) D.tyre[i] = Math.max(0.05, D.tyre[i] - dt / 4); // a puncture goes down over ~4 s
+    const tyreH = real ? D.tyre : [1, 1, 1, 1], susH = real ? D.sus : [1, 1, 1, 1];
+    // a pull to one side: a missing wing half, bent toe on a front corner (more under braking), a flat tyre dragging
+    const vk = Math.min(1, vxa / 60);
+    this.dmgPull = real ? ((D.fwR - D.fwL) * 0.0015 * vk + ((1 - susH[0]) - (1 - susH[1])) * (0.004 + brk * 0.006) + ((1 - susH[3]) - (1 - susH[2])) * 0.002
+      + ((1 - tyreH[0]) - (1 - tyreH[1])) * 0.012 * Math.min(1, vxa / 25) + ((1 - tyreH[2]) - (1 - tyreH[3])) * 0.004 * Math.min(1, vxa / 25)) : 0;
     const tgtSteer = clamp(inp.steer, -1, 1) * p.maxSteer;
     // when the rear steps out, the wheel moves faster so on/off keys and buttons can still catch the slide
     const rate = p.steerRate * (1 + (inp.steerFast ? 2 : 0)) * (Math.abs(this.slipR || 0) > 0.08 && vxa > 8 ? 2.5 : 1);
     this.delta += clamp(tgtSteer - this.delta, -rate * dt, rate * dt);
+    const deltaW = this.delta + (this.dmgPull || 0); // what the front wheels actually point at
 
     // reverse: hold brake while stationary
     // (in reverse the brake pedal drives backwards; throttle selects first gear again)
@@ -458,6 +508,7 @@ class Car {
     this.rpm = clamp((kmh / gmax) * p.redline, 4200, p.redline + 200);
     if (kmh < 20 && thr > 0.2) this.rpm = Math.max(this.rpm, 4200 + thr * 5000);
     const limiter = this.rpm > p.redline;
+    if (this.damageMode !== 'off' && !this.assist.autoGear) { D.overRev = limiter && thr > 0.5 ? D.overRev + dt : Math.max(0, D.overRev - dt * 2); if (D.overRev > 2) D.pu = Math.max(0, D.pu - dt * 0.004); } // bouncing off the limiter
 
     // --- aero (active aero modes + slipstream / dirty air)
     const aeroAllowed = T.aeroZone[this.idx] && brk < 0.05 && Math.abs(this.delta) < 0.04;
@@ -465,10 +516,10 @@ class Car {
     if (!aeroAllowed && this.aeroX && (!T.aeroZone[this.idx] || brk > 0.05 || Math.abs(this.delta) > 0.05)) this.aeroX = false;
     if (!this.aeroReq) this.aeroX = false;
     const q = 0.5 * RHO * this.vx * this.vx;
-    const clA = p.ClA * (this.aeroX ? 0.6 : 1) * (1 - this.dirty * 0.18) * (0.88 + 0.12 * this.wingHealth); // a broken front wing loses downforce too
-    const cdA = p.CdA * (this.aeroX ? 0.7 : 1) * (1 - this.tow * 0.28);
-    const balF = p.aeroBal * (0.88 + 0.12 * this.wingHealth);
-    const DfF = q * clA * balF, DfR = q * clA * (1 - balF) * (this.aeroX ? 1.1 : 1);
+    const clA = p.ClA * (this.aeroX ? 0.6 : 1) * (1 - this.dirty * 0.18) * (0.88 + 0.12 * fw) * (0.78 + 0.22 * flH); // a broken front wing or floor loses downforce
+    const cdA = p.CdA * (this.aeroX ? 0.7 : 1) * (1 - this.tow * 0.28) * (0.86 + 0.14 * rwH); // less rear wing: less drag too
+    const balF = p.aeroBal * (0.88 + 0.12 * fw);
+    const DfF = q * clA * balF, DfR = q * clA * (1 - balF) * (this.aeroX ? 1.1 : 1) * (0.7 + 0.3 * rwH);
     const drag = q * cdA;
 
     // --- loads with longitudinal weight transfer
@@ -479,12 +530,15 @@ class Car {
     this.gripWet = wetGrip(this.compound, wet);
     const gripT = (t) => (0.86 + 0.14 * Math.exp(-(((t - cp.temp) / 28) ** 2))) * cp.grip;
     const wearF = 1 - 0.09 * this.wear - 0.5 * Math.max(0, this.wear - 0.65) ** 2 * 4; // grip falls away sharply past ~65 % wear
-    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF;
-    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR;
+    // bent suspension and flat tyres cost grip on their axle
+    const axF = (1 - 0.2 * (2 - susH[0] - susH[1]) / 2) * (0.4 + 0.6 * Math.min(tyreH[0], tyreH[1])), axR = (1 - 0.25 * (2 - susH[2] - susH[3]) / 2) * (0.4 + 0.6 * Math.min(tyreH[2], tyreH[3]));
+    this.dmgPace = real ? Math.sqrt(Math.min(axF, axR)) * (0.92 + 0.08 * fw) * (0.94 + 0.06 * flH) * (0.95 + 0.05 * rwH) : 1;
+    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF * axF;
+    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR * axR;
 
     // --- power unit
     const curve = clamp(0.55 + 0.45 * Math.sin(((this.rpm - 4000) / 8000) * Math.PI * 0.62), 0.3, 1);
-    let Pice = p.Pice * curve;
+    let Pice = p.Pice * curve * (0.65 + 0.35 * puH); // a damaged power unit loses power
     const mode = ERS_MODES[this.ersMode];
     let deployCap = this.overtakeOn && this.overtakeAvail ? 350e3 : mode.deploy;
     // 2026-style taper of electric deployment at very high speed
@@ -534,15 +588,15 @@ class Car {
 
     // --- tyre lateral forces
     const vxs = Math.max(vxa, 1.5);
-    const aF = Math.atan2(this.vy + p.a * this.r, vxs) - this.delta * sgn;
+    const aF = Math.atan2(this.vy + p.a * this.r, vxs) - deltaW * sgn;
     const aR = Math.atan2(this.vy - p.b * this.r, vxs);
     const FyF = -latF * Math.sin(p.CF * Math.atan(p.BF * aF)), FyR = -latR * Math.sin(p.CR * Math.atan(p.BR * aR));
     this.slipF = aF; this.slipR = aR; this.FyRprev = FyR;
 
     // --- body forces
-    const cd = Math.cos(this.delta), sd = Math.sin(this.delta);
+    const cd = Math.cos(deltaW), sd = Math.sin(deltaW);
     const v = Math.hypot(this.vx, this.vy);
-    const rolling = (p.rr * (FzF + FzR) + sdrag * Math.min(v, 20) / 20 * 3) * (vxa > 0.1 ? 1 : 0);
+    const rolling = (p.rr * (FzF + FzR) + sdrag * Math.min(v, 20) / 20 * 3 + (4 - tyreH[0] - tyreH[1] - tyreH[2] - tyreH[3]) * 700) * (vxa > 0.1 ? 1 : 0); // running on a rim drags
     const Fx = FxF * cd - FyF * sd + FxR - (drag + rolling) * sgn;
     const Fy = FxF * sd + FyF * cd + FyR;
     const Mz = p.a * (FyF * cd + FxF * sd) - p.b * FyR;
@@ -606,7 +660,8 @@ class Car {
         if (vn > 30) this.bigHit = vn;
         const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
         this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
-        if (vn > 12) this.wingHealth = Math.max(0, this.wingHealth - (vn - 12) * 0.035); // a proper hit costs part of the wing, glancing touches nothing
+        // where it hit, in the car's frame: forward / left components of the wall direction (a glancing touch does nothing)
+        if (vn > 12) this.damageHit(nx * c2 + ny * s2h, -nx * s2h + ny * c2, vn, 'wall');
       }
       this.locate(false);
     }
@@ -621,6 +676,8 @@ class Car {
     if (g < 1 || g > 8 || this.shiftTimer > 0) return;
     // protect the engine on manual downshifts
     if (dir < 0 && this.vx * 3.6 > this.p.gears[g - 1] * 1.02) return;
+    // a damaged gearbox sometimes misses a shift (a short loss of drive, then it tries again)
+    if (this.damageMode === 'real' && this.dmg && this.dmg.pu < 0.5 && Math.random() < (0.5 - this.dmg.pu) * 0.5) { this.shiftTimer = 0.35; this.missedGear = true; return; }
     this.gear = g; this.shiftTimer = 0.09; this.justShifted = dir;
   }
 }
@@ -645,7 +702,12 @@ function collideCars(cars) {
         fromWorld(A, va); fromWorld(B, vb);
         A.r += (Math.random() - 0.5) * jimp * 0.05; B.r += (Math.random() - 0.5) * jimp * 0.05;
         A.impact = Math.max(A.impact, -rel); B.impact = Math.max(B.impact, -rel);
-        if (-rel > 8) { const dmg = (-rel - 8) * 0.04; if (oa > 0) A.wingHealth = Math.max(0, A.wingHealth - dmg); if (ob > 0) B.wingHealth = Math.max(0, B.wingHealth - dmg); }
+        // damage at the point of contact, scaled like a wall hit (the closing speed is shared out between the two cars)
+        if (-rel > 8) {
+          const vn = 12 + (-rel - 8) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
+          const [alx, aly] = loc(A, nx, ny), [blx, bly] = loc(B, -nx, -ny);
+          A.damageHit(alx, aly, vn, 'car'); B.damageHit(blx, bly, vn, 'car');
+        }
       }
     }
   }
@@ -670,10 +732,17 @@ class AIDriver {
     let blocked = null, gapAhead = Infinity;
     const myO = T.lineO[c.idx] + this.lat;
     for (const o of cars) {
-      if (o === c) continue;
+      if (o === c || o.parked) continue;
       let ds = o.dist - c.dist; if (ds < 0 || ds > 32) continue;
       const rel = o.d - myO;
       if (Math.abs(rel) < 2.6) { if (ds < gapAhead) { gapAhead = ds; blocked = o; } }
+    }
+    // debris on the racing line: steer round it like a slow car
+    if (!blocked && race && race.debris && race.debris.length) {
+      for (const b of race.debris) {
+        let ds = b.s - c.s; if (ds < -T.length / 2) ds += T.length; if (ds < 0 || ds > 70) continue;
+        if (Math.abs(b.d - myO) < 1.6) { blocked = { d: b.d, vx: Infinity }; gapAhead = 99; break; }
+      }
     }
     const lim = T.hw - 1.3;
     if (blocked) {
@@ -706,6 +775,7 @@ class AIDriver {
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
     if (blocked && gapAhead < 12 && blocked.vx < c.vx) vT = Math.min(vT, blocked.vx + gapAhead * 0.4);
     vT *= Math.pow(c.gripWet ?? 1, 0.7); // slower where the grip is lower (rain)
+    vT *= c.dmgPace ?? 1; // and with a damaged car
     if (race && race.vsc) vT = Math.min(vT, race.vscCap(c));
     if (race && race.sc && race.scLimit) vT = Math.min(vT, race.scLimit(c));
     if (race && race.beingLapped(c)) vT *= 0.94; // blue flag: back off to let the leaders by
@@ -816,7 +886,7 @@ class Race {
     }
     grid.forEach((e, k) => {
       const comp = e.player ? (opts.compound || 'M') : ['S', 'M', 'M', 'H'][(rng() * 4) | 0];
-      const car = new Car(T, e.tm, e.dr, { player: !!e.player, compound: comp, upgrades: e.player ? opts.upgrades : null, assist: e.player ? opts.assist : { tc: 2, abs: true, autoGear: true } });
+      const car = new Car(T, e.tm, e.dr, { player: !!e.player, compound: comp, upgrades: e.player ? opts.upgrades : null, assist: e.player ? opts.assist : { tc: 2, abs: true, autoGear: true }, damage: this.online ? 'visual' : opts.damage });
       // practice: the player leaves the pit straight on a flying start, traffic is spread round the lap
       const prac = this.mode === 'practice', ahead = prac && !e.player ? (T.length * (k + 1)) / (grid.length + 1) : 0;
       const back = this.mode === 'trial' || prac ? 160 - ahead : 12 + k * 8;
@@ -897,7 +967,7 @@ class Race {
     const T = this.track, R = (this.rc = this.rc || { yellowUntil: [0, 0, 0], vscCool: 25, blueT: 0, vscWarn: 0, over: 0 });
     R.vscCool -= dt;
     for (const c of this.cars) {
-      if (c.pit || c.finished) { c.incT = 0; continue; }
+      if (c.pit || c.finished || (c.parked && this.time - c.parkedAt > 30)) { c.incT = 0; continue; }
       const stopped = this.greenT > 12 && (c.vx < 7 || (Math.abs(c.d) > T.hw + 3 && c.vx < 25));
       c.incT = stopped ? (c.incT || 0) + dt : Math.max(0, (c.incT || 0) - dt * 2);
       if (c.incT > 1.2) {
@@ -906,7 +976,7 @@ class Race {
         R.yellowUntil[sec] = this.time + 6;
         if (c.incT > 3 && !this.vsc && R.vscCool <= 0 && !c.vscRolled) {
           c.vscRolled = true;
-          const onTrack = Math.abs(c.d) < T.hw + 2, big = (c.bigHit || 0) > 30;
+          const onTrack = Math.abs(c.d) < T.hw + 2, big = (c.bigHit || 0) > 30 || !!c.dnf;
           if (this.online) { /* online: no safety car / VSC, each player's game would decide differently */ }
           else if (!this.sc && (R.scCount || 0) < 1 && (big || (onTrack && Math.random() < 0.5)) && this.lapsLeft(this.leader()) > 3) this.deploySC();
           else if ((R.vscCount || 0) < 2 && Math.random() < 0.35) { R.vscCount = (R.vscCount || 0) + 1; this.vsc = { until: this.time + 32 + Math.random() * 18, ending: false }; R.vscCool = 90; this.emit('vsc', {}); }
@@ -933,8 +1003,7 @@ class Race {
     if (this.twoCompounds && !this.player.stops && !this.player.pit && this.lapsLeft(this.player) === 3 && !this.player.ruleMsg) { this.player.ruleMsg = true; this.emit('msg', { car: this.player, text: 'Reminder: pit for a different tyre compound (M) or take a 20 s penalty', kind: 'warn' }); }
     // front wing damage message
     const P = this.player;
-    if (P.wingHealth < 0.6 && !P.wingMsg) { P.wingMsg = true; this.emit('msg', { car: P, text: this.mode === 'race' ? 'Front wing damaged: the car will understeer. Press PIT for a new nose' : 'Front wing damaged: press Reset to repair it', kind: 'warn' }); }
-    if (P.wingHealth > 0.9) P.wingMsg = false;
+
   }
   // a player who dropped out: their car is driven home by the AI from where it was
   adoptAI(c) {
@@ -995,7 +1064,8 @@ class Race {
   requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
   lapsLeft(c) { return this.laps - Math.max(0, c.lap - 1); }
   aiPitDecision(c) {
-    if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished) return;
+    if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished || c.dnf) return;
+    if (c.dmg.punct.some(Boolean)) { c.pitReq = COMPOUNDS[c.compound].wet ? c.compound : c.compound === 'H' ? 'M' : 'H'; return; } // limp back for new tyres
     const left = this.lapsLeft(c);
     if (left < 2) return;
     const mustStop = this.twoCompounds && !c.stops && (c.lap > c.planLap || left <= 2);
@@ -1011,6 +1081,7 @@ class Race {
   // pit stop: the lane is driven on rails at the limiter; laps keep counting as the lane runs beside the line
   pitStep(c, dt) {
     const T = this.track, P = this.pit, q = c.pit;
+    if (q.phase === 'parked') { c.vx = 0; c.throttle = 0; return; } // retired or finished: staying in the box
     const box = q.box, sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
     // a teammate still being serviced in the box: wait just behind it (double stack)
     const busy = this.cars.some((o) => o !== c && o.team === c.team && o.pit && (o.pit.phase === 'stop' || o.pit.phase === 'jack') && o.pit.box === box);
@@ -1028,7 +1099,9 @@ class Race {
     } else if (q.phase === 'stop') {
       q.t += dt;
       if (q.t >= q.service) {
-        c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.wingHealth = 1; c.stops++;
+        c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.stops++;
+        // new tyres fix any puncture; a new nose fixes the front wing (the rest can't be repaired in a race)
+        c.dmg.tyre = [1, 1, 1, 1]; c.dmg.punct = [0, 0, 0, 0]; if (q.nose) { c.wingHealth = 1; c.dmg.noses++; } if (c.dmgSaid) for (const k of ['fwL', 'fwR', 'p0', 'p1', 'p2', 'p3']) delete c.dmgSaid[k];
         q.phase = 'out'; q.v = 0; this.emit('pitdone', { car: c, compound: q.compound, time: q.service });
       }
     } else {
@@ -1060,17 +1133,18 @@ class Race {
     const P = this.pit, n = this.track.n, k = (c.idx - P.a + n) % n;
     if (k > 4) return false;
     // a good stop is ~2.3 s; now and then a wheel nut sticks
-    const service = (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0);
-    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, box: P.boxS(Math.max(0, TEAMS.indexOf(c.team))) };
+    const nose = c.wingHealth < 0.92; // a nose change adds about 8 s to the stop
+    const service = (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0) + (nose ? 7.5 + Math.random() * 1.2 : 0);
+    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, nose, box: P.boxS(Math.max(0, TEAMS.indexOf(c.team))) };
     c.pitReq = null; this.emit('pitentry', { car: c });
     return true;
   }
   // practice: straight back to the team's box (like "return to garage"); the car rolls the last metres in so the crew are out in time
-  toBox(c, compound) {
-    if (c.pit || c.finished) return false;
+  toBox(c, compound, force) {
+    if (c.pit || (c.finished && !force)) return false; // force: after the flag, to park it in the garage
     const P = this.pit, box = P.boxS(Math.max(0, TEAMS.indexOf(c.team)));
-    const service = 2.4 + Math.random() * 0.4;
-    c.pit = { phase: 'queue', s: box - 22, v: 0, d0: 0, compound: compound || c.pitReq || c.compound, service, box, tp: true };
+    const nose = c.wingHealth < 0.92, service = 2.4 + Math.random() * 0.4 + (nose ? 7.5 : 0);
+    c.pit = { nose, phase: 'queue', s: box - 22, v: 0, d0: 0, compound: compound || c.pitReq || c.compound, service, box, tp: true };
     c.pitReq = null; c.vx = c.vy = c.r = 0; this.emit('pitentry', { car: c, teleport: true });
     return true;
   }
@@ -1108,7 +1182,7 @@ class Race {
         }
         return playerInput;
       }
-      if (c.remote) return null;
+      if (c.remote || c.dnf) return null; // a retired car is not driven (and must not be 'recovered' back onto the track)
       const ai = this.ais.find((a) => a.car === c); ai.cool = c.finished;
       if (c.pit) { ai.stuckT = 0; ai.lat = ai.latT = 0; return { steer: 0, throttle: 0, brake: 0 }; }
       return ai.control(dt, this.cars, this);
@@ -1116,12 +1190,16 @@ class Race {
     this.cars.forEach((c, i) => {
       if (held && c !== this.player) { c.vx = 0; c.vy = 0; c.r = 0; }
       if (c.remote) { this.remoteStep(c, dt); return; }
+      if (c.parked) { c.vx = c.vy = c.r = 0; c.throttle = 0; c.brake = 1; return; }
+      if (c.dnf && !c.pit) { this.retireStep(c, dt); return; }
+      if (c.dnf && c.pit && c.pit.phase !== 'in' && c.pit.phase !== 'queue') { this.announceDnf(c); c.pit.phase = 'parked'; c.parked = true; c.parkedAt = this.time; c.vx = 0; return; } // retires in the pit box (out of its team-mate's way)
       if (c !== this.player) this.aiPitDecision(c);
       if (c.pit || this.pitEntry(c)) { this.pitStep(c, dt); return; }
       c.step(dt, inputs[i]);
       if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; c.penalty += 5; this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }
     });
-    collideCars(this.cars.filter((c) => !c.pit));
+    collideCars(this.cars.filter((c) => !c.pit && !c.parked));
+    this.damageStep();
     this.raceControl(dt);
     this.weatherStep(dt);
     for (const c of this.cars) this.progress(c);
@@ -1176,6 +1254,7 @@ class Race {
         const valid = this.mode === 'race' || c.lapValid;
         c.lapTimes.push(lt); (c.lapLog = c.lapLog || []).push({ t: lt, valid });
         if (valid && lt < c.bestLap) c.bestLap = lt;
+        if (this.mode === 'race' && this.phase === 'green' && this.standings()[0] === c) c.lapsLed = (c.lapsLed || 0) + 1; // leading as it crosses the line
         let overall = false;
         if (valid && lt < this.bestLap) { this.bestLap = lt; overall = true; }
         this.emit('lap', { car: c, time: lt, valid, best: valid && lt <= c.bestLap, overall });
@@ -1205,7 +1284,7 @@ class Race {
   }
   standings() {
     const fin = this.finishOrder.slice();
-    const rest = this.cars.filter((c) => !c.finished).sort((a, b) => b.dist - a.dist);
+    const rest = this.cars.filter((c) => !c.finished).sort((a, b) => (a.dnf ? 1 : 0) - (b.dnf ? 1 : 0) || b.dist - a.dist);
     return fin.concat(rest);
   }
   gapBetween(a, b) {
@@ -1222,8 +1301,64 @@ class Race {
       return { car: c, laps, total: c.finished ? c.finishTime + c.penalty : Infinity, raw: total, penalty: c.penalty, best: c.bestLap };
     });
     // penalties can reorder finishers on the same lap
-    rows.sort((a, b) => (b.laps - a.laps) || (a.total - b.total) || (b.car.dist - a.car.dist));
+    rows.sort((a, b) => ((a.car.dnf ? 1 : 0) - (b.car.dnf ? 1 : 0)) || (b.laps - a.laps) || (a.total - b.total) || (b.car.dist - a.car.dist));
     return rows;
+  }
+  // ---- damage: retirements, debris, team radio reports ----------------------------------------
+  // a car that can't go on: off the throttle, onto the edge of the track, stopped, then parked beyond the white line
+  retireStep(c, dt) {
+    const T = this.track;
+    this.announceDnf(c);
+    const side = c.d >= 0 ? 1 : -1, target = side * (T.hw + 1.5);
+    const steer = clamp((target - c.d) * 0.08, -0.5, 0.5) * (c.vx > 2 ? 1 : 0);
+    c.step(dt, { steer, throttle: 0, brake: c.vx > 18 ? 0.5 : 0.9, noReverse: true });
+    if (c.vx < 1.2) {
+      const i = c.idx, wall = (side > 0 ? T.wallL : T.wallR)[i], off = side * Math.max(T.hw + 0.5, Math.min(T.hw + 3.5, wall - 1.6));
+      c.x = T.px[i] + T.nx[i] * off; c.y = T.py[i] + T.ny[i] * off; c.h = Math.atan2(T.ty[i], T.tx[i]) + side * 0.35; c.locate(false);
+      c.vx = c.vy = c.r = 0; c.parked = true; c.parkedAt = this.time;
+    }
+  }
+  announceDnf(c) { if (c.dnfSaid) return; c.dnfSaid = true; c.pitReq = null; this.emit('dnf', { car: c, reason: c.dnf }); if (c === this.player) this.emit('msg', { car: c, text: `Retired: ${c.dnf.toLowerCase()}`, kind: 'warn' }); }
+  damageStep() {
+    // pieces left on the track by big impacts: other cars steer round them, a car running over one can cut a tyre
+    const D = (this.debris = this.debris || []);
+    for (const c of this.cars) {
+      if (c.dmgNews && c.impact > 16 && !c.pit && D.length < 24) D.push({ x: c.x, y: c.y, s: c.s, d: clamp(c.d, -this.track.hw, this.track.hw), t: this.time, hit: [] });
+      if (c.dmgNews && c === this.player) this.damageReport(c);
+      c.dmgNews = null;
+    }
+    if (D.length) {
+      for (let k = D.length - 1; k >= 0; k--) if (this.time - D[k].t > 150 || (this.sc && this.time - D[k].t > 20)) D.splice(k, 1); // the marshals sweep it up
+      for (const c of this.cars) {
+        if (c.pit || c.parked || c.vx < 20) continue;
+        for (const b of D) {
+          if (this.time - b.t < 0.5 || b.hit.includes(c)) continue;
+          if (Math.abs(c.x - b.x) < 1 && Math.abs(c.y - b.y) < 1) { b.hit.push(c); if (Math.random() < 0.15) { c.puncture(Math.floor(Math.random() * 4)); if (c === this.player) this.damageReport(c); } }
+        }
+      }
+    }
+  }
+  // team radio: one report per part as it gets worse (a scrape says nothing; a broken part is called once, worse again called again)
+  damageReport(c) {
+    const D = c.dmg, said = (c.dmgSaid = c.dmgSaid || {}), race = this.mode === 'race', corner = ['front left', 'front right', 'rear left', 'rear right'];
+    const out = [];
+    const tell = (key, h, msg) => { const lvl = h < 0.35 ? 2 : h < 0.8 ? 1 : 0; if (lvl > (said[key] || 0)) { said[key] = lvl; out.push(msg(lvl)); } };
+    tell('fwL', D.fwL, (l) => `${l > 1 ? 'Front left wing is broken' : 'Front left wing damage'}.${race ? ' Box for a new nose.' : ''}`);
+    tell('fwR', D.fwR, (l) => `${l > 1 ? 'Front right wing is broken' : 'Front right wing damage'}.${race ? ' Box for a new nose.' : ''}`);
+    tell('rw', D.rw, (l) => (l > 1 ? 'Rear wing is badly damaged: careful in the fast corners.' : 'Rear wing damage: the rear will be loose in fast corners.'));
+    tell('floor', D.floor, () => 'Floor damage: we have lost downforce.');
+    tell('pu', D.pu, (l) => (l > 1 ? 'Big power unit problem. Nurse it home.' : 'We are seeing a power unit problem: down on power.'));
+    D.sus.forEach((h, i) => tell('sus' + i, h, (l) => `Suspension damage, ${corner[i]}. ${l > 1 ? 'The car is badly bent.' : 'The car will pull.'}`));
+    D.punct.forEach((p, i) => { if (p && !said['p' + i]) { said['p' + i] = 1; out.push(`Puncture, ${corner[i]}!${race ? ' Box, box.' : ''}`); } });
+    if (!race && out.length) out.push('Reset the car to repair it.');
+    if (out.length) this.emit('damage', { car: c, text: out.join(' ') });
+  }
+  // the player retired: the rest of the field is classified where it would finish at its current pace
+  endEarly() {
+    const L = this.track.length * this.laps, run = this.cars.filter((c) => !c.finished && !c.dnf);
+    run.forEach((c) => { const v = Math.max(20, c.dist / Math.max(1, this.time - 3)); c.projT = this.time + Math.max(0, L - c.dist) / v; });
+    run.sort((a, b) => a.projT - b.projT).forEach((c) => { c.finished = true; c.finishTime = c.projT; c.lap = Math.max(c.lap, this.laps + 1); this.finishOrder.push(c); });
+    this.endedEarly = true;
   }
 }
 

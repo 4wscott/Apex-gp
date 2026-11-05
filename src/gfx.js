@@ -1421,7 +1421,8 @@ function liveryFromModel(team, num, small = false) {
   for (const [x0, y0, x1, y1] of [[325, 45, 392, 92], [325, 195, 392, 238], [455, 80, 545, 135], [455, 230, 545, 285], [440, 118, 466, 142], [440, 268, 466, 292], [685, 310, 750, 352], [785, 310, 850, 352],
     [690, 195, 985, 240], [140, 378, 320, 402], [55, 588, 85, 609], [105, 613, 133, 634], [440, 140, 470, 160], [440, 290, 470, 305]]) g.fillRect(x0 * w / 1024, y0 * h / 1024, (x1 - x0) * w / 1024, (y1 - y0) * h / 1024);
   text(sp[pick % sp.length][0], 488, 106, 21, 'v'); text(sp[pick % sp.length][0], 488, 258, 21, 'r');
-  text(String(num), 358, 70, 34, 'v'); text(String(num), 358, 216, 34, 'r');
+  const numCol = team.numStyle === 'gold' ? '#ffcf3a' : ink; // the Grand Slam reward
+  text(String(num), 358, 70, 34, 'v', numCol); text(String(num), 358, 216, 34, 'r', numCol);
   text(team.name.toUpperCase(), 835, 217, 26, true); text(sp[(pick + 2) % sp.length][0], 722, 331, 14, 'v'); text(sp[(pick + 2) % sp.length][0], 822, 331, 14, 'v');
   // other cars on a phone: half-size copy (they are never seen close enough to tell), and the full-size canvas released
   let src = c;
@@ -1600,7 +1601,11 @@ function helmetTexture0(team, num = '') {
     g.fillStyle = team.c1;
     g.beginPath(); g.moveTo(0, h * 0.42); g.bezierCurveTo(w * 0.25, h * 0.3, w * 0.4, h * 0.55, w * 0.5, h * 0.5); g.bezierCurveTo(w * 0.6, h * 0.55, w * 0.75, h * 0.3, w, h * 0.42); g.lineTo(w, h * 0.7); g.lineTo(0, h * 0.7); g.fill();
     g.fillStyle = team.c3; g.fillRect(0, h * 0.7, w, h * 0.03); g.fillRect(w * 0.47, 0, w * 0.06, h * 0.4);
-    g.fillStyle = '#ffffff'; g.font = '800 40px "Saira Condensed", Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    // unlocked career helmet designs
+    if (team.helmet === 'gold') { const gg = g.createLinearGradient(0, 0, w, h); gg.addColorStop(0, '#f6d77a'); gg.addColorStop(0.5, '#c79a2b'); gg.addColorStop(1, '#f1cf6b'); g.fillStyle = gg; g.fillRect(0, 0, w, h * 0.42); }
+    if (team.helmet === 'chequer') { const q = h * 0.07; for (let y = 0; y < h * 0.4; y += q) for (let x = 0; x < w; x += q) { g.fillStyle = ((x + y) / q) % 2 < 1 ? '#111' : '#f4f4f4'; g.fillRect(x, y, q, q); } }
+    if (team.helmet === 'stars') { g.fillStyle = team.c3; for (let k = 0; k < 14; k++) { const x = ((k * 97) % 512) / 512 * w, y = (((k * 53) % 90) / 256) * h + 8, r = 7 + (k % 3) * 3; g.beginPath(); for (let j = 0; j < 10; j++) { const a = (j / 10) * Math.PI * 2 - Math.PI / 2, rr = j % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.fill(); } }
+    g.fillStyle = team.numStyle === 'gold' ? '#ffcf3a' : '#ffffff'; g.font = '800 40px "Saira Condensed", Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(String(num), w * 0.25, h * 0.56); g.fillText(String(num), w * 0.75, h * 0.56);
     g.fillStyle = '#16181b'; g.fillRect(0, h * 0.82, w, h * 0.18);
   });
@@ -1622,7 +1627,9 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
   grp.scale.setScalar(CAR_SCALE); // drawn a touch larger than the physics footprint so it reads like the TV/game cars
   const matte = !!team.matte;
-  const paint = new THREE.MeshPhysicalMaterial({ map: liveryTexture(team, num, hero), normalMap: panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
+  // unlocked career finishes: chrome and gold are metallic mirrors of the main colour, carbon a dark satin weave
+  const FIN = { chrome: { roughness: 0.12, metalness: 0.92, clearcoat: 1 }, gold: { roughness: 0.2, metalness: 0.88, clearcoat: 1 }, carbon: { roughness: 0.42, metalness: 0.2, clearcoat: 0.6 } }[team.finish] || null;
+  const paint = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryTexture(team, num, hero), normalMap: panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
   const accent = new THREE.MeshPhysicalMaterial({ color: team.c2, roughness: matte ? 0.5 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.8 });
   let fwEndR = null;
   const mk = (geo, mat, cs = true, parent = body) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cs; m.receiveShadow = true; parent.add(m); return m; };
@@ -1700,7 +1707,7 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     const keep = new Set([hans, shoulders, ...mirrors]);
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
     fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
-    const mat = new THREE.MeshPhysicalMaterial({ map: liveryFromModel(team, num, PHONE_GFX && !hero), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 });
+    const mat = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryFromModel(team, num, PHONE_GFX && !hero), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
     // nearby: full-detail body; beyond 45 m the lighter one (switched in the game loop)
     modelBody = new THREE.Mesh(M.carhq ? M.carhq.livery : M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
     modelBody.userData.lod = M.carhq ? [M.carhq.livery, M.car.livery] : null;

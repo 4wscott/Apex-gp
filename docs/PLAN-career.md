@@ -176,6 +176,16 @@ Today only the front wing takes damage, as one health number, with a hanging end
 
 ---
 
+## Status
+
+All five phases are built, in the order 1 → 4 → 5 → 3 → 2. Tests: `test/career1.js` (goals), `test/career4.js` (championships), `test/damage.js` and `test/dmgshots.js` (damage), `test/career3.js` (achievements), `test/podium.js` (podium). Each runs at PC size and, with `MOBILE=1`, at phone size.
+
+Notes on what was built:
+- **Weather:** career rounds now have a fixed forecast (mostly dry, some mixed, a few wet), so the "Rain master" achievement can be earned.
+- **Cosmetics:** there are 9 unlockable styles: 2 livery patterns, 3 finishes (chrome, carbon, gold), 3 helmet designs and gold race numbers.
+- **Damage visuals:** the imported car body is a single mesh, so a broken wing half is shown with hanging and dragging pieces rather than removed.
+- **Podium:** the ceremony is built on the main straight in front of the grandstand. It runs in every offline race mode, not just career.
+
 ## Order and effort
 
 | Phase | What you get | Size |

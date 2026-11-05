@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -24,6 +24,7 @@ if (settings.v < 5) settings.v = 5;
 if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first
 if (settings.v < 7) { if (settings.stab === undefined || settings.v < 7) settings.stab = 1; settings.v = 7; } // light stability control for everyone who had none // image quality first: undo automatic step-downs
 if (settings.v < 8) { if (IS_TOUCH && settings.quality === 1 && settings.autoRes) { settings.quality = 2; } settings.v = 8; } // undo the automatic drop to Medium after the memory crash (fixed)
+if (settings.v < 9) { if (settings.brakeAssist && settings.stab === 2 && settings.tc === 2) settings.damage = 'visual'; settings.v = 9; } // car damage arrives: beginners see it without it changing the handling
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -380,6 +381,7 @@ const App = {
     this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); document.body.classList.remove('yt-tap');
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
+    $('#loading').innerHTML = '<span>Building circuit…</span>' + (cfg && cfg.career && !cfg.sprint ? CareerGoals.briefHTML() : ''); // the weekend's objectives while it loads
     $('#loading').hidden = false; $('#menu').hidden = true; document.activeElement?.blur?.(); // menu focus must not hold on to keys in the car
     setTimeout(() => {
       this.buildScene(T, cfg && cfg.tod);
@@ -390,7 +392,7 @@ const App = {
       const race = new Race(T, {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
         replaceCode: cfg && cfg.replaceCode, upgrades: cfg && cfg.upgrades, gridOrder: cfg && cfg.gridOrder, quali: cfg && cfg.quali,
-        remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed,
+        remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed, damage: settings.damage,
         assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear, stab: settings.stab, brakeAssist: !!settings.brakeAssist },
       });
       if (cfg && cfg.online) race.lightsT = -(4 - (Date.now() - cfg.ref) / 1000); // lights start 4 s after the host pressed start, for everyone
@@ -521,6 +523,8 @@ const App = {
         el.querySelector('ol').scrollTop = 1e6;
       } }
     $('#p-garage').hidden = this.session.race.mode !== 'practice' || !!this.session.race.player.pit;
+    { const el = $('#p-obj'), c = this.cfg, R = this.session.race, on = this.paused && c && c.career;
+      el.innerHTML = on ? (!c.sprint ? CareerGoals.briefHTML() : '') + (R.mode === 'race' && R.phase !== 'grid' ? Champ.liveHTML(R, !!c.sprint) : '') : ''; el.hidden = !el.innerHTML; }
     if (!this.paused) Menu.raceSettings(false);
     if (this.paused) this.audio.silence();
   },
@@ -537,6 +541,11 @@ const App = {
     const race = S.race, P = race.player;
     const portrait = this.touchOn && innerHeight > innerWidth;
     $('#rotate').hidden = !portrait;
+    if (Podium.on) { // after the flag: parc fermé and the podium (the ceremony drives the camera)
+      this.input.poll(dt, P.vx, settings);
+      try { Podium.frame(dt); } catch (err) { reportError(err); Podium.end(); }
+      return;
+    }
     if (Replay.on) { // replay: the live race stays frozen underneath
       this.input.poll(dt, P.vx, settings);
       Replay.frame(dt); this.updateVisuals(dt, S, {}); Replay.camera(this.camera); this.render(); Hud.update(dt, S, {});
@@ -555,8 +564,13 @@ const App = {
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
       if (S.online && race.phase === 'green') for (const c of race.cars) if (c.remote && performance.now() - (c.netSeen || S.netStart || (S.netStart = performance.now())) > 6000) { const key = c.remote; Net.players = Net.players.filter((p) => p.key !== key); if (race.adoptAI(c)) Hud.flash(`${c.driver.name} lost connection: the AI brings their car home`); }
+      // retired: once the car has stopped, the rest of the race is classified and the results follow
+      if (race.mode === 'race' && P.dnf && P.parked && !S.finishedAt) { race.endEarly(); S.finishedAt = performance.now() - 2000; }
       if (race.mode === 'race' && P.finished && !S.finishedAt) { S.finishedAt = performance.now(); if (S.online) Net.send({ t: 'fin', k: Net.me, time: P.finishTime }); }
-      if (S.finishedAt && performance.now() - S.finishedAt > 6000 && $('#results').hidden) Results.show(race);
+      if (S.finishedAt && $('#results').hidden && !S.podiumDone) {
+        const el = performance.now() - S.finishedAt, cer = Podium.eligible(race, S);
+        if (cer && el > 4000) Podium.start(race, S); else if (!cer && el > 6000) Results.show(race);
+      }
     }
     // draw the cars where they are between the last two physics steps, so uneven frame times don't show as judder
     const a = this.paused ? 1 : Math.min(1, S.acc * 360), real = [];
@@ -633,8 +647,54 @@ const App = {
       if (inp.spPlayPressed) Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())).catch((e) => Hud.flash(e.message));
     }
     if (inp.resetPressed && race.phase === 'green') {
-      if (P.pit && race.mode === 'race') Hud.flash('In the pit lane: the car drives itself until the pit exit');
+      if (P.dnf && race.mode === 'race') Hud.flash('Retired from the race');
+      else if (P.pit && race.mode === 'race') Hud.flash('In the pit lane: the car drives itself until the pit exit');
       else this.resetPlayer(race);
+    }
+  },
+  // what damage looks like: wing pieces hanging and dragging, a drooping rear flap, wheels leaning on bent suspension,
+  // a flat tyre with sparks from the rim, smoke from a sick power unit. Parts that come off stay on the track as debris.
+  damageVisuals(c, m, dt, near) {
+    const D = c.dmg; if (!D) return;
+    const bad = c.damageMode !== 'off' && c.damageLevel() > 0.12;
+    if (!bad && !m.dv) return;
+    if (!m.dv) {
+      const cm = GFX.mats.carbon, g = new THREE.Group(), box = (w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cm); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
+      // three.js +z is the car's right side
+      const side = (z) => ({ plate: box(0.5, 0.26, 0.02, 2.32, 0.12, 0.86 * z), flap: box(0.85, 0.02, 0.24, 2.15, 0.05, 0.6 * z) });
+      m.dv = { g, R: side(1), L: side(-1), rw: box(0.26, 0.02, 0.86, -2.42, 0.8, 0) };
+      m.body.add(g);
+    }
+    const V = m.dv, t = performance.now() * 0.001, spd = Math.min(1, Math.max(0, c.vx) / 60), on = c.damageMode !== 'off';
+    // front wing halves (the code-built car has real flaps to remove; the imported body gets hanging pieces)
+    for (const [k, h, z] of [['L', D.fwL, -1], ['R', D.fwR, 1]]) {
+      const P = V[k], show = on && h < 0.6 && !m.fwParts; P.plate.visible = P.flap.visible = show;
+      if (show) { const j = Math.sin(t * 50 + c.x + z) * spd, drag = h < 0.25 ? 1 : 0; P.plate.rotation.set((0.35 + j * 0.08 + drag * 0.5) * z, 0.2 * z, 0.55 + j * 0.05 + drag * 0.4); P.flap.rotation.set((0.12 + j * 0.06 + drag * 0.25) * z, 0, -0.18 - drag * 0.2); P.flap.visible = h > 0.08; }
+    }
+    // rear wing flap: droops, then flaps in the airflow
+    V.rw.visible = on && D.rw < 0.55;
+    if (V.rw.visible) V.rw.rotation.set(Math.sin(t * 31 + c.y) * 0.15 * spd * (D.rw < 0.25 ? 2 : 1), 0, -0.5 - (D.rw < 0.25 ? 0.5 : 0) + Math.sin(t * 23) * 0.12 * spd);
+    // suspension and tyres per corner: sim FL, FR, RL, RR -> mesh wheel order FR, FL, RR, RL (+z is right)
+    const W = [1, 0, 3, 2], piv = (i) => m.wheels[W[i]].parent;
+    let roll = 0, pitch = 0;
+    for (let i = 0; i < 4; i++) {
+      const p = piv(i), zs = i % 2 === 0 ? -1 : 1, sus = on ? D.sus[i] : 1, flat = on ? 1 - D.tyre[i] : 0;
+      p.rotation.x = zs * (1 - sus) * 0.55; // camber from a bent wishbone
+      if (i >= 2) p.rotation.y = zs * (1 - sus) * 0.18; else p.rotation.y += zs * (1 - sus) * 0.18; // and toe
+      if (p.userData.y0 === undefined) p.userData.y0 = p.position.y;
+      p.scale.y = 1 - flat * 0.2; p.position.y = p.userData.y0 - flat * 0.09; // a flat tyre: squashed, the wheel down on its rim
+      roll += zs * flat * 0.035; pitch += (i < 2 ? -1 : 1) * flat * 0.02;
+      if (near && flat > 0.4 && c.vx > 8 && Math.random() < dt * 40 && this.particles.sets.spark) { // sparks off the rim
+        const ch = Math.cos(c.h), sh = Math.sin(c.h), fx = i < 2 ? 1.7 : -1.7, ly = i % 2 === 0 ? 0.75 : -0.75, wx = c.vx * ch, wy = c.vx * sh;
+        for (let k = 0; k < 3; k++) this.particles.spawn('spark', c.x + ch * fx - sh * ly, 0.04, -(c.y + sh * fx + ch * ly), wx * 0.7 + (Math.random() - 0.5) * 5, 0.8 + Math.random() * 2.5, -(wy * 0.7 + (Math.random() - 0.5) * 5));
+      }
+    }
+    m.body.rotation.x += roll; m.body.rotation.z += pitch;
+    // power unit: white smoke when it is unwell, thick smoke when it fails
+    const pu = on ? D.pu : 1;
+    if (near && pu < 0.7 && this.particles.sets.smoke && Math.random() < dt * (pu < 0.3 || c.dnf === 'Power unit failure' ? 30 : 10)) {
+      const ch = Math.cos(c.h), sh = Math.sin(c.h);
+      this.particles.spawn('smoke', c.x - ch * 2.5, 0.75, -(c.y - sh * 2.5), -c.vx * ch * 0.25 + (Math.random() - 0.5), 0.8, c.vx * sh * 0.25 + (Math.random() - 0.5));
     }
   },
   spawnDebris(c) {
@@ -698,6 +758,7 @@ const App = {
     if (['touch', 'touchSteer', 'touchLayout', 'touchSize', 'analogPedals', 'autoGear', 'aeroAuto'].includes(key)) this.setupTouch(false);
     else if (key === 'quality') { this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); }
     else if (key === 'mirrors') this.setupMirrors(P);
+    else if (key === 'damage') { if (!S.online) S.race.cars.forEach((c) => (c.damageMode = settings.damage)); Hud.flash({ off: 'Damage off', visual: 'Damage: visual only', real: 'Damage: realistic' }[settings.damage]); }
     else if (/^setup/.test(key)) {
       // parc fermé: in a race the setup is locked once the lights are out; practice, time trial and the grid can change it
       if (S.race.mode === 'race' && S.race.phase === 'green') { Hud.flash('Car setup is locked during the race: it applies next session'); return; }
@@ -715,7 +776,7 @@ const App = {
     Object.assign(P, { slipF: 0, slipR: 0, lockF: false, lockR: false, spin: false, impact: 0, kerbHit: 0, reverse: false, stopT: 0, throttle: 0, brake: 0, axS: 0, ay: 0, surface: 'tarmac', gear: 1, rpm: 4000 });
     for (const k of ['tempF', 'tempR', 'wear', 'soc']) if (!Number.isFinite(P[k])) P[k] = { tempF: 85, tempR: 85, wear: 0, soc: SOC_MAX * 0.5 }[k];
     // practice and time trial: a reset is a trip back to the garage, so the car is repaired and the tyres are brought back to temperature
-    if (race.mode !== 'race') { P.wingHealth = 1; P.tempF = P.tempR = 90; P.wingMsg = false; }
+    if (race.mode !== 'race') { P.repairAll(); P.dmgSaid = null; P.tempF = P.tempR = 90; }
     P._px = P.x; P._py = P.y; P._ph = P.h;
     if (P.mesh) P.mesh.grp.visible = true;
     if (S) S.camSmooth = null;
@@ -725,10 +786,12 @@ const App = {
   handleEvents(race) {
     const S = this.session;
     for (const e of race.events) {
-      Radio.event(e, race);
+      Radio.event(e, race); Ach.liveCheck(race, e);
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); this.audio.cheer(0.8); }
       else if (e.type === 'msg' && e.car === race.player) Hud.banner(e.text, e.kind);
+      else if (e.type === 'damage' && e.car === race.player) { Hud.banner(e.text.split('. ')[0].replace(/[.!]$/, ''), 'warn'); if (settings.haptics && navigator.vibrate) try { navigator.vibrate(60); } catch (x) { /* no vibration */ } }
+      else if (e.type === 'dnf' && e.car !== race.player && race.mode === 'race') Hud.flash(`${e.car.driver.abbr || e.car.driver.code} retires: ${e.reason.toLowerCase()}`);
       else if (e.type === 'rainstart') Hud.banner('Rain is starting to fall', 'warn');
       else if (e.type === 'rainstop') Hud.banner('Rain has stopped: the track will dry', 'info');
       else if (e.type === 'yellow') Hud.banner(`Yellow flag · sector ${e.sector}`, 'warn');
@@ -811,20 +874,10 @@ const App = {
       m.brakeT = clamp(m.brakeT + (c.brake * Math.max(0, c.vx) * 0.0006 - m.brakeT * 0.35) * dt * 10, 0, 1);
       m.discs.forEach((dsc) => (dsc.material.emissiveIntensity = Math.max(0, m.brakeT - 0.3) * 6));
       m.frontWingOk = c.wingHealth;
+      this.damageVisuals(c, m, dt, c === P || dx0(c, P) < 160);
       // a badly damaged front wing loses its flaps and one endplate until it is replaced in the pits
       const broken = c.wingHealth < 0.5;
       if (m.fwParts && broken !== !!m.wingBroken) { m.wingBroken = broken; m.fw.forEach((g) => (g.visible = !broken)); m.fwParts.end.visible = !broken; if (broken && this.particles.sparks) this.particles.sparks(c); }
-      // imported car body: a broken endplate and flap hang off the nose and judder with speed
-      if (!m.fwParts && (c.wingHealth < 0.6 || m.dmg)) {
-        if (!m.dmg) {
-          const g = new THREE.Group(), cm = GFX.mats.carbon;
-          const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, 0.02), cm); plate.position.set(2.32, 0.12, 0.86); plate.castShadow = true; g.add(plate);
-          const flap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.02, 0.24), cm); flap.position.set(2.15, 0.05, 0.6); flap.castShadow = true; g.add(flap);
-          m.body.add(g); m.dmg = { g, plate, flap };
-        }
-        const on = c.wingHealth < 0.6; m.dmg.g.visible = on;
-        if (on) { const j = Math.sin(performance.now() * 0.05 + c.x) * Math.min(1, c.vx / 60); m.dmg.plate.rotation.set(0.35 + j * 0.08, 0.2, 0.55 + j * 0.05); m.dmg.flap.rotation.set(0.12 + j * 0.06, 0, -0.18); }
-      }
       // big hits throw carbon pieces onto the track (they stay for the session)
       if (c.impact > 12 && (c === P || Math.hypot(c.x - P.x, c.y - P.y) < 250)) this.spawnDebris(c);
       // particles near the camera
@@ -862,7 +915,7 @@ const App = {
       cam.up.set(0, 1, 0); cam.lookAt(tgt);
       cam.rotateZ(-P.mesh.body.rotation.x * 0.6);
       cam.fov = settings.fov; cam.near = mode === 'cockpit' ? 0.06 : 0.12;
-    } else if (P.pit && GFX.pit && (P.pit.phase === 'stop' || P.pit.phase === 'queue' || (P.pit.phase === 'in' && P.pit.box - P.pit.s < 30) || (P.pit.phase === 'out' && P.pit.s < P.pit.box + 12))) {
+    } else if (P.pit && GFX.pit && (P.pit.phase === 'stop' || P.pit.phase === 'parked' || P.pit.phase === 'queue' || (P.pit.phase === 'in' && P.pit.box - P.pit.s < 30) || (P.pit.phase === 'out' && P.pit.s < P.pit.box + 12))) {
       // TV angle on the pit box: from the fast-lane side, ahead of the car, looking back across the crew at the garage
       const G = GFX.pit, b = P.pit.box, eye = G.at(b + 7.5, G.P.workDist - 5.5, 2.4), tgt = G.at(b - 0.4, G.P.workDist + 0.8, 0.6);
       cam.position.lerp(eye, S.pitCam ? Math.min(1, dt * 3) : 1); S.pitCam = true; cam.up.set(0, 1, 0); cam.lookAt(tgt); cam.fov = 50; cam.near = 0.1;
@@ -1122,6 +1175,19 @@ class Particles {
 // ---- HUD --------------------------------------------------------------------
 const Hud = {
   delta: null, lastFlash: 0,
+  // the damage diagram: a top view of the car, each part green / yellow / red (a flat tyre blinks); hidden while the car is fine
+  damage(P) {
+    const el = $('#h-dmg'), D = P.dmg; if (!el || !D) return;
+    const lvl = P.damageMode === 'off' ? 0 : P.damageLevel(), show = lvl > 0.04;
+    if (el.hidden === show) el.hidden = !show;
+    if (!show) { this.dmgKey = ''; return; }
+    const col = (h) => (h > 0.8 ? '#2bd46a' : h > 0.4 ? '#ffc21f' : '#ff4d4d'), blink = performance.now() % 600 < 300;
+    const parts = { fwL: D.fwL, fwR: D.fwR, rw: D.rw, floor: D.floor, pu: D.pu };
+    const key = Object.values(parts).map((v) => v.toFixed(2)).join() + D.sus.join() + D.tyre.map((v) => v.toFixed(1)).join() + (blink ? 1 : 0);
+    if (key === this.dmgKey) return; this.dmgKey = key;
+    for (const k in parts) el.querySelector(`[data-p=${k}]`).setAttribute('fill', col(parts[k]));
+    for (let i = 0; i < 4; i++) { const h = Math.min(D.sus[i], D.tyre[i] < 0.95 ? 0.3 : 1), t = el.querySelector(`[data-p=w${i}]`); t.setAttribute('fill', D.punct[i] && blink ? '#ffffff' : col(h)); }
+  },
   show(race) {
     $('#hud').hidden = false;
     const tower = $('#tower'); tower.innerHTML = '';
@@ -1190,7 +1256,7 @@ const Hud = {
     $('#h-tf').style.background = tcol(P.tempF); $('#h-tr').style.background = tcol(P.tempR);
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
     $('#h-wear').innerHTML = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? `<span class="h-box">BOX → ${COMPOUNDS[P.pitReq].name}</span>` : ''}${S.race.env.wet > 0.05 ? `<span class="h-box wet">Track ${Math.round(S.race.env.wet * 100)}% wet</span>` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
-    $('#h-wing').hidden = P.wingHealth > 0.85;
+    $('#h-wing').hidden = true; Hud.damage(P);
     $('#h-ba').hidden = !P.assisting; $('#h-pitlane').hidden = !P.pit; $('#h-boxreq').hidden = !P.pitReq || !!P.pit;
     if (P.pitReq && !P.pit) $('#h-boxreq').textContent = `BOX THIS LAP · ${this.touchOn ? 'PIT' : 'M / PIT'} to cancel`;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc && !r.sc;
@@ -1356,21 +1422,25 @@ const Results = {
     rows.forEach((r, i) => {
       const tr = document.createElement('tr'); if (r.car === P) tr.className = 'me';
       const lapsBehind = winner.laps - r.laps;
-      const time = i === 0 ? fmtTime(r.total) : r.car.finished && lapsBehind === 0 ? fmtGap(r.total - winner.total) : r.car.finished ? `+${lapsBehind} lap${lapsBehind > 1 ? 's' : ''}` : 'Running';
+      const time = r.car.dnf ? `<span class="dnf" title="${r.car.dnf}">DNF</span>` : i === 0 ? fmtTime(r.total) : r.car.finished && lapsBehind === 0 ? fmtGap(r.total - winner.total) : r.car.finished ? `+${lapsBehind} lap${lapsBehind > 1 ? 's' : ''}` : 'Running';
       const fastest = rows.every((o) => o.best >= r.best) && isFinite(r.best);
       tr.innerHTML = `<td>${i + 1}</td><td><span class="swatch" style="background:${r.car.team.c1}"></span>${r.car.driver.name}</td><td>${r.car.team.name}</td><td class="num">${time}</td><td class="num ${fastest ? 'purple' : ''}">${fmtTime(r.best)}</td><td class="num" title="${(r.car.penalties || []).join(', ')}">${r.penalty ? '+' + r.penalty + 's' + (r.car === P && r.car.penalties ? `<small class="pen-why">${r.car.penalties.join(', ')}</small>` : '') : ''}</td><td class="num">${r.car.gridPos}</td>`;
       body.appendChild(tr);
     });
     const pos = rows.findIndex((r) => r.car === P) + 1;
-    $('#res-title').textContent = `${race.track.spec.name}: you finished P${pos}`;
+    $('#res-title').textContent = P.dnf ? `${race.track.spec.name}: retired, ${P.dnf.toLowerCase()}` : `${race.track.spec.name}: you finished P${pos}`; $('#res-extra').innerHTML = race.endedEarly ? '<p class="hint">You retired: the rest of the field is classified where it was heading at its current pace.</p>' : '';
     if (App.cfg && App.cfg.career && App.cfg.sprint && !App.cfg.recorded) {
       App.cfg.recorded = true; Career.recordSprint(race);
       $('#res-title').textContent = `Sprint, ${race.track.spec.name}: P${pos} · ${Career.data.lastSprint.pts} points`;
       $('#r-again').textContent = 'On to the Grand Prix'; $('#r-menu').hidden = true;
+      $('#res-extra').innerHTML = Ach.toastHTML(Career.data.lastSprint.ach);
     } else if (App.cfg && App.cfg.career && !App.cfg.recorded) {
       App.cfg.recorded = true;
       const last = Career.recordRace(race);
       $('#res-title').textContent += ` · ${last.pts} points, +${last.earned} development`;
+      const ee = race.endedEarly ? $('#res-extra').innerHTML : '';
+      { const st = Career.standings().drivers, i = st.findIndex((x) => x.me), ref = i ? st[0] : st[1];
+        $('#res-extra').innerHTML = ee + Ach.toastHTML(last.ach) + CareerGoals.resultHTML(last.score) + (last.bill ? `<p class="hint">Repairs: −${last.bill} development points${last.crash ? ', and the team is unhappy about the crash' : ''}.</p>` : '') + `<p class="hint">Championship: P${i + 1}, ${st[i].pts} pts${ref ? `, ${i ? `${ref.pts - st[i].pts} behind ${ref.name}` : `${st[i].pts - ref.pts} ahead of ${ref.name}`}` : ''}.</p>`; }
       $('#r-again').textContent = 'Continue career'; $('#r-menu').hidden = true;
     }
     $('#results').hidden = false;
@@ -1748,7 +1818,7 @@ const Menu = {
     // stepped menu
     // career and online need their own panel; the other modes race straight from the showroom
     $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => {
-      const wasCareer = this.lastMode === 'career', isCareer = settings.mode === 'career'; this.lastMode = settings.mode;
+      const wasCareer = this.lastMode === 'career', isCareer = settings.mode === 'career'; this.lastMode = settings.mode; if (!isCareer) $('#season-end').hidden = true;
       if (wasCareer !== isCareer && Career.data) App.preview(isCareer && Career.track() ? Career.track().id : settings.track);
       this.drawer(isCareer || settings.mode === 'online' ? settings.mode : null);
     }, 0)));
@@ -1812,6 +1882,7 @@ const Menu = {
       App.restart();
     };
     $('#r-menu').onclick = () => App.quit();
+    $('#podium-ui').addEventListener('pointerdown', (e) => { e.preventDefault(); Podium.end(); }); // tap or click skips the ceremony
     $('#p-finishq').onclick = () => { $('#pause').hidden = true; App.paused = false; App.session.qualiDone = true; (App.cfg && App.cfg.gp ? Weekend : Career).finishQuali(App.session.race); };
     Career.init();
     this.buildBinds();
@@ -1902,12 +1973,12 @@ const Menu = {
   // difficulty: one tap sets every driving aid and the AI pace
   levels() {
     return {
-      beginner: { tc: 2, abs: true, steerAssist: true, stab: 2, brakeAssist: true, aiPace: 0.88 },
-      intermediate: { tc: 1, abs: true, steerAssist: true, stab: 1, brakeAssist: false, aiPace: 0.96 },
-      pro: { tc: 0, abs: false, steerAssist: false, stab: 0, brakeAssist: false, aiPace: 1.0 },
+      beginner: { tc: 2, abs: true, steerAssist: true, stab: 2, brakeAssist: true, aiPace: 0.88, damage: 'visual' },
+      intermediate: { tc: 1, abs: true, steerAssist: true, stab: 1, brakeAssist: false, aiPace: 0.96, damage: 'real' },
+      pro: { tc: 0, abs: false, steerAssist: false, stab: 0, brakeAssist: false, aiPace: 1.0, damage: 'real' },
     };
   },
-  levelOf() { const L = this.levels(); return Object.keys(L).find((k) => Object.entries(L[k]).every(([o, v]) => Math.abs((+settings[o]) - (+v)) < 0.005)) || 'custom'; },
+  levelOf() { const L = this.levels(); return Object.keys(L).find((k) => Object.entries(L[k]).every(([o, v]) => (typeof v === 'string' ? settings[o] === v : Math.abs((+settings[o]) - (+v)) < 0.005))) || 'custom'; },
   applyLevel(name) {
     const L = this.levels()[name]; if (!L) return;
     Object.assign(settings, L); saveSettings();
@@ -1964,5 +2035,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.SIM = { AIDriver, Race, TRACKS, settings }; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
