@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: true, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -24,7 +24,9 @@ if (settings.v < 5) settings.v = 5;
 if (settings.v < 6) { if (!IS_TOUCH && settings.quality === 3) settings.quality = 2; settings.v = 6; } // High by default: smooth first
 if (settings.v < 7) { if (settings.stab === undefined || settings.v < 7) settings.stab = 1; settings.v = 7; } // light stability control for everyone who had none // image quality first: undo automatic step-downs
 if (settings.v < 8) { if (IS_TOUCH && settings.quality === 1 && settings.autoRes) { settings.quality = 2; } settings.v = 8; } // undo the automatic drop to Medium after the memory crash (fixed)
+if (settings.v < 10) { settings.heat = false; } // the exhaust heat shimmer sits mid-screen in the chase view: off unless chosen
 if (settings.v < 9) { if (settings.brakeAssist && settings.stab === 2 && settings.tc === 2) settings.damage = 'visual'; settings.v = 9; } // car damage arrives: beginners see it without it changing the handling
+if (settings.v < 10) settings.v = 10;
 const saveSettings = () => store.set('settings', settings);
 
 const App = {
@@ -932,7 +934,8 @@ const App = {
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));
       m.flapPivot.rotation.z = -0.45 + m.aeroT * 0.38;
       m.fw[0].rotation.z = m.aeroT * 0.18; m.fw[1].rotation.z = m.aeroT * 0.26;
-      m.rainLight.material.emissiveIntensity = (c.harvesting || race.env.wet > 0.3) && (performance.now() % 400 < 200) ? 6 : 0;
+      // the rear light blinks when harvesting and in the wet; on your own car (right in front of the chase camera) only in the wet
+      m.rainLight.material.emissiveIntensity = ((c.harvesting && c !== P) || race.env.wet > 0.3) && (performance.now() % 400 < 200) ? 6 : 0;
       // brake discs glow under heavy braking
       m.brakeT = clamp(m.brakeT + (c.brake * Math.max(0, c.vx) * 0.0006 - m.brakeT * 0.35) * dt * 10, 0, 1);
       m.discs.forEach((dsc) => (dsc.material.emissiveIntensity = Math.max(0, m.brakeT - 0.3) * 6));
