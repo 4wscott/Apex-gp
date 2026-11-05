@@ -9,7 +9,7 @@ const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewp
   await ctx.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ body: '', contentType: 'text/css' }));
   await ctx.route('**/iframe_api', (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
   await ctx.route('http://local/', (r) => r.fulfill({ body: html, contentType: 'text/html' }));
-  await page.addInitScript((q) => { localStorage.setItem('apexgp.settings', JSON.stringify({ quality: q, v: 7, mode: 'race', track: 'silver', camera: 'chase', opponents: 21, laps: 3 })); }, +(process.argv[2] || 2));
+  await page.addInitScript((q) => { localStorage.setItem('apexgp.settings', JSON.stringify({ quality: q, v: 10, mode: 'race', track: 'silver', camera: 'chase', opponents: 21, laps: 3 })); }, +(process.argv[2] || 2));
   await page.goto('http://local/'); await page.waitForTimeout(7000);
   const measure = () => page.evaluate(() => {
     const seen = new Set(), by = {}; let total = 0;
