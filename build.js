@@ -47,7 +47,16 @@ const siteJs = ASSETS.map((f) => fs.readFileSync(path.join(__dirname, 'assets', 
   .replace(/"([A-Za-z0-9+/=]{2000,})"/g, (m, b) => JSON.stringify(toFile(b, f === 'hdri.js' ? 'exr' : 'bin')))).join('\n');
 const siteHtml = src('shell.html').replace('/*__SCRIPTS__*/', () => siteJs + '\n' + appJs);
 console.log('site page', (siteHtml.length / 1024).toFixed(0) + ' KB, plus', (moved / 1024).toFixed(0) + ' KB of files in a/');
-fs.writeFileSync(path.join(site, 'index.html'), head + siteHtml + reg);
+// minified for the installed app (same code, about half the size, quicker to parse on a phone); the readable
+// index.html stays as it is for testing. Skipped with a warning if esbuild is not installed.
+let outHtml = siteHtml;
+try {
+  const esb = require('esbuild'), before = outHtml.length;
+  outHtml = outHtml.replace(/<script type="module">([\s\S]*?)<\/script>/g, (m, code) => '<script type="module">' + esb.transformSync(code, { minify: true, format: 'esm', target: 'es2020', legalComments: 'none' }).code.replace(/<\/script/gi, '<\\/script') + '</script>');
+  outHtml = outHtml.replace(/<style>([\s\S]*?)<\/style>/g, (m, css) => '<style>' + esb.transformSync(css, { loader: 'css', minify: true }).code + '</style>');
+  console.log('minified', (before / 1024).toFixed(0) + ' KB ->', (outHtml.length / 1024).toFixed(0) + ' KB');
+} catch (e) { console.warn('not minified (' + e.message.split('\n')[0] + ')'); }
+fs.writeFileSync(path.join(site, 'index.html'), head + outHtml + reg);
 fs.writeFileSync(path.join(site, 'sw.js'), fs.readFileSync(path.join(__dirname, 'pwa', 'sw.js'), 'utf8').replace('__BUILD__', BUILD).replace('__ASSETS__', () => JSON.stringify(fs.readdirSync(path.join(site, 'a')).map((f) => './a/' + f))));
 fs.copyFileSync(path.join(__dirname, 'pwa', 'manifest.webmanifest'), path.join(site, 'manifest.webmanifest'));
 for (const f of fs.readdirSync(path.join(__dirname, 'pwa', 'icons'))) fs.copyFileSync(path.join(__dirname, 'pwa', 'icons', f), path.join(site, 'icons', f));

@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install the minifier
+        run: npm install --no-save --no-package-lock esbuild@0.24.2
       - name: Build game and installable app
         run: node build.js
       - uses: actions/configure-pages@v5

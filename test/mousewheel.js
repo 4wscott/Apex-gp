@@ -6,7 +6,7 @@ const html = '<!doctype html><html><head><meta charset="utf-8"><style>[hidden]{d
 let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' + msg); if (!c) fails++; };
 (async () => {
   const br = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-  const page = await br.newPage({ viewport: { width: 1280, height: 720 } }); const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+  const page = await br.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 2 }); const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**', (r) => { const u = new URL(r.request().url()); r.fulfill({ body: fs.readFileSync(SP + 't160/package/' + u.pathname.replace('/npm/three@0.160.0/', ''), 'utf8'), contentType: 'application/javascript' }); });
   await page.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ body: '', contentType: 'text/css' }));
   await page.route('**/iframe_api', (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));
@@ -27,10 +27,11 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await page.mouse.move(cx + 110, cy); await page.mouse.down();
   for (let k = 1; k <= 10; k++) { const a = (k / 10) * 0.9; await page.mouse.move(cx + 110 * Math.cos(a), cy + 110 * Math.sin(a)); await frames(8); }
   await frames(10);
-  const turning = await ev(() => ({ steer: App.input.state.steer, delta: App.session.race.player.delta, rot: document.querySelector('#mw-svg').style.transform }));
+  const turning = await ev(() => ({ steer: App.input.state.steer, delta: App.session.race.player.delta, rot: document.querySelector('#mw-rot').style.transform }));
   console.log(JSON.stringify(turning));
   ok(turning.steer < -0.3 && turning.delta < -0.02, 'turning the wheel clockwise steers right');
   await page.screenshot({ path: OUT + 'mw-turn.png' });
+  await page.locator('#mwheel').screenshot({ path: OUT + 'mw-close.png' });
   await page.mouse.up(); await frames(20);
   console.log('after release', JSON.stringify(await ev(() => ({ g: MouseWheel.grabbing, tgt: MouseWheel.tgt, st: MouseWheel.steer, s: App.input.state.steer }))));
   ok(await ev(() => Math.abs(App.input.state.steer) < 0.05), 'let go: the wheel springs back to centre');
