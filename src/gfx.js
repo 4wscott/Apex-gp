@@ -383,11 +383,10 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
   sign(P.speedLine1 - 2, P.path(P.speedLine1) + 4.4, ring('80')); sign(P.speedLine2 + 2, P.path(P.speedLine2) + 4.4, ring('80', true));
   sign(8, P.path(8) + 4.4, (g, w, h) => { g.fillStyle = '#0b3d91'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.font = `800 ${w * 0.4}px "Saira Condensed", Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT', w / 2, h * 0.42); g.font = `700 ${w * 0.15}px Arial`; g.fillText('ENTRY →', w / 2, h * 0.78); });
 
-  // ---- garages, at real scale: each team has two narrow bays, one per car (a 2026 car is 1.9 m wide: a bay is
-  // 4.6 m, the car plus a walkway each side, and 12 m deep with a 4.2 m door), a team divider between them, and only a
-  // few things inside: the car's floor outline, a tyre rack in team blankets at the back, a tool trolley, a screen and
+  // ---- garages, at real scale: one narrow bay per team (a 2026 car is 1.9 m wide: the bay is 4.6 m, the car plus a
+  // walkway each side, and 12 m deep with a 4.2 m door), with only a few things inside: the car's floor outline, a tyre rack in team blankets at the back, a tool trolley, a screen and
   // strip lights. Between teams the pit building shows closed roller shutters, like the unused garages along a real lane
-  const sp = P.boxSpacing, bw = 4.6, dv = 0.3, D = 12, Hd = 4.2, Hb = 9, front = P.garageDist;
+  const sp = P.boxSpacing, bw = 4.6, D = 12, Hd = 4.2, Hb = 9, front = P.garageDist;
   const first = P.boxS(0) - sp / 2 - 12, last = P.boxS(10) + sp / 2 + 12;
   const shutterTex = scaledTex(256, 256, 1, (q, w, h) => { q.fillStyle = '#9ca2aa'; q.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 8) { q.fillStyle = 'rgba(0,0,0,0.18)'; q.fillRect(0, y, w, 2); q.fillStyle = 'rgba(255,255,255,0.12)'; q.fillRect(0, y + 2, w, 1); } });
   const facade = (len) => { const t = shutterTex.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(Math.max(1, Math.round(len / 5)), 1); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, metalness: 0.3 }); };
@@ -399,7 +398,7 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
   const drawerM = new THREE.MeshStandardMaterial({ color: 0x8b0f14, roughness: 0.35, metalness: 0.4 }), screenM = new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x2a6fb0, emissiveIntensity: 0.9 });
   const stripG = new THREE.BoxGeometry(0.2, 0.05, D - 2), chestG = new THREE.BoxGeometry(1.0, 1.0, 0.55), drawerG = new THREE.BoxGeometry(0.92, 0.07, 0.02), tyreGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.34, 18);
   TEAMS.forEach((tm, k) => {
-    const c = P.boxS(k), acc = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3, span = bw * 2 + dv, s0 = c - span / 2, s1 = c + span / 2;
+    const c = P.boxS(k), acc = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3, span = bw, s0 = c - span / 2, s1 = c + span / 2;
     block(prev, s0, 0, Hb, true); prev = s1;
     block(s0, s1, Hd, Hb); // above the doors
     const g = new THREE.Group(); place(g, c, front, 0);
@@ -410,17 +409,15 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
     });
     const backM = new THREE.MeshStandardMaterial({ map: backTex, roughness: 0.6 });
     const sideTex = scaledTex(512, 192, 1, (q, w, h) => { q.fillStyle = '#d6dade'; q.fillRect(0, 0, w, h); q.strokeStyle = 'rgba(0,0,0,0.08)'; q.lineWidth = 2; for (let x = 0; x < w; x += w / 5) { q.beginPath(); q.moveTo(x, 0); q.lineTo(x, h); q.stroke(); } q.fillStyle = tm.c1; q.fillRect(0, h * 0.42, w, h * 0.1); });
-    const sideM = new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.7 }), divM = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.6 });
+    const sideM = new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.7 });
     const outlineM = decal(new THREE.MeshStandardMaterial({ map: scaledTex(128, 256, 1, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#777' : tm.c1; q.lineWidth = 6; q.strokeRect(4, 4, w - 8, h - 8); }), transparent: true, roughness: 0.4 }), 6);
     const blanket = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.9 });
-    // the divider between the two bays, in team colour
-    const div = new THREE.Mesh(new THREE.BoxGeometry(dv, Hd, D), divM); div.position.set(0, Hd / 2, D / 2); g.add(div);
-    for (const sd of [-1, 1]) {
-      const x0 = sd * (bw / 2 + dv / 2);
+    for (const sd of [1]) {
+      const x0 = 0;
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(-Math.PI / 2), epoxy); floor.position.set(x0, 0.04, D / 2); g.add(floor);
       const outline = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 5.8).rotateX(-Math.PI / 2), outlineM); outline.position.set(x0, 0.05, 4.2); g.add(outline);
       const back = new THREE.Mesh(new THREE.PlaneGeometry(bw, Hd), backM); back.position.set(x0, Hd / 2, D - 0.02); back.rotation.y = Math.PI; g.add(back);
-      const wall = new THREE.Mesh(new THREE.PlaneGeometry(D, Hd), sideM); wall.position.set(x0 + sd * bw / 2, Hd / 2, D / 2); wall.rotation.y = -sd * Math.PI / 2; g.add(wall);
+      for (const w of [-1, 1]) { const wall = new THREE.Mesh(new THREE.PlaneGeometry(D, Hd), sideM); wall.position.set(w * bw / 2, Hd / 2, D / 2); wall.rotation.y = -w * Math.PI / 2; g.add(wall); }
       const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(Math.PI / 2), ceilM); ceil.position.set(x0, Hd, D / 2); g.add(ceil);
       for (const dx of [-1.1, 1.1]) { const st2 = new THREE.Mesh(stripG, stripM); st2.position.set(x0 + dx, Hd - 0.04, D / 2); g.add(st2); }
       if (quality >= 1) {
