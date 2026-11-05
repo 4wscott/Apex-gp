@@ -49,7 +49,7 @@ const App = {
     this.gpuName = this.gpu.replace(/^ANGLE \((.*)\)$/, '$1').replace(/Direct3D.*$|\(0x[0-9a-f]+\)|vs_\d_\d.*$/gi, '').replace(/,\s*$/, '').split(',').slice(-1)[0].trim().slice(0, 48);
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.86;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    GFX.maxAniso = renderer.capabilities.getMaxAnisotropy();
+    GFX.maxAniso = Math.min(renderer.capabilities.getMaxAnisotropy(), [2, 4, 16, 16][settings.quality] || 16); // fewer texture samples on Low/Medium
     GFX.tex = makeTextures();
     GFX.geo = makeCarGeometries();
     GFX.wind = { value: 0 };
@@ -285,7 +285,7 @@ const App = {
     let pr = Math.min(dpr, [1, 1, 1.5, 2][settings.quality]);
     // a pixel budget per quality level, so a big or high-DPI monitor doesn't multiply the work: about 1080p on Medium,
     // 1440p on High and 4K on Ultra, drawn at that size and scaled to fill the screen (normal screens are unaffected)
-    const budget = [1.3e6, 2.1e6, 3.7e6, 8.3e6][settings.quality] || 3.7e6;
+    const budget = [0.95e6, 2.1e6, 3.7e6, 8.3e6][settings.quality] || 3.7e6; // Low draws about 720p and scales it up
     if (w * h * pr * pr > budget) pr = Math.sqrt(budget / (w * h));
     pr *= settings.autoRes ? this.resScale || 1 : 1;
     this.renderPx = Math.round(w * pr) + '×' + Math.round(h * pr);
@@ -460,7 +460,7 @@ const App = {
       this.session = { T, race, acc: 0, meshes: [], camMode: settings.camera, camSmooth: null, finishedAt: 0, ghost: null, ghostRec: [], ghostT: 0, msgs: [], shake: 0, online: !!(cfg && cfg.online), netT: 0 };
       race.cars.forEach((c) => {
         const m = makeCar(c.team, c.driver.num, GFX.geo, GFX.mats, c.compound, c === race.player, c === race.player && cfg ? cfg.livery : null);
-        this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m; carDetailLOD(m);
+        this.worldRoot.add(m.grp); this.session.meshes.push(m); c.mesh = m; m.grp.userData.car = true; carDetailLOD(m);
       });
       PitCrew.reset(this.worldRoot);
       this.setupCockpit(race.player);
@@ -474,6 +474,7 @@ const App = {
       Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null;
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
+      if (settings.quality === 0) liteMaterials(this.worldRoot);
       Hud.show(race); MouseWheel.show(!this.touchOn); $('#loading').hidden = true; $('#perf').hidden = !settings.showPerf; this.pm = null;
       this.setupTouch(true);
       this.paused = false;
@@ -821,7 +822,7 @@ const App = {
     const S = this.session; if (!S) return;
     const P = S.race.player;
     if (['touch', 'touchSteer', 'touchLayout', 'touchSize', 'analogPedals', 'autoGear', 'aeroAuto'].includes(key)) this.setupTouch(false);
-    else if (key === 'quality') { this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); }
+    else if (key === 'quality') { GFX.maxAniso = Math.min(this.renderer.capabilities.getMaxAnisotropy(), [2, 4, 16, 16][settings.quality] || 16); this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); if (settings.quality === 0) liteMaterials(this.worldRoot); }
     else if (key === 'mirrors') this.setupMirrors(P);
     else if (key === 'mouseSteer') MouseWheel.show(!this.touchOn);
     else if (key === 'damage') { if (!S.online) S.race.cars.forEach((c) => (c.damageMode = settings.damage)); Hud.flash({ off: 'Damage off', visual: 'Damage: visual only', real: 'Damage: realistic' }[settings.damage]); }
@@ -944,7 +945,7 @@ const App = {
       // from further out the car stops casting a shadow. Detail goes on a camera layer that isn't drawn, so nothing
       // that sets visibility each frame fights it
       if (m.detail) {
-        const d0 = c === P ? 0 : dx0(c, P), far = m.isFar ? d0 > 32 : d0 > 40, noSh = m.noShadow ? d0 > 60 : d0 > 75;
+        const d0 = c === P ? 0 : dx0(c, P), fd = [20, 30, 40, 40][settings.quality] || 40, far = m.isFar ? d0 > fd * 0.8 : d0 > fd, noSh = m.noShadow ? d0 > 60 : d0 > 75; // detail drops sooner on Low and Medium
         if (far !== !!m.isFar) { m.isFar = far; for (const o of m.detail) o.layers.set(far ? 1 : 0); }
         if (noSh !== !!m.noShadow) { m.noShadow = noSh; for (const o of m.shadowed) o.castShadow = !noSh; }
       }
@@ -1082,6 +1083,25 @@ const applyAudioSession = () => {
 // music level while racing, relative to the menu
 const raceMusic = () => ({ off: 0, quiet: 0.35, full: 1 }[settings.musicRace] ?? 0.35);
 const dx0 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// Low (built-in graphics): the clear-coated physical paint becomes plain standard paint (one shading layer instead of
+// two), and only cars cast shadows. Copies are shared, so each material is converted once.
+const LITE_MATS = new Map();
+function liteMaterials(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    if (!o.isInstancedMesh && !o.isSkinnedMesh && o.castShadow && !o.userData.car) { let p = o; while (p && !p.userData.car) p = p.parent; if (!p) o.castShadow = false; }
+    const conv = (m) => {
+      if (!m || !m.isMeshPhysicalMaterial) return m;
+      if (!LITE_MATS.has(m.uuid)) {
+        const s = new THREE.MeshStandardMaterial();
+        for (const k of ['color', 'map', 'normalMap', 'normalScale', 'roughness', 'roughnessMap', 'metalness', 'metalnessMap', 'emissive', 'emissiveMap', 'emissiveIntensity', 'envMap', 'envMapIntensity', 'aoMap', 'transparent', 'opacity', 'side', 'alphaTest', 'vertexColors', 'depthWrite']) if (m[k] !== undefined) s[k] = m[k] && m[k].clone && !m[k].isTexture ? m[k].clone() : m[k];
+        s.roughness = Math.max(0.18, m.roughness * 0.85); s.name = m.name; s.onBeforeCompile = m.onBeforeCompile; if (m.customProgramCacheKey !== THREE.Material.prototype.customProgramCacheKey) { const k = m.customProgramCacheKey(); s.customProgramCacheKey = () => 'lite-' + k; } LITE_MATS.set(m.uuid, s); // keeps a paint design
+      }
+      return LITE_MATS.get(m.uuid);
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material);
+  });
+}
 // split a car into what is always drawn (body, tyres, rims, ground shadow) and the small detail a distant car can do without
 function carDetailLOD(m) {
   if (!m.modelBody) return; // the code-built body is made of many parts that all matter
@@ -2027,10 +2047,10 @@ const Menu = {
         : App.softGPU
         ? '<b>⚠ Your browser is not using your graphics card</b> (it is drawing the 3D on the processor: <i>' + App.gpuName + '</i>), which makes the game around ten times slower. To fix it in <b>Chrome or Edge</b>: open Settings → System → turn on <b>Use graphics acceleration when available</b> → Relaunch. If it is already on, update your graphics driver. On a laptop with two graphics chips: Windows Settings → System → Display → Graphics → choose your browser → <b>High performance</b>.'
         : App.weakGPU
-          ? 'Graphics in use: <b>' + App.gpuName + '</b>, a light chip built into the processor. For a smooth race pick <b>Smooth</b> (Medium quality, and the resolution adjusts itself to hold the frame rate). <button type="button" class="btn" id="gpu-smooth">Use Smooth</button>'
+          ? 'Graphics in use: <b>' + App.gpuName + '</b>, a light chip built into the processor. For a smooth race pick <b>Lite</b>: made for built-in graphics (about 720p scaled to your screen, no screen effects, simpler paint, the resolution adjusts itself to hold the frame rate). <button type="button" class="btn" id="gpu-smooth">Use Lite</button>'
           : 'Graphics card in use: <b>' + (App.gpuName || 'unknown') + '</b>';
       el.classList.toggle('warn-box', !!App.softGPU);
-      const b = $('#gpu-smooth'); if (b) b.onclick = () => { this.applyPreset('smooth'); this.sync(); Hud.flash('Smooth preset on'); }; } }
+      const b = $('#gpu-smooth'); if (b) b.onclick = () => { this.applyPreset('lite'); this.sync(); Hud.flash('Lite preset on'); }; } }
     $$('.circuit').forEach((b) => b.setAttribute('aria-pressed', b.dataset.id === settings.track));
     $$('.drv').forEach((b) => b.setAttribute('aria-pressed', b.dataset.team === settings.team && b.dataset.code === settings.driver));
     $$('.team').forEach((t) => t.classList.toggle('sel', t.dataset.id === settings.team));
@@ -2080,6 +2100,7 @@ const Menu = {
   // graphics presets: each sets the options that matter most for smoothness vs looks; any other mix shows as Custom
   presets() {
     return {
+      lite: { quality: 0, mirrors: false, autoRes: true, heat: false },
       smooth: { quality: 1, mirrors: false, autoRes: true },
       balanced: { quality: 2, mirrors: !IS_TOUCH, autoRes: IS_TOUCH },
       beautiful: { quality: 3, mirrors: true, autoRes: false },

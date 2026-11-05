@@ -2,6 +2,23 @@
 // Teams: perf.p = power-unit factor, perf.a = aero (downforce) factor.
 // Colours follow the 2026 grid's liveries; names are fictional and can be
 // renamed by the player in the roster editor (stored on their device).
+// Paint designs in the style of the real grid, applied over each car's own panels by position on the car:
+// fade: [colour, from, to] along the car (0 = rear, 1 = nose) the main colour fades into; lower: [colour, height] the
+// body below that height (0 = floor, 1 = top) takes; belt: [colour, height, width] a stripe along the side;
+// nose: [colour, from] the nose from that point forward. Colours name the team's own c1 / c2 / c3, or are hex.
+const DESIGNS = {
+  rossa: { lower: ['c3', 0.16], belt: ['c2', 0.5, 0.025] },               // red, black floor line, a white pinstripe
+  argento: { fade: ['c3', 0.62, 0.22], belt: ['c2', 0.44, 0.02] },        // silver fading to black at the rear, teal line
+  taurus: { nose: ['c2', 0.84], belt: ['c3', 0.46, 0.03] },               // dark navy, red nose, yellow flash
+  ardent: { lower: ['c2', 0.34], nose: ['c2', 0.93] },                    // papaya over a black lower body
+  verdant: { belt: ['c2', 0.48, 0.03], lower: ['c3', 0.14] },             // racing green, lime stripe
+  massif: { fade: ['c2', 0.55, 0.18] },                                   // blue fading into pink at the rear
+  grove: { fade: ['#071a45', 0.7, 0.25], belt: ['c2', 0.5, 0.022] },      // dark blue deepening rearward, cyan line
+  faenza: { lower: ['c2', 0.36], belt: ['c3', 0.37, 0.012] },             // white over blue, a red line between
+  kanna: { lower: ['c3', 0.3], belt: ['c2', 0.32, 0.02] },                // white over black, red line
+  nord: { fade: ['c3', 0.5, 0.15], nose: ['c2', 0.95] },                  // titanium grey into black, red tip
+  liberty: { lower: ['c2', 0.38], belt: ['c3', 0.39, 0.012] },            // black over silver, a gold line
+};
 const TEAMS = [
   { id: 'rossa',   name: 'Scuderia Rossa',     c1: '#9e0a17', c2: '#ffffff', c3: '#111111', style: 'sf25', perf: { p: 1.000, a: 0.995 },
     drivers: [{ name: 'Matteo Corsini', code: 'COR', num: 16, skill: 0.985 }, { name: 'Elias Navarro', code: 'NAV', num: 44, skill: 0.990 }] },

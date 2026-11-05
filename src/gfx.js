@@ -383,34 +383,56 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
   sign(P.speedLine1 - 2, P.path(P.speedLine1) + 4.4, ring('80')); sign(P.speedLine2 + 2, P.path(P.speedLine2) + 4.4, ring('80', true));
   sign(8, P.path(8) + 4.4, (g, w, h) => { g.fillStyle = '#0b3d91'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.font = `800 ${w * 0.4}px "Saira Condensed", Arial`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('PIT', w / 2, h * 0.42); g.font = `700 ${w * 0.15}px Arial`; g.fillText('ENTRY →', w / 2, h * 0.78); });
 
-  // ---- garages: one bay per team behind its box, with white façade blocks between ----
-  const sp = P.boxSpacing, bw = Math.min(sp - 2, 15), D = 18, Hb = 10, front = P.garageDist;
+  // ---- garages, at real scale: each team has two narrow bays, one per car (a 2026 car is 1.9 m wide: a bay is
+  // 4.6 m, the car plus a walkway each side, and 12 m deep with a 4.2 m door), a team divider between them, and only a
+  // few things inside: the car's floor outline, a tyre rack in team blankets at the back, a tool trolley, a screen and
+  // strip lights. Between teams the pit building shows closed roller shutters, like the unused garages along a real lane
+  const sp = P.boxSpacing, bw = 4.6, dv = 0.3, D = 12, Hd = 4.2, Hb = 9, front = P.garageDist;
   const first = P.boxS(0) - sp / 2 - 12, last = P.boxS(10) + sp / 2 + 12;
-  const block = (s0, s1, h0, h1) => { if (s1 - s0 < 0.2) return; const m = new THREE.Mesh(new THREE.BoxGeometry(s1 - s0, h1 - h0, D), white); m.castShadow = m.receiveShadow = true; place(m, (s0 + s1) / 2, front + D / 2, (h0 + h1) / 2); };
+  const shutterTex = scaledTex(256, 256, 1, (q, w, h) => { q.fillStyle = '#9ca2aa'; q.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 8) { q.fillStyle = 'rgba(0,0,0,0.18)'; q.fillRect(0, y, w, 2); q.fillStyle = 'rgba(255,255,255,0.12)'; q.fillRect(0, y + 2, w, 1); } });
+  const facade = (len) => { const t = shutterTex.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(Math.max(1, Math.round(len / 5)), 1); return new THREE.MeshStandardMaterial({ map: t, roughness: 0.6, metalness: 0.3 }); };
+  const block = (s0, s1, h0, h1, shut) => { if (s1 - s0 < 0.2) return; const len = s1 - s0, m = new THREE.Mesh(new THREE.BoxGeometry(len, h1 - h0, D), shut ? [white, white, white, white, white, facade(len)] : white); m.castShadow = m.receiveShadow = true; place(m, (s0 + s1) / 2, front + D / 2, (h0 + h1) / 2); };
   let prev = first;
   const lights = [];
+  const epoxy = new THREE.MeshStandardMaterial({ color: 0xb9bdc3, roughness: 0.22, metalness: 0.05 }), ceilM = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.8 });
+  const stripM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.2 }), chestM = new THREE.MeshStandardMaterial({ color: 0x24272d, roughness: 0.4, metalness: 0.5 });
+  const drawerM = new THREE.MeshStandardMaterial({ color: 0x8b0f14, roughness: 0.35, metalness: 0.4 }), screenM = new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x2a6fb0, emissiveIntensity: 0.9 });
+  const stripG = new THREE.BoxGeometry(0.2, 0.05, D - 2), chestG = new THREE.BoxGeometry(1.0, 1.0, 0.55), drawerG = new THREE.BoxGeometry(0.92, 0.07, 0.02), tyreGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.34, 18);
   TEAMS.forEach((tm, k) => {
-    const c = P.boxS(k), s0 = c - bw / 2, s1 = c + bw / 2;
-    block(prev, s0, 0, Hb); prev = s1;
-    block(s0, s1, 7, Hb); // above the door
+    const c = P.boxS(k), acc = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3, span = bw * 2 + dv, s0 = c - span / 2, s1 = c + span / 2;
+    block(prev, s0, 0, Hb, true); prev = s1;
+    block(s0, s1, Hd, Hb); // above the doors
     const g = new THREE.Group(); place(g, c, front, 0);
-    // interior: epoxy floor, team-coloured back wall with the team name, light ceiling, side walls
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc9ccd1, roughness: 0.25, metalness: 0.1 })); floor.position.set(0, 0.04, D / 2); g.add(floor);
-    // the back wall is only seen across the pit lane: painted at half size (a quarter of the memory), same picture
-    const backTex = scaledTex(1024, 512, 2, (q, w, h) => { q.fillStyle = tm.c1; q.fillRect(0, 0, w, h); q.fillStyle = lum(tm.c2) > 0.18 ? tm.c2 : tm.c3; q.fillRect(0, h * 0.62, w, h * 0.08); q.fillStyle = lum(tm.c1) > 0.55 ? '#121417' : '#fff'; q.font = `800 ${h * 0.2}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w / 2, h * 0.42); });
-    const back = new THREE.Mesh(new THREE.PlaneGeometry(bw, 7), new THREE.MeshStandardMaterial({ map: backTex, roughness: 0.6 })); back.position.set(0, 3.5, D - 0.3); back.rotation.y = Math.PI; g.add(back);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.6 })); ceil.position.set(0, 7, D / 2); g.add(ceil);
-    for (const sd of [-1, 1]) { const w2 = new THREE.Mesh(new THREE.PlaneGeometry(D, 7), new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.7 })); w2.position.set(sd * bw / 2, 3.5, D / 2); w2.rotation.y = -sd * Math.PI / 2; g.add(w2); }
-    // name board over the door
-    const signTex = canvasTex(1024, 160, (q, w, h) => { q.fillStyle = '#16181c'; q.fillRect(0, 0, w, h); q.fillStyle = tm.c1; q.fillRect(0, 0, w * 0.06, h); q.fillStyle = '#fff'; q.font = `800 ${h * 0.55}px "Saira Condensed", Arial`; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w * 0.09, h * 0.54); q.textAlign = 'right'; q.fillStyle = '#aab'; q.fillText(tm.drivers.map((d) => d.num).join(' · '), w * 0.97, h * 0.54); });
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(bw * 0.9, bw * 0.9 * 160 / 1024), new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.4, emissive: 0xffffff, emissiveMap: signTex, emissiveIntensity: 0.35 })); board.position.set(0, 8.4, -0.05); board.rotation.y = Math.PI; g.add(board);
-    if (quality >= 1) {
-      // tyre racks with tyres in blankets along the back wall, tool trolleys
-      const blanket = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.9 }), tyreGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.34, 18);
-      for (let r = 0; r < 4; r++) for (let st = 0; st < 4; st++) { const ty = new THREE.Mesh(tyreGeo, blanket); ty.position.set(-bw / 2 + 1.4 + r * 0.85 + (r > 1 ? bw - 5.6 : 0), 0.2 + st * 0.36, D - 1.4); g.add(ty); }
-      for (const x of [-2.5, 2.5]) { const tr = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.0, 0.6), new THREE.MeshStandardMaterial({ color: lum(tm.c2) > 0.18 ? tm.c2 : tm.c1, roughness: 0.4, metalness: 0.3 })); tr.position.set(x, 0.55, D - 4); g.add(tr); }
-      const scr = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.08), new THREE.MeshStandardMaterial({ color: 0x0b0d10, emissive: 0x1d3b5a, emissiveIntensity: 0.8 })); scr.position.set(0, 4.6, D - 0.5); g.add(scr);
+    const backTex = scaledTex(512, 256, 2, (q, w, h) => {
+      q.fillStyle = '#1b1e24'; q.fillRect(0, 0, w, h);
+      q.fillStyle = tm.c1; q.fillRect(0, h * 0.6, w, h * 0.14); q.fillStyle = acc; q.fillRect(0, h * 0.74, w, h * 0.03);
+      q.fillStyle = '#fff'; q.font = `800 ${h * 0.17}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w / 2, h * 0.32);
+    });
+    const backM = new THREE.MeshStandardMaterial({ map: backTex, roughness: 0.6 });
+    const sideTex = scaledTex(512, 192, 1, (q, w, h) => { q.fillStyle = '#d6dade'; q.fillRect(0, 0, w, h); q.strokeStyle = 'rgba(0,0,0,0.08)'; q.lineWidth = 2; for (let x = 0; x < w; x += w / 5) { q.beginPath(); q.moveTo(x, 0); q.lineTo(x, h); q.stroke(); } q.fillStyle = tm.c1; q.fillRect(0, h * 0.42, w, h * 0.1); });
+    const sideM = new THREE.MeshStandardMaterial({ map: sideTex, roughness: 0.7 }), divM = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.6 });
+    const outlineM = decal(new THREE.MeshStandardMaterial({ map: scaledTex(128, 256, 1, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#777' : tm.c1; q.lineWidth = 6; q.strokeRect(4, 4, w - 8, h - 8); }), transparent: true, roughness: 0.4 }), 6);
+    const blanket = new THREE.MeshStandardMaterial({ color: tm.c1, roughness: 0.9 });
+    // the divider between the two bays, in team colour
+    const div = new THREE.Mesh(new THREE.BoxGeometry(dv, Hd, D), divM); div.position.set(0, Hd / 2, D / 2); g.add(div);
+    for (const sd of [-1, 1]) {
+      const x0 = sd * (bw / 2 + dv / 2);
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(-Math.PI / 2), epoxy); floor.position.set(x0, 0.04, D / 2); g.add(floor);
+      const outline = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 5.8).rotateX(-Math.PI / 2), outlineM); outline.position.set(x0, 0.05, 4.2); g.add(outline);
+      const back = new THREE.Mesh(new THREE.PlaneGeometry(bw, Hd), backM); back.position.set(x0, Hd / 2, D - 0.02); back.rotation.y = Math.PI; g.add(back);
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(D, Hd), sideM); wall.position.set(x0 + sd * bw / 2, Hd / 2, D / 2); wall.rotation.y = -sd * Math.PI / 2; g.add(wall);
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(bw, D).rotateX(Math.PI / 2), ceilM); ceil.position.set(x0, Hd, D / 2); g.add(ceil);
+      for (const dx of [-1.1, 1.1]) { const st2 = new THREE.Mesh(stripG, stripM); st2.position.set(x0 + dx, Hd - 0.04, D / 2); g.add(st2); }
+      if (quality >= 1) {
+        for (let r = 0; r < 4; r++) for (let st = 0; st < 2; st++) { const ty = new THREE.Mesh(tyreGeo, blanket); ty.position.set(x0 - 1.3 + r * 0.86, 0.2 + st * 0.36, D - 0.9); g.add(ty); } // one set, two high
+        const ch = new THREE.Mesh(chestG, chestM); ch.position.set(x0 + sd * (bw / 2 - 0.7), 0.5, D - 3.2); g.add(ch);
+        for (let d = 0; d < 4; d++) { const dr = new THREE.Mesh(drawerG, drawerM); dr.position.set(x0 + sd * (bw / 2 - 0.7), 0.2 + d * 0.22, D - 3.48); g.add(dr); }
+        const scr = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.75, 0.06), screenM); scr.position.set(x0, 2.5, D - 0.15); g.add(scr);
+      }
     }
+    // name board over the doors
+    const signTex = canvasTex(1024, 160, (q, w, h) => { q.fillStyle = '#16181c'; q.fillRect(0, 0, w, h); q.fillStyle = tm.c1; q.fillRect(0, 0, w * 0.06, h); q.fillStyle = '#fff'; q.font = `800 ${h * 0.55}px "Saira Condensed", Arial`; q.textBaseline = 'middle'; q.fillText(tm.name.toUpperCase(), w * 0.1, h / 2); });
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(span * 0.9, span * 0.9 * 160 / 1024), new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.4, emissive: 0xffffff, emissiveMap: signTex, emissiveIntensity: 0.35 })); board.position.set(0, Hd + 0.8, -0.05); board.rotation.y = Math.PI; g.add(board);
     // painted box on the working lane: outline in team colour with yellow front-wheel marks
     const boxTex = scaledTex(512, 256, 2, (q, w, h) => { q.clearRect(0, 0, w, h); q.strokeStyle = tm.c1 === '#ffffff' ? '#888' : tm.c1; q.lineWidth = 14; q.strokeRect(8, 8, w - 16, h - 16); q.fillStyle = '#f4c20d'; for (const y of [h * 0.18, h * 0.82]) { q.fillRect(w * 0.79, y - 6, w * 0.12, 12); q.fillRect(w * 0.84, y - 22, 12, 44); } q.fillStyle = 'rgba(255,255,255,0.85)'; q.font = `800 ${h * 0.3}px "Saira Condensed", Arial`; q.textAlign = 'center'; q.textBaseline = 'middle'; q.save(); q.translate(w * 0.42, h / 2); q.fillText(tm.name.split(' ')[0].toUpperCase(), 0, 0); q.restore(); }, { clamp: true });
     const bx = new THREE.Mesh(new THREE.PlaneGeometry(7, 3.4).rotateX(-Math.PI / 2), decal(new THREE.MeshStandardMaterial({ map: boxTex, transparent: true, roughness: 0.7 }), 6)); place(bx, c, P.workDist, 0.035);
@@ -431,13 +453,48 @@ function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
     place(st, c, P.wallDist + 0.5, 0);
     lights.push({ red, green, s: c });
   });
-  block(prev, last, 0, Hb);
+  block(prev, last, 0, Hb, true);
   // upper floor (team hospitality glass) and roof over the whole pit building
   const Lb = last - first, mid = (first + last) / 2;
   const glassMat = new THREE.MeshPhysicalMaterial({ map: rep(tx.glass, Lb / 8, 1), roughness: 0.05, metalness: 0.6, clearcoat: 1 });
-  const upper = new THREE.Mesh(new THREE.BoxGeometry(Lb * 0.98, 6, 15), [glassMat, glassMat, white, white, glassMat, glassMat]); upper.castShadow = true; place(upper, mid, front + 9.5, Hb + 3);
-  const roofP = new THREE.Mesh(new THREE.BoxGeometry(Lb, 0.6, 21), white); roofP.castShadow = true; place(roofP, mid, front + 8.5, Hb + 6.3);
+  const upper = new THREE.Mesh(new THREE.BoxGeometry(Lb * 0.98, 6, 15), [glassMat, glassMat, white, white, glassMat, glassMat]); upper.castShadow = true; place(upper, mid, front + 6.5, Hb + 3);
+  const roofP = new THREE.Mesh(new THREE.BoxGeometry(Lb, 0.6, 15), white); roofP.castShadow = true; place(roofP, mid, front + 6, Hb + 6.3);
   return { P, lights, at, hd };
+}
+// Static batching: every still scenery mesh that shares a material is welded into one mesh per stretch of track (24
+// stretches, so each still gets culled when it is out of view). Same shapes, same materials, a fraction of the draw
+// calls. Left alone: instanced meshes, anything transparent or with a custom shader, points and lines.
+function staticBatch(world, T) {
+  world.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(world.matrixWorld).invert(), groups = new Map(), step = 6, N = 24, v = new THREE.Vector3();
+  const near = (x, y) => { let bi = 0, bd = Infinity; for (let i = 0; i < T.n; i += step) { const d = (T.px[i] - x) ** 2 + (T.py[i] - y) ** 2; if (d < bd) { bd = d; bi = i; } } return { i: bi, d: Math.sqrt(bd) }; };
+  const meshes = [];
+  world.traverse((o) => { if (o.isMesh && !o.isInstancedMesh && !o.isSkinnedMesh) meshes.push(o); });
+  for (const o of meshes) {
+    const m = o.material;
+    if (!m || Array.isArray(m) || m.transparent || m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile || o.userData.noBatch || !o.visible || o.morphTargetInfluences) continue;
+    for (let p = o.parent; p && p !== world; p = p.parent) if (!p.visible) { o.userData.skip = true; break; }
+    if (o.userData.skip) continue;
+    const g = o.geometry; if (!g.attributes.position) continue;
+    if (!g.boundingSphere) g.computeBoundingSphere();
+    v.copy(g.boundingSphere.center).applyMatrix4(o.matrixWorld);
+    const q = near(v.x, -v.z), chunk = q.d > 400 ? 'far' : Math.floor((q.i / T.n) * N);
+    const key = [m.uuid, Object.keys(g.attributes).sort().join(','), !!g.index, o.castShadow, o.receiveShadow, o.renderOrder, chunk].join('|');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(o);
+  }
+  let before = 0, after = 0;
+  for (const list of groups.values()) {
+    before += list.length;
+    if (list.length < 2) { after++; continue; }
+    const geos = list.map((o) => { const g = o.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld)); g.morphAttributes = {}; return g; });
+    let merged = null; try { merged = mergeGeometries(geos, false); } catch (e) { merged = null; }
+    geos.forEach((g) => g.dispose());
+    if (!merged) { after += list.length; continue; }
+    const mesh = new THREE.Mesh(merged, list[0].material); mesh.castShadow = list[0].castShadow; mesh.receiveShadow = list[0].receiveShadow; mesh.renderOrder = list[0].renderOrder;
+    world.add(mesh); list.forEach((o) => o.parent && o.parent.remove(o)); after++;
+  }
+  GFX.batchStats = { before, after };
 }
 function buildWorld(T, themeKey, quality) {
   const th = THEMES[themeKey], tx = GFX.tex, world = new THREE.Group();
@@ -867,6 +924,7 @@ function buildWorld(T, themeKey, quality) {
     }
     poles.count = heads.count = k; world.add(poles, heads);
   }
+  staticBatch(world, T);
   return { world, lightMats, wetMats: [asphaltMat] };
 }
 
@@ -1621,6 +1679,39 @@ function suitTexture0(team) {
 }
 
 const CAR_SCALE = 1.08;
+// a team's paint design (DESIGNS in data.js) laid over the car's base colour in the shader, by position on the car, so
+// fades and splits run cleanly across every panel whatever the texture layout. Only the base colour is repainted:
+// sponsor panels, numbers and accent parts keep theirs.
+function liveryDesign(mat, team, baseId, geo) {
+  const D = DESIGNS[baseId]; if (!D || !geo) return;
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const bb = geo.boundingBox, col = (k) => new THREE.Color(team[k] || k), U = {
+    uBase: { value: new THREE.Color(team.c1) }, uMin: { value: bb.min.clone() }, uSize: { value: bb.max.clone().sub(bb.min) },
+    uFade: { value: D.fade ? col(D.fade[0]) : new THREE.Color() }, uFadeR: { value: new THREE.Vector2(...(D.fade ? D.fade.slice(1) : [0, 0])) }, uHas: { value: new THREE.Vector4(D.fade ? 1 : 0, D.lower ? 1 : 0, D.belt ? 1 : 0, D.nose ? 1 : 0) },
+    uLow: { value: D.lower ? col(D.lower[0]) : new THREE.Color() }, uLowH: { value: D.lower ? D.lower[1] : -1 },
+    uBelt: { value: D.belt ? col(D.belt[0]) : new THREE.Color() }, uBeltH: { value: new THREE.Vector2(...(D.belt ? D.belt.slice(1) : [-1, 0])) },
+    uNose: { value: D.nose ? col(D.nose[0]) : new THREE.Color() }, uNoseF: { value: D.nose ? D.nose[1] : 2 },
+  };
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLp;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvLp = position;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vLp; uniform vec3 uBase, uMin, uSize, uFade, uLow, uBelt, uNose; uniform vec2 uFadeR, uBeltH; uniform float uLowH, uNoseF; uniform vec4 uHas;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+      {
+        vec3 q = (vLp - uMin) / max(uSize, vec3(1e-3));       // x: rear 0 -> nose 1, y: floor 0 -> top 1
+        float isBase = 1.0 - smoothstep(0.05, 0.13, distance(diffuseColor.rgb, uBase));
+        vec3 c = uBase;
+        if (uHas.x > 0.5) c = mix(c, uFade, 1.0 - smoothstep(uFadeR.y, uFadeR.x, q.x));            // fade: full at the rear end
+        if (uHas.y > 0.5) c = mix(c, uLow, 1.0 - smoothstep(uLowH - 0.015, uLowH + 0.015, q.y));   // two-tone: the lower body
+        if (uHas.z > 0.5) c = mix(c, uBelt, 1.0 - smoothstep(uBeltH.y * 0.5, uBeltH.y * 0.5 + 0.008, abs(q.y - uBeltH.x)));  // side stripe
+        if (uHas.w > 0.5) c = mix(c, uNose, smoothstep(uNoseF, uNoseF + 0.02, q.x));              // the nose
+        float lr = clamp(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)) / max(dot(uBase, vec3(0.2126, 0.7152, 0.0722)), 0.02), 0.7, 1.3);
+        diffuseColor.rgb = mix(diffuseColor.rgb, c * lr, isBase); // keep the panel's own shading
+      }`);
+  };
+  mat.customProgramCacheKey = () => 'livery-' + baseId;
+}
 function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = null) {
   // a custom livery (career): the team's colours swapped for the player's own, for painting only
   const team = livery ? Object.assign({}, team0, livery, { id: team0.id + '~' + hashStr(JSON.stringify(livery)) }) : team0;
@@ -1708,6 +1799,7 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
     fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
     const mat = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryFromModel(team, num, PHONE_GFX && !hero), roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
+    liveryDesign(mat, team, team0.id, M.car.livery);
     // nearby: full-detail body; beyond 45 m the lighter one (switched in the game loop)
     modelBody = new THREE.Mesh(M.carhq ? M.carhq.livery : M.car.livery, mat); modelBody.castShadow = modelBody.receiveShadow = true; body.add(modelBody);
     modelBody.userData.lod = M.carhq ? [M.carhq.livery, M.car.livery] : null;
