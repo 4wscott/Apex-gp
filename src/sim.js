@@ -709,33 +709,62 @@ class Car {
   }
 }
 
-// pairwise car contact using two circles per car
+// car-to-car contact with each car's real footprint: a box from the rear wing to the nose tip (-2.65 .. +3.15 m) and
+// wheel to wheel (2.04 m). Separating-axis test for the overlap, the bodies pushed apart completely (they touch, they
+// don't sink into each other), then a rigid-body impulse at the contact point: almost no bounce (carbon fibre doesn't
+// spring back), friction where they scrape, and a turn about the contact point (a nose into a sidepod swings both
+// cars). Damage lands where they touched.
+const CAR_BOX = { off: 0.25, hl: 2.9, hw: 1.02 }, CAR_E = 0.08, CAR_MU = 0.25;
 function collideCars(cars) {
+  const { off, hl, hw } = CAR_BOX;
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const A = cars[i], B = cars[j];
     if (Math.abs(A.x - B.x) > 7 || Math.abs(A.y - B.y) > 7) continue;
-    for (const oa of [1.45, -1.45]) for (const ob of [1.45, -1.45]) {
-      const ax = A.x + Math.cos(A.h) * oa, ay = A.y + Math.sin(A.h) * oa;
-      const bx = B.x + Math.cos(B.h) * ob, by = B.y + Math.sin(B.h) * ob;
-      const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy), R = 1.95;
-      if (d >= R || d < 1e-4) continue;
-      const nx = dx / d, ny = dy / d, pen = R - d;
-      A.x -= nx * pen / 2; A.y -= ny * pen / 2; B.x += nx * pen / 2; B.y += ny * pen / 2;
-      const va = toWorld(A), vb = toWorld(B);
-      const rel = (vb[0] - va[0]) * nx + (vb[1] - va[1]) * ny;
-      if (rel < 0) {
-        const jimp = -rel * 0.6;
-        va[0] -= nx * jimp; va[1] -= ny * jimp; vb[0] += nx * jimp; vb[1] += ny * jimp;
-        fromWorld(A, va); fromWorld(B, vb);
-        A.r += (Math.random() - 0.5) * jimp * 0.05; B.r += (Math.random() - 0.5) * jimp * 0.05;
-        A.impact = Math.max(A.impact, -rel); B.impact = Math.max(B.impact, -rel);
-        // damage at the point of contact, scaled like a wall hit (the closing speed is shared out between the two cars)
-        if (-rel > 8) {
-          const vn = 12 + (-rel - 8) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
-          const [alx, aly] = loc(A, nx, ny), [blx, bly] = loc(B, -nx, -ny);
-          A.damageHit(alx, aly, vn, 'car'); B.damageHit(blx, bly, vn, 'car');
-        }
-      }
+    const au = [Math.cos(A.h), Math.sin(A.h)], av = [-au[1], au[0]], bu = [Math.cos(B.h), Math.sin(B.h)], bv = [-bu[1], bu[0]];
+    const ac = [A.x + au[0] * off, A.y + au[1] * off], bc = [B.x + bu[0] * off, B.y + bu[1] * off], d = [bc[0] - ac[0], bc[1] - ac[1]];
+    // separating axes: each car's forward and side directions; the smallest overlap is the way out
+    let pen = Infinity, n = null, fromA = true;
+    for (const [ax, own] of [[au, 1], [av, 1], [bu, 0], [bv, 0]]) {
+      const ra = hl * Math.abs(au[0] * ax[0] + au[1] * ax[1]) + hw * Math.abs(av[0] * ax[0] + av[1] * ax[1]);
+      const rb = hl * Math.abs(bu[0] * ax[0] + bu[1] * ax[1]) + hw * Math.abs(bv[0] * ax[0] + bv[1] * ax[1]);
+      const dp = d[0] * ax[0] + d[1] * ax[1], o = ra + rb - Math.abs(dp);
+      if (o <= 0) { pen = -1; break; }
+      if (o < pen) { pen = o; const sg = dp >= 0 ? 1 : -1; n = [ax[0] * sg, ax[1] * sg]; fromA = !!own; }
+    }
+    if (pen <= 0) continue;
+    // the contact point: the corner of one car that is deepest inside the other
+    const corners = (c, u, v) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => [c[0] + u[0] * hl * sx + v[0] * hw * sy, c[1] + u[1] * hl * sx + v[1] * hw * sy]);
+    let p;
+    if (fromA) { let bd = Infinity; for (const q of corners(bc, bu, bv)) { const k = q[0] * n[0] + q[1] * n[1]; if (k < bd) { bd = k; p = q; } } }
+    else { let bd = -Infinity; for (const q of corners(ac, au, av)) { const k = q[0] * n[0] + q[1] * n[1]; if (k > bd) { bd = k; p = q; } } }
+    // push the two apart completely, shared by mass
+    const mA = A.p.m, mB = B.p.m, wa = mB / (mA + mB), wb = mA / (mA + mB);
+    A.x -= n[0] * pen * wa; A.y -= n[1] * pen * wa; B.x += n[0] * pen * wb; B.y += n[1] * pen * wb;
+    const rA = [p[0] - A.x, p[1] - A.y], rB = [p[0] - B.x, p[1] - B.y], cr = (r, v) => r[0] * v[1] - r[1] * v[0];
+    const va = toWorld(A), vb = toWorld(B);
+    const vap = [va[0] - A.r * rA[1], va[1] + A.r * rA[0]], vbp = [vb[0] - B.r * rB[1], vb[1] + B.r * rB[0]];
+    const rel = [vbp[0] - vap[0], vbp[1] - vap[1]], relN = rel[0] * n[0] + rel[1] * n[1];
+    if (relN >= 0) continue; // already parting
+    const IA = A.p.Iz, IB = B.p.Iz, rnA = cr(rA, n), rnB = cr(rB, n);
+    const jn = (-(1 + CAR_E) * relN) / (1 / mA + 1 / mB + (rnA * rnA) / IA + (rnB * rnB) / IB);
+    const t = [-n[1], n[0]], relT = rel[0] * t[0] + rel[1] * t[1], rtA = cr(rA, t), rtB = cr(rB, t);
+    const jt = clamp(-relT / (1 / mA + 1 / mB + (rtA * rtA) / IA + (rtB * rtB) / IB), -CAR_MU * jn, CAR_MU * jn);
+    const J = [n[0] * jn + t[0] * jt, n[1] * jn + t[1] * jt];
+    va[0] -= J[0] / mA; va[1] -= J[1] / mA; vb[0] += J[0] / mB; vb[1] += J[1] / mB;
+    // the turn from a hit grows with how hard it was: a light touch barely moves a car, a proper hit can spin it
+    // AI against AI: the same solid contact, but light racing touches stay racing incidents (less turn, damage only
+    // from a harder hit), so the field doesn't pile up; any contact involving the player is the full thing
+    const you = A.isPlayer || B.isPlayer;
+    const hard = clamp((-relN - 4) / 8, 0.12, 1) * (you ? 1 : 0.35), dA = clamp(-cr(rA, J) / IA * hard, -1.8, 1.8), dB = clamp(cr(rB, J) / IB * hard, -1.8, 1.8);
+    A.r = clamp(A.r + dA, -4, 4); B.r = clamp(B.r + dB, -4, 4);
+    fromWorld(A, va); fromWorld(B, vb);
+    A.impact = Math.max(A.impact, -relN); B.impact = Math.max(B.impact, -relN);
+    // damage where they touched, scaled like a wall hit
+    if (-relN > (you ? 8 : 12)) {
+      const vn = 12 + (-relN - (you ? 8 : 12)) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
+      const [alx, aly] = loc(A, n[0], n[1]), [blx, bly] = loc(B, -n[0], -n[1]);
+      const [acx, acy] = loc(A, rA[0], rA[1]), [bcx, bcy] = loc(B, rB[0], rB[1]);
+      A.damageHit(alx, aly, vn, 'car', { cx: acx, cy: acy }); B.damageHit(blx, bly, vn, 'car', { cx: bcx, cy: bcy });
     }
   }
 }
