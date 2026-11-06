@@ -88,6 +88,7 @@ const App = {
     this.hdriCache = {};
     this.setupComposer();
     addEventListener('resize', () => this.resize()); this.resize();
+    this.setupOrbit();
     // moved to a monitor with different scaling: no resize event in every browser, so watch the pixel ratio itself
     const watchDpr = () => { try { matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { this.resize(); watchDpr(); }, { once: true }); } catch (e) { /* older browsers */ } };
     watchDpr();
@@ -225,6 +226,36 @@ const App = {
   },
   // keep driving smooth: lower the render resolution when frames run slow (and raise it again with headroom);
   // if that is not enough, step the graphics quality down once and say so
+  // ---- free camera: drag the view round the car (a finger on a phone, the mouse on a PC), pinch or scroll to zoom.
+  // It drifts back behind the car a few seconds after you let go (and stays put while the game is paused).
+  setupOrbit() {
+    const view = $('#view'), ptrs = new Map();
+    const S0 = () => this.session && !Replay.on && !Podium.on ? this.session : null;
+    const get = () => { const S = S0(); if (!S) return null; return (S.orbit = S.orbit || { on: false, yaw: 0, pitch: 0.2, dist: 7, last: 0 }); };
+    const span = () => { const p = [...ptrs.values()]; return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y); };
+    view.addEventListener('pointerdown', (e) => {
+      if (!S0() || (e.pointerType === 'mouse' && (e.button !== 0 || settings.mouseSteer === 'follow'))) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); try { view.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
+      this.orbitSpan = span();
+    });
+    view.addEventListener('pointermove', (e) => {
+      const p = ptrs.get(e.pointerId), O = get(); if (!p || !O) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+      if (ptrs.size >= 2) { const sp = span(); if (this.orbitSpan && sp) O.dist = clamp(O.dist * (this.orbitSpan / sp), 3.5, 18); this.orbitSpan = sp; }
+      else if (Math.abs(dx) + Math.abs(dy) > 0) { O.yaw -= dx * 0.008; O.pitch = clamp(O.pitch + dy * 0.006, 0.03, 1.35); }
+      O.on = true; O.last = performance.now();
+    });
+    const up = (e) => { ptrs.delete(e.pointerId); this.orbitSpan = span(); };
+    view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
+    view.addEventListener('wheel', (e) => { const O = get(); if (!O) return; e.preventDefault(); O.dist = clamp(O.dist * (e.deltaY > 0 ? 1.1 : 0.9), 3.5, 18); O.on = true; O.last = performance.now(); }, { passive: false });
+    this.orbitPtrs = ptrs;
+  },
+  orbitEase(O, dt) {
+    if (!O.on || this.paused || (this.orbitPtrs && this.orbitPtrs.size) || performance.now() - O.last < 2500) return;
+    const k = 1 - Math.exp(-dt * 3);
+    O.yaw = angleDiff(O.yaw, 0) * (1 - k); // the short way back round O.pitch += (0.2 - O.pitch) * k; O.dist += (7 - O.dist) * k;
+    if (Math.abs(O.yaw) < 0.02 && Math.abs(O.pitch - 0.2) < 0.02) { O.on = false; O.yaw = 0; }
+  },
   // ---- frame pacing ------------------------------------------------------------------------------
   // The monitor's refresh interval, from the shortest steady gaps between animation frames (a 60, 75, 120 or 144 Hz
   // screen all work). Each frame's time step is snapped to whole refreshes, because that is when the picture is
@@ -971,7 +1002,8 @@ const App = {
       u.excite.value += ((near ? 1 : 0.25) - u.excite.value) * Math.min(1, dt * 2);
     }
     // camera
-    const cam = this.camera, mode = S.camMode;
+    const cam = this.camera, O = S.orbit, mode = O && O.on ? 'orbit' : S.camMode;
+    if (O) this.orbitEase(O, dt);
     const fwd = new THREE.Vector3(Math.cos(P.h), 0, -Math.sin(P.h));
     const base = new THREE.Vector3(P.x, 0, -P.y);
     P.mesh.helmet.visible = P.mesh.visor.visible = P.mesh.shoulders.visible = mode !== 'cockpit';
@@ -979,7 +1011,12 @@ const App = {
     this.heatHaze = settings.heat && settings.quality >= 2 && mode !== 'cockpit';
     S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002), 0.2);
     const look = inp.lookBack ? Math.PI : 0;
-    if (mode === 'cockpit' || mode === 'tcam') {
+    if (mode === 'orbit') {
+      // free camera: dragged round the car by a finger or the mouse, pinch or scroll to zoom
+      const a = P.h + Math.PI + O.yaw, d = O.dist, tgt = new THREE.Vector3(P.x, 0.7, -P.y);
+      cam.position.set(P.x + Math.cos(a) * d * Math.cos(O.pitch), 0.7 + d * Math.sin(O.pitch), -(P.y + Math.sin(a) * d * Math.cos(O.pitch)));
+      cam.up.set(0, 1, 0); cam.lookAt(tgt); cam.fov = settings.fov; cam.near = 0.1; S.camSmooth = null;
+    } else if (mode === 'cockpit' || mode === 'tcam') {
       // driver's eye: further back from the wheel and a little higher, so the wheel sits low and the road fills the view
       const local = mode === 'cockpit' ? new THREE.Vector3(-0.15, 0.905 - clamp(P.axS, -40, 30) * 0.0006, clamp(P.ay, -50, 50) * 0.0009) : new THREE.Vector3(-0.35, 1.22, 0);
       local.y += (Math.random() - 0.5) * S.shake; local.z += (Math.random() - 0.5) * S.shake;

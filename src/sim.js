@@ -375,37 +375,59 @@ class Car {
   }
   puncture(i) { const D = this.dmg; if (this.damageMode === 'off' || D.punct[i]) return; D.punct[i] = 1; this.dmgNews = { part: 'tyre', i }; }
   // an impact: lx/ly is the direction of the hit in the car's own frame (forward / left), vn the closing speed in m/s
+  // an impact: lx/ly is the direction of the hit in the car's own frame (forward / left), vn the closing speed in m/s.
+  // Walls and any contact involving the player are full strength (a 100 km/h nose-first hit wrecks the front wing and
+  // badly bends the front suspension, ~115 km/h ends the race); AI-against-AI touches use the gentler racing scale.
   damageHit(lx, ly, vn, kind, pt) {
-    if (this.damageMode === 'off' || vn <= 12 || !this.dmg) return;
-    const D = this.dmg, e = (vn - 12) * 0.035, left = ly > 0, cut = (k, a) => { D[k] = Math.max(0, D[k] - a); }, sus = (i, a) => { D.sus[i] = Math.max(0, D.sus[i] - a); };
+    const full = kind === 'carYou' || (kind === 'wall' && this.isPlayer); // the player's car: full strength
+    if (this.damageMode === 'off' || vn <= (full ? 10 : 12) || !this.dmg) return;
+    const D = this.dmg, e = full ? (vn - 10) * 0.05 : (vn - 12) * 0.035, k = full ? 1 : 0.6, left = ly > 0;
+    const cut = (key, a) => { D[key] = Math.max(0, D[key] - a); }, sus = (i, a) => { D.sus[i] = Math.max(0, D.sus[i] - a); };
     let part;
-    // a wheel that touches the wall: that corner's suspension and tyre take it (a cut tyre, a bent wishbone)
+    // a wheel that touches: that corner's suspension and tyre take it (a cut tyre, a bent wishbone)
     if (pt && Math.abs(pt.cx) > 1.5 && Math.abs(pt.cx) < 2 && Math.abs(pt.cy) > 0.9) {
       const i = (pt.cx > 0 ? 0 : 2) + (pt.cy > 0 ? 0 : 1);
-      sus(i, e * 0.6); if (vn > 15 && Math.random() < 0.35) this.puncture(i); if (pt.cx > 0) cut(pt.cy > 0 ? 'fwL' : 'fwR', e * 0.25);
-      this.dmgCorner = i; this.dmgNews = { part: 'sus', vn };
-      if (this.damageMode === 'real' && !this.dnf && D.sus.some((x) => x < DNF_SUS)) this.dnf = 'Suspension damage';
-      return;
-    }
-    if (lx > 0.45) { // nose first: the wing on that side takes most of it, a big one bends the front suspension too
+      sus(i, e * (full ? 0.8 : 0.6)); if (vn > 14 && Math.random() < (full ? 0.45 : 0.35)) this.puncture(i); if (pt.cx > 0) cut(pt.cy > 0 ? 'fwL' : 'fwR', e * 0.3);
+      if (full && vn > 20) cut('floor', e * 0.15);
+      this.dmgCorner = i; part = 'sus';
+    } else if (lx > 0.45) { // nose first: the wing (that side most), then the front suspension, then the floor and cooling
       const near = Math.abs(ly) < 0.18 ? null : left ? 'fwL' : 'fwR';
-      if (near) { cut(near, e * 1.1); cut(near === 'fwL' ? 'fwR' : 'fwL', e * 0.3); } else { cut('fwL', e * 0.8); cut('fwR', e * 0.8); }
-      if (vn > 24) sus(left ? 0 : 1, (vn - 24) * 0.03);
+      if (near) { cut(near, e * 1.15); cut(near === 'fwL' ? 'fwR' : 'fwL', e * (full ? 0.6 : 0.3)); } else { cut('fwL', e * (full ? 1.3 : 1)); cut('fwR', e * (full ? 1.3 : 1)); }
+      const sv = full ? Math.max(0, vn - 16) * 0.06 : Math.max(0, vn - 24) * 0.03;
+      if (near) { sus(left ? 0 : 1, sv); sus(left ? 1 : 0, sv * 0.4); } else { sus(0, sv); sus(1, sv); }
+      if (full && vn > 20) cut('floor', e * 0.25); if (full && vn > 30) cut('pu', (vn - 30) * 0.02);
       part = near || 'fw';
     } else if (lx < -0.45) { // from behind: the rear wing, then the rear corners and, hard enough, the gearbox
-      cut('rw', e * 0.8); if (vn > 22) sus(left ? 2 : 3, (vn - 22) * 0.03); if (vn > 30) cut('pu', (vn - 30) * 0.025);
+      cut('rw', e * (full ? 0.9 : 0.8));
+      if (vn > (full ? 16 : 22)) sus(left ? 2 : 3, (vn - (full ? 16 : 22)) * (full ? 0.05 : 0.03));
+      if (vn > (full ? 24 : 30)) cut('pu', (vn - (full ? 24 : 30)) * (full ? 0.03 : 0.025));
       part = 'rw';
     } else { // side on: the corner on that side, the floor and sidepod, and maybe a cut tyre
       const i = lx >= 0 ? (left ? 0 : 1) : (left ? 2 : 3);
-      sus(i, e * 0.55); cut('floor', e * 0.22); if (kind === 'car' && Math.abs(lx) < 0.3) cut('pu', e * 0.05);
-      if (vn > 16 && Math.random() < 0.3) this.puncture(i);
+      sus(i, e * (full ? 0.7 : 0.55)); cut('floor', e * (full ? 0.3 : 0.22)); if (Math.abs(lx) < 0.3) cut('pu', e * 0.05 * k);
+      if (vn > 14 && Math.random() < (full ? 0.45 : 0.3)) this.puncture(i);
       part = 'sus'; this.dmgCorner = i;
     }
     this.dmgNews = { part, vn };
+    this.checkDnf();
+  }
+  checkDnf() {
+    const D = this.dmg;
     if (this.damageMode === 'real' && !this.dnf) {
       if (D.sus.some((x) => x < DNF_SUS)) this.dnf = 'Suspension damage';
       else if (D.pu <= 0.02) this.dnf = 'Power unit failure';
     }
+  }
+  // sliding along a wall: the side that touches wears away (wing on that side for the front corners, the corner's
+  // suspension), and a long fast scrape can cut a tyre
+  scrapeDamage(pt, spd, dt) {
+    if (this.damageMode === 'off' || !this.dmg || spd < 12 || !this.isPlayer) return;
+    const D = this.dmg, f = dt * (spd / 60), left = pt.cy > 0, front = pt.cx > 0, i = (front ? 0 : 2) + (left ? 0 : 1);
+    if (pt.cx > 2.2) D[left ? 'fwL' : 'fwR'] = Math.max(0, D[left ? 'fwL' : 'fwR'] - f * 0.6);
+    else if (pt.cx < -2.2) D.rw = Math.max(0, D.rw - f * 0.3);
+    else { D.sus[i] = Math.max(0, D.sus[i] - f * 0.25); D.floor = Math.max(0, D.floor - f * 0.08); if (Math.random() < f * 0.5) this.puncture(i); }
+    this.scrapeT = (this.scrapeT || 0) + dt; if (this.scrapeT > 0.6) { this.scrapeT = 0; this.dmgNews = { part: 'scrape', vn: spd }; }
+    this.checkDnf();
   }
   reset() {
     this.x = 0; this.y = 0; this.h = 0; this.vx = 0; this.vy = 0; this.r = 0; this.delta = 0;
@@ -445,7 +467,7 @@ class Car {
   get kmh() { return this.vx * 3.6; }
 
   step(dt, inp) {
-    const p = this.p, T = this.track;
+    const p = this.p, T = this.track; this.simT = (this.simT || 0) + dt;
     this.locate(false);
     // --- surface
     const ad = Math.abs(this.d), side = this.d >= 0 ? 1 : -1, hw = T.hw;
@@ -674,6 +696,10 @@ class Car {
             // the car turns along the wall instead of being kicked back across the track
             const along = Math.atan2(wy, wx); if (Math.hypot(wx, wy) > 3 && Math.cos(along - this.h) > 0) this.h += angleDiff(along, this.h) * 0.6;
             this.r *= 0.15;
+            this.scrapeDamage(best, spd, dt);
+            // a fast glancing hit still hurts the side that touched: counted once per brush with the wall, by sliding speed
+            if (this.isPlayer && spd > 25 && (this.lastBrush === undefined || this.simT - this.lastBrush > 0.6)) { this.damageHit(nx * hc + ny * hs, -nx * hs + ny * hc, vn + spd * 0.15, 'wall', best); }
+            this.lastBrush = this.simT;
           } else {
             const hitN = Math.max(cvn, vn * 0.8);
             wx -= 1.3 * hitN * nx; wy -= 1.3 * hitN * ny;
@@ -764,7 +790,8 @@ function collideCars(cars) {
       const vn = 12 + (-relN - (you ? 8 : 12)) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
       const [alx, aly] = loc(A, n[0], n[1]), [blx, bly] = loc(B, -n[0], -n[1]);
       const [acx, acy] = loc(A, rA[0], rA[1]), [bcx, bcy] = loc(B, rB[0], rB[1]);
-      A.damageHit(alx, aly, vn, 'car', { cx: acx, cy: acy }); B.damageHit(blx, bly, vn, 'car', { cx: bcx, cy: bcy });
+      const kind = you ? 'carYou' : 'car';
+      A.damageHit(alx, aly, vn, kind, { cx: acx, cy: acy }); B.damageHit(blx, bly, vn, kind, { cx: bcx, cy: bcy });
     }
   }
 }

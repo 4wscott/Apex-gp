@@ -14,7 +14,7 @@
 html, body { height: 100%; }
 body { background: var(--ink); color: var(--fg); font-family: var(--f-body); font-size: 15px; overflow: hidden; }
 #app { position: fixed; inset: 0; }
-#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; } /* drags turn the camera, not the page */
 button { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 kbd { font-family: var(--f-data); font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; padding: 1px 5px; border-radius: 4px; color: var(--fg); }
