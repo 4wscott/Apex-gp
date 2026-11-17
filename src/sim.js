@@ -711,7 +711,7 @@ class Car {
           }
           if (vn > 30) this.bigHit = vn;
           const c2 = Math.cos(this.h), s2h = Math.sin(this.h);
-          this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn;
+          this.vx = wx * c2 + wy * s2h; this.vy = -wx * s2h + wy * c2; this.impact = vn; this.impactPeak = Math.max(this.impactPeak || 0, vn); // kept until the screen has shown it
           // damage where it touched: the contact point's direction in the car's frame (a glancing touch does nothing)
           if (vn > 12) this.damageHit(best.cx / 3.2, best.cy, vn, 'wall', best);
         }
@@ -784,7 +784,7 @@ function collideCars(cars) {
     const hard = clamp((-relN - 4) / 8, 0.12, 1) * (you ? 1 : 0.35), dA = clamp(-cr(rA, J) / IA * hard, -1.8, 1.8), dB = clamp(cr(rB, J) / IB * hard, -1.8, 1.8);
     A.r = clamp(A.r + dA, -4, 4); B.r = clamp(B.r + dB, -4, 4);
     fromWorld(A, va); fromWorld(B, vb);
-    A.impact = Math.max(A.impact, -relN); B.impact = Math.max(B.impact, -relN);
+    A.impact = Math.max(A.impact, -relN); B.impact = Math.max(B.impact, -relN); A.impactPeak = Math.max(A.impactPeak || 0, -relN); B.impactPeak = Math.max(B.impactPeak || 0, -relN);
     // damage where they touched, scaled like a wall hit
     if (-relN > (you ? 8 : 12)) {
       const vn = 12 + (-relN - (you ? 8 : 12)) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
@@ -805,38 +805,84 @@ class AIDriver {
     this.lat = 0; this.latT = 0; this.stuckT = 0; this.react = 0.18 + this.rng() * 0.25;
     this.pace = 0.97 + (skill - 0.95) * 0.6;
     this.noise = 0; this.noiseT = 0;
+    // personality: how hard this driver attacks and defends, and how much room they leave (0 careful .. 1 aggressive)
+    this.aggr = 0.2 + this.rng() * 0.65;
+    this.passCar = null; this.passSide = 0; this.defT = 0; this.defMoved = false; this.errT = 0; this.errK = 1; this.inBZ = false;
+  }
+  // a rival fights harder when the player is close
+  aggrNow(race) {
+    const c = this.car;
+    if (race && race.rivalCode && c.driver.code === race.rivalCode && race.player && Math.abs(race.player.dist - c.dist) < 60) return 0.95;
+    return this.aggr;
+  }
+  // the inside of the next corner (from where the racing line sits at its apex): +1 left, -1 right, 0 none close
+  insideAhead(from, to) {
+    const c = this.car, T = c.track, n = T.n; let best = 0, bj = -1;
+    for (let k = Math.round(from / T.ds); k <= Math.round(to / T.ds); k += 3) { const j = (c.idx + k) % n, kk = Math.abs(T.lineK[j]); if (kk > best) { best = kk; bj = j; } }
+    if (bj < 0 || best < 1 / 400 || Math.abs(T.lineO[bj]) < 1) return 0;
+    return Math.sign(T.lineO[bj]);
   }
   control(dt, cars, race) {
     const c = this.car, T = c.track, n = T.n, v = Math.max(c.vx, 0);
     const inp = { steer: 0, throttle: 0, brake: 0, steerFast: true };
     if (race && race.phase !== 'green') { inp.brake = 1; return inp; }
     if (race && race.greenT < this.react) { inp.brake = 1; return inp; }
-    // traffic: pick a side when a car is close ahead
-    let blocked = null, gapAhead = Infinity;
+    // ---- racecraft: who is ahead in my lane, who is alongside, who is attacking from behind ----
+    const lim = T.hw - 1.3, aggr = this.aggrNow(race), L = 5.8; // L: a car's length
+    let blocked = null, gapAhead = Infinity, attacker = null, attackGap = Infinity; const side = [];
     const myO = T.lineO[c.idx] + this.lat;
     for (const o of cars) {
-      if (o === c || o.parked) continue;
-      let ds = o.dist - c.dist; if (ds < 0 || ds > 32) continue;
-      const rel = o.d - myO;
-      if (Math.abs(rel) < 2.6) { if (ds < gapAhead) { gapAhead = ds; blocked = o; } }
+      if (o === c || o.parked || o.pit) continue;
+      const ds = o.dist - c.dist;
+      if (Math.abs(ds) < L && Math.abs(o.d - c.d) < 4.5) side.push(o);                     // overlapping: alongside
+      else if (ds >= L && ds < 45) { if (Math.abs(o.d - myO) < 2.5 && ds < gapAhead) { gapAhead = ds; blocked = o; } }
+      else if (ds <= -L && ds > -25 && o.vx > c.vx - 1 && -ds < attackGap) { attackGap = -ds; attacker = o; }
     }
     // debris on the racing line: steer round it like a slow car
-    if (!blocked && race && race.debris && race.debris.length) {
+    let debris = null;
+    if (race && race.debris && race.debris.length) {
       for (const b of race.debris) {
         let ds = b.s - c.s; if (ds < -T.length / 2) ds += T.length; if (ds < 0 || ds > 70) continue;
-        if (Math.abs(b.d - myO) < 1.6) { blocked = { d: b.d, vx: Infinity }; gapAhead = 99; break; }
+        if (Math.abs(b.d - myO) < 1.6) { debris = b; break; }
       }
     }
-    const lim = T.hw - 1.3;
-    if (blocked) {
-      const rel = blocked.d - myO;
-      let want = rel > 0 ? blocked.d - 3.0 : blocked.d + 3.0;
-      if (Math.abs(want) > lim) want = rel > 0 ? blocked.d + 3.0 : blocked.d - 3.0;
-      this.latT = clamp(want, -lim, lim) - T.lineO[c.idx];
-    } else this.latT *= Math.pow(0.4, dt);
-    this.lat += clamp(this.latT - this.lat, -2.2 * dt, 2.2 * dt);
+    let want = null; // where across the track this driver wants to be (absolute), or null for the racing line
+    const lapped = race && race.beingLapped(c);
+    if (debris) want = debris.d - myO > 0 ? debris.d - 3 : debris.d + 3;
+    else if (blocked && !lapped) {
+      // attack: closing on the car ahead, go for the inside of the next corner (or the other side if there's no room) and
+      // stay committed to it while the move is on
+      const closing = c.vx - blocked.vx > 0.4 || gapAhead < 14 || (blocked.dmgPace || 1) < 0.97;
+      if (closing) {
+        if (this.passCar !== blocked) { this.passCar = blocked; const ins = this.insideAhead(20, 160); this.passSide = ins || (c.d >= blocked.d ? 1 : -1); }
+        const gapW = 2.55 + 0.35 * (1 - aggr);
+        let tgt = blocked.d + this.passSide * gapW;
+        if (Math.abs(tgt) > lim) { this.passSide = -this.passSide; tgt = blocked.d + this.passSide * gapW; }
+        want = Math.abs(tgt) <= lim + 0.3 ? tgt : null; // no room either side: sit behind and wait
+      }
+    } else this.passCar = null;
+    // defend: a car close behind before a braking zone; one move to cover the inside, then hold it to the corner
+    const inCorner = Math.abs(T.lineK[c.idx]) > 1 / 250;
+    if (inCorner) this.defMoved = false;
+    if (!want && attacker && !lapped && aggr > 0.35 && !this.defMoved && attackGap < 16) {
+      const ins = this.insideAhead(30, 140);
+      if (ins) { this.defMoved = true; this.defT = 2.5 + aggr * 2; this.defSide = ins; }
+    }
+    if (this.defT > 0) { this.defT -= dt; if (!want) want = this.defSide * lim * (0.45 + 0.35 * aggr); }
+    if (lapped && !want) want = -Math.sign(T.lineO[c.idx] || 1) * lim * 0.6; // blue flag: off the racing line
+    // alongside: never squeeze a car that is there; leave it a car's width (careful drivers a little more)
+    let target = want !== null ? want : T.lineO[c.idx]; // otherwise the racing line
+    let squeezed = false;
+    for (const o of side) {
+      const sg = Math.sign(o.d - c.d) || 1, minSep = 2.25 + 0.35 * (1 - aggr), bound = o.d - sg * minSep;
+      if (sg > 0 ? target > bound : target < bound) { target = bound; }
+      if (Math.abs(bound) > lim + 0.8) squeezed = true;
+    }
+    this.latT = clamp(target, -lim, lim) - T.lineO[c.idx];
+    this.lat += clamp(this.latT - this.lat, -2.4 * dt, 2.4 * dt);
     const absLat = clamp(T.lineO[c.idx] + this.lat, -lim, lim);
     this.lat = absLat - T.lineO[c.idx];
+    this.squeezed = squeezed;
 
     // feed-forward curvature + heading + cross-track (Stanley-style) control
     const j0 = (c.idx + Math.round((v * 0.15) / T.ds) + 1) % n;
@@ -856,12 +902,27 @@ class AIDriver {
     for (let m = 0; m <= look; m += 2) vT = Math.min(vT, T.lineV[(c.idx + m) % n]);
     vT *= this.pace * (1 + this.noise) * (race ? race.aiPace : 1) * (this.cool ? 0.7 : 1);
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
-    if (blocked && gapAhead < 12 && blocked.vx < c.vx) vT = Math.min(vT, blocked.vx + gapAhead * 0.4);
+    // following: brake early enough not to run into the car ahead (bumper gap, closing speed, the braking it has)
+    if (blocked && Math.abs(blocked.d - c.d) < 2.4) {
+      const closing = c.vx - blocked.vx, room = gapAhead - 6.2;
+      if (closing > 0 && room < (closing * closing) / (2 * 16) + 2) vT = Math.min(vT, blocked.vx + Math.max(0, room) * 0.6);
+      if (room < 1.5) vT = Math.min(vT, blocked.vx - 1);
+    }
+    if (this.squeezed) vT *= 0.95; // no room alongside: lift and tuck in behind
+    // mistakes: at a braking zone, sometimes too fast in (running wide or worse): likelier for lower-rated drivers,
+    // on worn tyres, and with a car right behind
+    const bz = T.lineV[(c.idx + look * 2) % n] < T.lineV[c.idx] * 0.8;
+    if (bz && !this.inBZ) {
+      this.inBZ = true;
+      const pressure = attacker && attackGap < 12 ? 1 : 0, p = (0.008 + Math.max(0, 1 - this.skill) * 0.5 + (c.wear || 0) * 0.05 + pressure * 0.025) * 0.6;
+      if (race && race.phase === 'green' && !race.sc && this.rng() < p) { this.errT = 1.4 + this.rng() * 1.0; this.errK = 1.03 + this.rng() * 0.04; }
+    } else if (!bz) this.inBZ = false;
+    if (this.errT > 0) { this.errT -= dt; vT *= this.errK; }
     vT *= Math.pow(c.gripWet ?? 1, 0.7); // slower where the grip is lower (rain)
     vT *= c.dmgPace ?? 1; // and with a damaged car
     if (race && race.vsc) vT = Math.min(vT, race.vscCap(c));
     if (race && race.sc && race.scLimit) vT = Math.min(vT, race.scLimit(c));
-    if (race && race.beingLapped(c)) vT *= 0.94; // blue flag: back off to let the leaders by
+    if (lapped) vT *= 0.94; // blue flag: back off to let the leaders by
     const err = vT - v;
     if (err > 0) { inp.throttle = clamp(0.55 + err * 0.35, 0, 1); }
     else if (err < -1.2) { inp.brake = clamp(-err * 0.22, 0, 1); }
@@ -940,7 +1001,7 @@ class Race {
   // mode: 'race' | 'trial' | 'practice' (open session: unlimited laps, optional traffic spread round the lap)
   constructor(track, opts) {
     this.track = track; this.mode = opts.mode; this.laps = opts.laps || 5;
-    this.aiPace = opts.aiPace || 1; this.time = 0; this.greenT = 0; this.phase = 'grid'; this.lightsT = 0; this.lightsOn = 0;
+    this.aiPace = opts.aiPace || 1; this.time = 0; this.rivalCode = opts.rival || null; this.greenT = 0; this.phase = 'grid'; this.lightsT = 0; this.lightsOn = 0;
     this.lightsOutAt = opts.lightsOutAt ?? 3 + 5 * 1 + 0.4 + Math.random() * 1.6; // 5 lights 1 s apart, then a random hold
     this.cars = []; this.ais = []; this.events = []; this.finishOrder = []; this.quali = !!opts.quali;
     this.sectorLen = track.length / 3; this.bestLap = Infinity; this.bestSectors = [Infinity, Infinity, Infinity];

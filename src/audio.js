@@ -164,6 +164,27 @@ class AudioEngine {
     const g = ctx.createGain(); g.gain.setValueAtTime(Math.min(1, strength / 15), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
     src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t); src.stop(t + 0.4);
   }
+  // a proper crash: a deep thump, a carbon crack, and a rattle of pieces scattering (strength = closing speed, m/s)
+  crash(strength, vol = 1) {
+    if (!this.ctx || strength < 8) return;
+    const ctx = this.ctx, t = ctx.currentTime, k = Math.min(1, (strength - 6) / 24) * vol;
+    // the thump: a falling low tone
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.35);
+    const og = ctx.createGain(); og.gain.setValueAtTime(0.9 * k, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.45); o.connect(og); og.connect(this.out); o.start(t); o.stop(t + 0.5);
+    // the crunch and the crack: two noise bursts, one mid, one sharp and bright
+    for (const [type, f, q, len, lv] of [['bandpass', 900, 0.8, 0.28, 0.8], ['highpass', 3200, 0.7, 0.09, 0.55]]) {
+      const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = ctx.createGain(); g.gain.setValueAtTime(lv * k, t); g.gain.exponentialRampToValueAtTime(0.001, t + len); src.connect(fl); fl.connect(g); g.connect(this.out); src.start(t, Math.random()); src.stop(t + len + 0.02);
+    }
+    // the rattle: bits of carbon bouncing away
+    const n = Math.round(4 + k * 10);
+    for (let i = 0; i < n; i++) {
+      const tt = t + 0.08 + Math.random() * (0.4 + k * 0.6), src = ctx.createBufferSource(); src.buffer = this.noiseBuf;
+      const fl = ctx.createBiquadFilter(); fl.type = 'bandpass'; fl.frequency.value = 1800 + Math.random() * 2600; fl.Q.value = 3;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime((0.12 + Math.random() * 0.18) * k, tt + 0.003); g.gain.exponentialRampToValueAtTime(0.001, tt + 0.04);
+      src.connect(fl); fl.connect(g); g.connect(this.out); src.start(tt, Math.random()); src.stop(tt + 0.05);
+    }
+  }
   crackle(n) {
     const ctx = this.ctx, t0 = ctx.currentTime;
     for (let i = 0; i < n; i++) {

@@ -484,7 +484,7 @@ const App = {
       const race = new Race(T, {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
         replaceCode: cfg && cfg.replaceCode, upgrades: cfg && cfg.upgrades, gridOrder: cfg && cfg.gridOrder, quali: cfg && cfg.quali,
-        remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed, damage: settings.damage,
+        remotes: cfg && cfg.remotes, lightsOutAt: cfg && cfg.lightsOutAt, seed: cfg && cfg.seed, damage: settings.damage, rival: cfg && cfg.career && Career.data ? Career.data.rival : null,
         assist: { tc: settings.tc, abs: settings.abs, autoGear: settings.autoGear, stab: settings.stab, brakeAssist: !!settings.brakeAssist },
       });
       if (cfg && cfg.online) race.lightsT = -(4 - (Date.now() - cfg.ref) / 1000); // lights start 4 s after the host pressed start, for everyone
@@ -502,7 +502,7 @@ const App = {
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
       store.set('running', { at: Date.now(), q: settings.quality, track: T.spec.id, mode });
-      Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null;
+      Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null; this.fparts = null;
       if (cfg && cfg.career && cfg.upgrades) addUpgradeParts(race.player.mesh, cfg.upgrades, race.player.team);
       this.skids = new Skids(this.worldRoot); this.previewSpot = undefined;
       if (settings.quality === 0) liteMaterials(this.worldRoot);
@@ -763,13 +763,15 @@ const App = {
       m.body.add(g);
     }
     const V = m.dv, t = performance.now() * 0.001, spd = Math.min(1, Math.max(0, c.vx) / 60), on = c.damageMode !== 'off';
+    // parts that break off: pieces fly from where the damage happened; a broken corner loses its wheel
+    if (on && near) this.flyingParts(c, m, D);
     // front wing halves (the code-built car has real flaps to remove; the imported body gets hanging pieces)
     for (const [k, h, z] of [['L', D.fwL, -1], ['R', D.fwR, 1]]) {
-      const P = V[k], show = on && h < 0.6 && !m.fwParts; P.plate.visible = P.flap.visible = show;
+      const P = V[k], show = on && h < 0.6 && h > 0.12 && !m.fwParts; P.plate.visible = P.flap.visible = show; // under 0.12 that half has come off (it is lying on the track)
       if (show) { const j = Math.sin(t * 50 + c.x + z) * spd, drag = h < 0.25 ? 1 : 0; P.plate.rotation.set((0.35 + j * 0.08 + drag * 0.5) * z, 0.2 * z, 0.55 + j * 0.05 + drag * 0.4); P.flap.rotation.set((0.12 + j * 0.06 + drag * 0.25) * z, 0, -0.18 - drag * 0.2); P.flap.visible = h > 0.08; }
     }
     // rear wing flap: droops, then flaps in the airflow
-    V.rw.visible = on && D.rw < 0.55;
+    V.rw.visible = on && D.rw < 0.55 && D.rw > 0.1;
     if (V.rw.visible) V.rw.rotation.set(Math.sin(t * 31 + c.y) * 0.15 * spd * (D.rw < 0.25 ? 2 : 1), 0, -0.5 - (D.rw < 0.25 ? 0.5 : 0) + Math.sin(t * 23) * 0.12 * spd);
     // suspension and tyres per corner: sim FL, FR, RL, RR -> mesh wheel order FR, FL, RR, RL (+z is right)
     const W = [1, 0, 3, 2], piv = (i) => m.wheels[W[i]].parent;
@@ -780,6 +782,11 @@ const App = {
       if (i >= 2) p.rotation.y = zs * (1 - sus) * 0.18; else p.rotation.y += zs * (1 - sus) * 0.18; // and toe
       if (p.userData.y0 === undefined) p.userData.y0 = p.position.y;
       p.scale.y = 1 - flat * 0.2; p.position.y = p.userData.y0 - flat * 0.09; // a flat tyre: squashed, the wheel down on its rim
+      const lost = !!(m.lostWheel && m.lostWheel[i]); p.visible = !lost; if (lost) { roll += zs * 0.07; pitch += (i < 2 ? -1 : 1) * 0.05; } // a wheel gone: that corner on the ground
+      if (near && (lost || (on && D.floor < 0.45)) && c.vx > 12 && this.particles.sets.spark && Math.random() < dt * (lost ? 60 : 25)) { // the car dragging: sparks from underneath
+        const ch = Math.cos(c.h), sh = Math.sin(c.h), fx = lost ? (i < 2 ? 1.6 : -1.6) : (Math.random() - 0.5) * 2.4, ly = lost ? (i % 2 === 0 ? 0.7 : -0.7) : (Math.random() - 0.5) * 1.2;
+        for (let q = 0; q < 3; q++) this.particles.spawn('spark', c.x + ch * fx - sh * ly, 0.03, -(c.y + sh * fx + ch * ly), c.vx * ch * 0.6 + (Math.random() - 0.5) * 5, 0.6 + Math.random() * 2.5, -(c.vx * sh * 0.6 + (Math.random() - 0.5) * 5));
+      }
       roll += zs * flat * 0.035; pitch += (i < 2 ? -1 : 1) * flat * 0.02;
       if (near && flat > 0.4 && c.vx > 8 && Math.random() < dt * 40 && this.particles.sets.spark) { // sparks off the rim
         const ch = Math.cos(c.h), sh = Math.sin(c.h), fx = i < 2 ? 1.7 : -1.7, ly = i % 2 === 0 ? 0.75 : -0.75, wx = c.vx * ch, wy = c.vx * sh;
@@ -792,6 +799,56 @@ const App = {
     if (near && pu < 0.7 && this.particles.sets.smoke && Math.random() < dt * (pu < 0.3 || c.dnf === 'Power unit failure' ? 30 : 10)) {
       const ch = Math.cos(c.h), sh = Math.sin(c.h);
       this.particles.spawn('smoke', c.x - ch * 2.5, 0.75, -(c.y - sh * 2.5), -c.vx * ch * 0.25 + (Math.random() - 0.5), 0.8, c.vx * sh * 0.25 + (Math.random() - 0.5));
+    }
+  },
+  // ---- pieces that come off a car: carbon from the wings, a whole wheel from a broken corner. They tumble, bounce, slide
+  // to a stop and stay on the track (a pool of the most recent ones)
+  flyingParts(c, m, D) {
+    const prev = (m.prevD = m.prevD || { fwL: 1, fwR: 1, rw: 1, sus: [1, 1, 1, 1] });
+    const shed = (key, lx, lz, n, big) => { // lx along the car, lz across (+z right in the car)
+      for (let q = 0; q < n; q++) this.spawnPart(c, m, lx + (Math.random() - 0.5) * 0.4, lz * (0.5 + Math.random() * 0.5), big && q === 0 ? 'plate' : 'shard');
+    };
+    if (prev.fwL - D.fwL > 0.12) shed('fwL', 2.6, -0.8, Math.ceil((prev.fwL - D.fwL) * 8), D.fwL < 0.12);
+    if (prev.fwR - D.fwR > 0.12) shed('fwR', 2.6, 0.8, Math.ceil((prev.fwR - D.fwR) * 8), D.fwR < 0.12);
+    if (prev.rw - D.rw > 0.12) shed('rw', -2.4, 0, Math.ceil((prev.rw - D.rw) * 6), D.rw < 0.1);
+    m.lostWheel = m.lostWheel || [false, false, false, false];
+    for (let i = 0; i < 4; i++) {
+      if (D.sus[i] < DNF_SUS && !m.lostWheel[i]) { m.lostWheel[i] = true; this.spawnPart(c, m, i < 2 ? 1.7 : -1.7, i % 2 === 0 ? -0.8 : 0.8, 'wheel'); }
+      if (D.sus[i] > 0.5 && m.lostWheel[i]) m.lostWheel[i] = false; // repaired (practice reset)
+    }
+    prev.fwL = D.fwL; prev.fwR = D.fwR; prev.rw = D.rw;
+  },
+  spawnPart(c, m, lx, lz, kind) {
+    const F = (this.fparts = this.fparts || { list: [], max: 36 });
+    if (!this.fpartGeo) {
+      this.fpartGeo = { shard: new THREE.BoxGeometry(0.8, 0.03, 0.3), plate: new THREE.BoxGeometry(1.0, 0.35, 0.03), tyre: GFX.geo.tyreF, rim: GFX.geo.rimF };
+    }
+    let o;
+    if (kind === 'wheel') { o = new THREE.Group(); const side = new THREE.Group(); o.add(side); side.add(new THREE.Mesh(this.fpartGeo.tyre, GFX.mats.tyre[c.compound] || GFX.mats.tyre.M)); side.add(new THREE.Mesh(this.fpartGeo.rim, GFX.mats.rim)); o.traverse((x) => (x.castShadow = true)); }
+    else { const mat = Math.random() < 0.5 ? GFX.mats.carbon : (this.fpartMats = this.fpartMats || {})[c.team.id] || (this.fpartMats[c.team.id] = new THREE.MeshStandardMaterial({ color: c.team.c1, roughness: 0.4 })); o = new THREE.Mesh(this.fpartGeo[kind], mat); o.castShadow = true; o.scale.setScalar(0.6 + Math.random() * 0.7); }
+    m.grp.updateMatrixWorld(true);
+    o.position.copy(m.grp.localToWorld(new THREE.Vector3(lx, kind === 'wheel' ? 0.36 : 0.25, lz)));
+    const ch = Math.cos(c.h), sh = Math.sin(c.h), vx = c.vx * ch - c.vy * sh, vy = c.vx * sh + c.vy * ch, side = lz >= 0 ? 1 : -1; // side +1 = the car's right
+    const kick = kind === 'wheel' ? 6 : 4;
+    const v = new THREE.Vector3(vx * (0.55 + Math.random() * 0.3) + (Math.random() - 0.5) * kick + sh * side * kick, 2 + Math.random() * (kind === 'wheel' ? 4 : 5), -(vy * (0.55 + Math.random() * 0.3) + (Math.random() - 0.5) * kick) - ch * side * kick);
+    o.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    this.worldRoot.add(o);
+    F.list.push({ o, v, w: new THREE.Vector3((Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 18), r: kind === 'wheel' ? 0.36 : 0.03, wheel: kind === 'wheel', rest: false, t: 0 });
+    while (F.list.length > F.max) { const old = F.list.shift(); old.o.parent && old.o.parent.remove(old.o); }
+  },
+  partsUpdate(dt) {
+    const F = this.fparts; if (!F) return;
+    for (const p of F.list) {
+      if (p.rest) continue;
+      p.t += dt; p.v.y -= 9.8 * dt; p.o.position.addScaledVector(p.v, dt);
+      p.o.rotation.x += p.w.x * dt; p.o.rotation.y += p.w.y * dt; p.o.rotation.z += p.w.z * dt;
+      if (p.o.position.y < p.r) { // hits the ground: bounce, lose speed, spin less
+        p.o.position.y = p.r; if (p.v.y < 0) p.v.y = -p.v.y * (p.wheel ? 0.45 : 0.25);
+        p.v.x *= p.wheel ? 0.9 : 0.6; p.v.z *= p.wheel ? 0.9 : 0.6; p.w.multiplyScalar(p.wheel ? 0.85 : 0.5);
+        if (!p.wheel) { p.o.rotation.x *= 0.5; p.o.rotation.z *= 0.5; } // pieces settle flat
+        else { p.o.rotation.x = Math.PI / 2 * Math.sign(p.o.rotation.x || 1) * 0.95; } // a wheel ends up on its side
+        if (p.v.length() < 0.6 && Math.abs(p.v.y) < 0.8) { p.rest = true; if (!p.wheel) p.o.rotation.set(0, p.o.rotation.y, 0); p.o.position.y = p.wheel ? 0.18 : 0.02; }
+      }
     }
   },
   spawnDebris(c) {
@@ -986,12 +1043,14 @@ const App = {
       const broken = c.wingHealth < 0.5;
       if (m.fwParts && broken !== !!m.wingBroken) { m.wingBroken = broken; m.fw.forEach((g) => (g.visible = !broken)); m.fwParts.end.visible = !broken; if (broken && this.particles.sparks) this.particles.sparks(c); }
       // big hits throw carbon pieces onto the track (they stay for the session)
-      if (c.impact > 12 && (c === P || Math.hypot(c.x - P.x, c.y - P.y) < 250)) this.spawnDebris(c);
+      const hitPk = c.impactPeak || 0;
+      if (hitPk > 12 && (c === P || Math.hypot(c.x - P.x, c.y - P.y) < 250)) { this.spawnDebris(Object.assign(Object.create(c), { impact: hitPk })); const dd = Math.hypot(c.x - P.x, c.y - P.y); if (c !== P && hitPk > 14 && dd < 150 && performance.now() - (c.crashSnd || 0) > 500) { c.crashSnd = performance.now(); this.audio.crash(hitPk, Math.max(0.15, 1 - dd / 150)); } }
+      if (c !== P) c.impactPeak = 0; // the player's is cleared after the sound below
       // particles near the camera
       const dx = c.x - P.x, dy = c.y - P.y;
       if (dx * dx + dy * dy < 160 * 160) { this.particles.emitFor(c, dt); if (this.skids && !Replay.on) this.skids.update(c); }
     }
-    this.particles.update(dt);
+    this.particles.update(dt); this.partsUpdate(dt);
     PitCrew.update(dt, race, this.audio, this.camera.position);
     this.weatherVisuals(dt, race);
     Crowd.update(dt, race, P);
@@ -1096,7 +1155,8 @@ const App = {
     MouseWheel.draw(P);
     if (this.touchOn && this.input.drawTouchWheel) this.input.drawTouchWheel(this.input.state.steer || 0, P.reverse ? 'R' : P.gear, clamp((P.rpm - 9500) / (P.p.redline - 9500), 0, 1));
     if (this.touchOn && this.input.buzz) { if (P.impact > 3) this.input.buzz(60); else if (P.kerbHit && Math.random() < 0.08) this.input.buzz(6); }
-    if (P.impact > 3) { this.audio.thud(P.impact); Hud.rumble(1, 0.8, 150); }
+    const hit = P.impactPeak || 0; P.impactPeak = 0; // the hardest hit since the last frame (physics runs several steps a frame)
+    if (hit > 3) { if (hit > 12) this.audio.crash(hit); else this.audio.thud(hit); Hud.rumble(1, hit > 12 ? 1 : 0.8, hit > 12 ? 300 : 150); }
     else if (P.kerbHit) Hud.rumble(0.25, 0.5, 60);
     else if (P.lockF || P.lockR) Hud.rumble(0.12, 0.45, 60); // lock-up: a fast buzz
     else if (P.spin) Hud.rumble(0.3, 0.15, 70); // wheelspin: a deeper shudder
