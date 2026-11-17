@@ -2,6 +2,21 @@
 // World mapping: sim (x, y) -> three (x, height, -y).
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
 const GFX = { maxAniso: 8 };
+// The colour grade lives in the film tone curve, so every quality level gets it exactly once and it costs no extra pass
+// (Low draws straight to the screen; Medium and up go through OutputPass, which uses the same curve). Worked out in
+// display space: a soft S-curve, vibrance that lifts dull colours (sky, grass) more than already-strong liveries, and
+// warm highlights over cool shadows.
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment
+  .replace('vec3 ACESFilmicToneMapping( vec3 color ) {', 'vec3 ACESFilmicToneMapping0( vec3 color ) {') + `
+vec3 ACESFilmicToneMapping( vec3 color ) {
+  vec3 c = clamp( ACESFilmicToneMapping0( color ), 0.0, 1.0 );
+  vec3 g = pow( c, vec3( 1.0 / 2.2 ) );
+  g = mix( g, g * g * ( 3.0 - 2.0 * g ), 0.30 );
+  float l = dot( g, vec3( 0.299, 0.587, 0.114 ) ), sat = max( g.r, max( g.g, g.b ) ) - min( g.r, min( g.g, g.b ) );
+  g = mix( vec3( l ), g, 1.10 + 0.22 * ( 1.0 - sat ) );
+  g *= mix( vec3( 0.965, 0.99, 1.045 ), vec3( 1.035, 1.0, 0.965 ), smoothstep( 0.2, 0.8, l ) );
+  return pow( clamp( g, 0.0, 1.0 ), vec3( 2.2 ) );
+}`;
 
 function canvasTex(w, h, draw, opts = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -601,7 +616,8 @@ function buildWorld(T, themeKey, quality) {
     add(cg, capMat);
   }
   if (quality >= 1) {
-    const fenceMat = new THREE.MeshStandardMaterial({ map: rep(tx.fence, 1, 1), transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.8 });
+    const fenceMat = new THREE.MeshStandardMaterial({ map: rep(tx.fence, 1, 1), alphaTest: 0.25, alphaToCoverage: true, // soft mesh edges with multisampling (less shimmer)
+    side: THREE.DoubleSide, roughness: 0.4, metalness: 0.8 });
     const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.06, 3.6, 6).translate(0, 2.85, 0), new THREE.MeshStandardMaterial({ color: 0x6d7278, metalness: 0.8, roughness: 0.4 }), Math.ceil(n / 2) * 2 + 8);
     let pk = 0;
     for (const [off, side] of [[T.wallL, 1], [T.wallR, -1]]) {
@@ -969,7 +985,7 @@ function treeAssets(kind) {
     v.set(p.getX(i) - center.x, (p.getY(i) - center.y) * (kind === 'pine' ? 0.25 : 1), p.getZ(i) - center.z).divide(radii);
     v.y += 0.35; v.normalize(); nr.setXYZ(i, v.x, v.y, v.z);
   }
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.95, envMapIntensity: 0.6 });
+  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.32, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.95, envMapIntensity: 0.6 });
   windify(mat, kind === 'pine' ? 0.05 : 0.09, 3);
   GFX.trees = GFX.trees || {};
   return (GFX.trees[kind] = { crown, trunk, mat });

@@ -34,7 +34,7 @@ const App = {
   init() {
     const canvas = $('#view');
     let renderer;
-    try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false }); }
+    try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true /* Low draws straight to the screen: smooth edges there too */, powerPreference: 'high-performance', stencil: false }); }
     catch (e) { $('#menu-error').hidden = false; $('#menu-error').textContent = 'WebGL is not available in this browser, so the 3D view cannot start.'; return; }
     this.renderer = renderer;
     // which graphics chip the browser draws with: a software renderer (hardware acceleration off, or the driver
@@ -56,7 +56,7 @@ const App = {
     // grass tuft: three crossed blade cards with upward normals so they light like the ground
     GFX.grassTuft = mergeGeos([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.7, 0.42).translate(0, 0.21, 0).rotateY((k * Math.PI) / 3)));
     { const nn = GFX.grassTuft.attributes.normal; for (let i = 0; i < nn.count; i++) nn.setXYZ(i, 0, 1, 0); }
-    GFX.grassMat = new THREE.MeshStandardMaterial({ map: GFX.tex.grassBlades, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 });
+    GFX.grassMat = new THREE.MeshStandardMaterial({ map: GFX.tex.grassBlades, alphaTest: 0.3, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 1 });
     windify(GFX.grassMat, 0.25, 0.05);
     GFX.flagGeo = new THREE.PlaneGeometry(1.8, 1.1, 12, 4).translate(0.9, -0.55, 0);
     const tx = GFX.tex;
@@ -104,7 +104,9 @@ const App = {
     const q = settings.quality, r = this.renderer;
     if (this.composer) { this.composer.dispose && this.composer.dispose(); this.composer = null; }
     if (q === 0) return;
-    const comp = new EffectComposer(r);
+    // multisampled render target: hardware edge smoothing that stays steady in motion (2x on Medium, 4x on High/Ultra)
+    const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: q >= 2 ? 4 : 2 });
+    const comp = new EffectComposer(r, rt);
     comp.addPass(new RenderPass(this.scene, this.camera));
     if (q >= 2) {
       const ao = new GTAOPass(this.scene, this.camera, innerWidth, innerHeight);
@@ -137,15 +139,11 @@ const App = {
           c.r = mix(c.r, texture2D(tDiffuse, vUv + d * ca).r, 0.6); c.b = mix(c.b, texture2D(tDiffuse, vUv - d * ca).b, 0.6);
           vec3 nb = (texture2D(tDiffuse, vUv + vec2(texel.x, 0.)).rgb + texture2D(tDiffuse, vUv - vec2(texel.x, 0.)).rgb + texture2D(tDiffuse, vUv + vec2(0., texel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0., texel.y)).rgb) * 0.25;
           c += (c - nb) * 0.35 * (1. - blur);
-          c = clamp(c, 0., 1.);
-          c = mix(c, c * c * (3. - 2. * c), 0.32);
-          float l = dot(c, vec3(0.299,0.587,0.114));
-          c = mix(vec3(l), c, 1.16);
-          c *= mix(vec3(0.96, 0.99, 1.05), vec3(1.04, 1.0, 0.95), smoothstep(0.2, 0.8, l));
+          c = clamp(c, 0., 1.); // (contrast, vibrance and the warm/cool split are in the tone curve now, for every quality level)
           gl_FragColor = vec4(c * (1. - vig * r2 * 2.2), 1.); }`,
     });
     comp.addPass(grade); this.grade = grade;
-    this.smaa = new SMAAPass(innerWidth * r.getPixelRatio(), innerHeight * r.getPixelRatio()); comp.addPass(this.smaa);
+    this.smaa = null; // edges are smoothed by the multisampled target above
     this.composer = comp;
   },
   // high-resolution pack (site hq/ folder) for PCs on High or Ultra: 2K ground textures, and 1K lighting images that
