@@ -97,6 +97,26 @@ const MouseWheel = {
     });
     const end = (e) => { if (e.pointerId !== sid) return; sid = null; this.grabbing = false; };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
+    // cockpit view: the car's own wheel is on screen, so the on-screen one hides. Grab mode then steers by pressing
+    // anywhere in the lower part of the picture and dragging left/right (a fifth of the screen's width is full lock);
+    // a faint ring marks where you pressed. Taken before the free-camera drag sees it (capture phase)
+    const ghost = document.createElement('div'); ghost.id = 'mw-ghost'; $('#hud').appendChild(ghost);
+    let cid = null, x0 = 0, c0 = 0;
+    addEventListener('pointerdown', (e) => {
+      if (this.mode() !== 'grab' || !this.cockpit || e.button !== 0 || e.pointerType === 'touch' || !App.session || App.paused) return;
+      if (!e.target || e.target.id !== 'view' || e.clientY < innerHeight * 0.4) return;
+      cid = e.pointerId; x0 = e.clientX; c0 = this.tgt; this.grabbing = true; this.used = true;
+      try { e.target.setPointerCapture(cid); } catch (x) { /* fine */ }
+      ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; ghost.className = 'on';
+      e.stopPropagation(); e.preventDefault();
+    }, true);
+    addEventListener('pointermove', (e) => {
+      if (e.pointerId !== cid) return;
+      this.tgt = clamp(c0 - ((e.clientX - x0) * (settings.mouseSens || 1)) / (innerWidth * 0.2), -1, 1);
+      ghost.style.transform = `translate(-50%, -50%) rotate(${-this.tgt * 100}deg)`;
+    }, true);
+    const cend = (e) => { if (e.pointerId !== cid) return; cid = null; this.grabbing = false; ghost.className = ''; };
+    addEventListener('pointerup', cend, true); addEventListener('pointercancel', cend, true);
     // follow the mouse: anywhere on the screen that isn't a button or panel
     const free = (e) => !e.target.closest('button, input, select, .overlay, #menu, #pc-btns, #replay');
     addEventListener('pointermove', (e) => {
@@ -127,6 +147,10 @@ const MouseWheel = {
     g.fillStyle = '#9aa3ad'; g.fillText('ERS', 24, -14); g.fillStyle = '#1f2a24'; g.fillRect(14, -25, 20, 5); g.fillStyle = '#2bd46a'; g.fillRect(14, -25, 20 * ers, 5);
     g.strokeStyle = 'rgba(255,255,255,0.08)'; g.strokeRect(-40.5, -32.5, 81, 41);
   },
+  hintText() {
+    if (this.mode() !== 'grab') return 'Mouse left/right steers · left button accelerate · right button brake (hold it when stopped to reverse)';
+    return this.cockpit ? 'Press low on the screen and drag left/right to steer · W/S or ↑/↓ for the pedals' : 'Press on the wheel and turn · W/S or ↑/↓ for the pedals · hold brake when stopped to reverse';
+  },
   // called every frame by the input: what the mouse wants, smoothed like a real wheel's movement
   read(dt) {
     const m = this.mode();
@@ -144,13 +168,21 @@ const MouseWheel = {
     this.el.hidden = !vis; document.body.classList.toggle('mwheel', vis);
     if (vis) {
       this.el.dataset.mode = this.mode();
-      clearTimeout(this.hintT); this.el.classList.remove('quiet'); this.hintT = setTimeout(() => this.el.classList.add('quiet'), 9000); // the how-to fades after a few seconds
-      $('#mw-hint').textContent = this.mode() === 'grab' ? 'Press on the wheel and turn · W/S or ↑/↓ for the pedals · hold brake when stopped to reverse' : 'Mouse left/right steers · left button accelerate · right button brake (hold it when stopped to reverse)';
+      // the how-to shows for 6 seconds at the start of your first 3 sessions, then not again (Settings → Controls brings it back)
+      clearTimeout(this.hintT); const n = settings.mwHints || 0;
+      this.el.classList.toggle('quiet', n >= 3); this.el.classList.toggle('nohint', n >= 3);
+      if (n < 3) { settings.mwHints = n + 1; store.set('settings', settings); this.hintT = setTimeout(() => this.el.classList.add('quiet'), 6000); }
+      $('#mw-hint').textContent = this.hintText();
     }
     if (!on) { this.tgt = this.steer = 0; this.thrOn = this.brkOn = false; this.used = false; }
   },
   draw(P) {
     if (!this.el || this.el.hidden) return;
+    const ck = !!(App.session && App.session.camMode === 'cockpit' && !(App.session.orbit && App.session.orbit.on));
+    if (ck !== this.cockpit) {
+      this.cockpit = ck; this.el.classList.toggle('cockpit', ck);
+      const t = $('#mw-hint'); if (t) t.textContent = this.hintText();
+    }
     const deg = Math.round(-this.steer * 1000) / 10; if (deg !== this.deg) { this.deg = deg; this.rot.style.transform = `rotate(${deg}deg)`; }
     const lit = Math.round(clamp((P.rpm - 9500) / (P.p.redline - 9500), 0, 1) * 15);
     this.drawLcd(P.reverse ? 'R' : String(P.gear), String(Math.round(Math.max(0, P.vx) * (settings.units === 'mph' ? 2.237 : 3.6))), lit, Math.round(clamp(P.soc / SOC_MAX, 0, 1) * 20) / 20);

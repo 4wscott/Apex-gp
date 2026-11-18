@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -54,10 +54,15 @@ const App = {
     GFX.geo = makeCarGeometries();
     GFX.wind = { value: 0 };
     // grass tuft: three crossed blade cards with upward normals so they light like the ground
-    GFX.grassTuft = mergeGeos([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.7, 0.42).translate(0, 0.21, 0).rotateY((k * Math.PI) / 3)));
+    GFX.grassTuft = mergeGeos([0, 1, 2].map((k) => new THREE.PlaneGeometry(0.75, 0.34).translate(0, 0.17, 0).rotateY((k * Math.PI) / 3)));
     { const nn = GFX.grassTuft.attributes.normal; for (let i = 0; i < nn.count; i++) nn.setXYZ(i, 0, 1, 0); }
     GFX.grassMat = new THREE.MeshStandardMaterial({ map: GFX.tex.grassBlades, alphaTest: 0.3, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 1 });
     windify(GFX.grassMat, 0.25, 0.05);
+    // tufts thin out with distance (fewer blades survive the cut-out), so the edge of the grass never pops
+    { const ob = GFX.grassMat.onBeforeCompile; GFX.grassMat.onBeforeCompile = (sh, r) => { ob(sh, r);
+      sh.vertexShader = 'varying float vGd;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n vGd = -mvPosition.z;');
+      sh.fragmentShader = 'varying float vGd;\n' + sh.fragmentShader.replace('#include <alphatest_fragment>', 'diffuseColor.a *= 1.0 - 0.75 * smoothstep(38.0, 70.0, vGd);\n#include <alphatest_fragment>'); };
+      GFX.grassMat.customProgramCacheKey = () => 'grassFade'; }
     GFX.flagGeo = new THREE.PlaneGeometry(1.8, 1.1, 12, 4).translate(0.9, -0.55, 0);
     const tx = GFX.tex;
     GFX.mats = {
@@ -87,7 +92,7 @@ const App = {
     this.particles = new Particles(this.scene);
     this.hdriCache = {};
     this.setupComposer();
-    addEventListener('resize', () => this.resize()); this.resize();
+    addEventListener('resize', () => { this.resize(); if (!this.session && typeof Menu !== 'undefined') { clearTimeout(this.fitT); this.fitT = setTimeout(() => Menu.sync(), 150); } }); this.resize();
     this.setupOrbit();
     // moved to a monitor with different scaling: no resize event in every browser, so watch the pixel ratio itself
     const watchDpr = () => { try { matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { this.resize(); watchDpr(); }, { once: true }); } catch (e) { /* older browsers */ } };
@@ -135,7 +140,7 @@ const App = {
           vec3 c = texture2D(tDiffuse, uv).rgb;
           float blur = speed * smoothstep(0.04, 0.3, r2);
           if (blur > 0.001) { vec3 acc = c; for (int i = 1; i <= 6; i++) acc += texture2D(tDiffuse, vUv - d * blur * 0.012 * float(i)).rgb; c = acc / 7.; }
-          float ca = 0.0018 * r2 * 4.;
+          float ca = 0.0007 * r2 * 4. * speed; /* lens fringe: a third of what it was, and only at speed (none when stopped) */
           c.r = mix(c.r, texture2D(tDiffuse, vUv + d * ca).r, 0.6); c.b = mix(c.b, texture2D(tDiffuse, vUv - d * ca).b, 0.6);
           vec3 nb = (texture2D(tDiffuse, vUv + vec2(texel.x, 0.)).rgb + texture2D(tDiffuse, vUv - vec2(texel.x, 0.)).rgb + texture2D(tDiffuse, vUv + vec2(0., texel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0., texel.y)).rgb) * 0.25;
           c += (c - nb) * 0.35 * (1. - blur);
@@ -174,7 +179,7 @@ const App = {
     if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; }
     if (this.flare) { this.flare.parent && this.flare.parent.remove(this.flare); this.flare = null; }
     if (q < 2) return;
-    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 160 : 112, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 160 : 112, { type: THREE.HalfFloatType, generateMipmaps: false, minFilter: THREE.LinearFilter }); /* the blurred levels for rough paint come from the PMREM conversion */
     const cam = new THREE.CubeCamera(0.5, 800, rt);
     const shared = new Set(Object.values(GFX.mats));
     const mats = [];
@@ -198,6 +203,24 @@ const App = {
     fl.addElement(new LensflareElement(ring, 200, 1.25));
     this.worldRoot.add(fl); this.flare = fl;
   },
+  // flag light panels on the marshal posts: yellow (flashing) in a sector with an incident or under the virtual safety
+  // car, blue just ahead of you when a leader is about to lap you; dark otherwise. Colours change only when needed
+  marshalFrame(race) {
+    const M = GFX.marshal; if (!M || !M.mesh.parent || !race || !race.track) return;
+    const T = race.track, now = performance.now(), fl = Math.floor(now / 450) % 2, yel = race.yellow || [], vsc = !!race.vsc, blue = race.rc && race.rc.blueT > 0 && race.mode === 'race';
+    const pd = ((race.player.dist % T.length) + T.length) % T.length;
+    let key = '';
+    const cols = M.idx.map((i) => {
+      const s = i * T.ds, sec = Math.min(2, Math.floor(s / race.sectorLen));
+      if (vsc || yel[sec]) return fl ? 1 : 0;
+      if (blue) { const ahead = (s - pd + T.length) % T.length; if (ahead < 450) return fl ? 2 : 0; }
+      return 0;
+    });
+    key = cols.join(''); if (key === M.key) return; M.key = key;
+    const c = new THREE.Color(), pal = [0x050505, 0xffc21a, 0x2f7dff];
+    cols.forEach((v, k) => M.mesh.setColorAt(k, c.setHex(pal[v])));
+    if (M.mesh.instanceColor) M.mesh.instanceColor.needsUpdate = true;
+  },
   realismFrame(P, cam) {
     const R = this.reflect;
     if (R && P.mesh) {
@@ -212,9 +235,15 @@ const App = {
       P.mesh.grp.visible = false; if (this.flare) this.flare.visible = false;
       const prev = r.getRenderTarget(), shadows = r.shadowMap.autoUpdate;
       r.shadowMap.autoUpdate = false; // the main view already updated the shadow map this frame
-      R.rt.texture.generateMipmaps = f === 5; // blurred levels for rough paint, rebuilt once per cycle
-      try { r.setRenderTarget(R.rt, f); r.render(this.scene, cc.children[f]); }
+      // the paint reads this cube through three.js's PMREM conversion, which only re-runs when asked: without the flag the
+      // paint kept the first conversion forever (made before any face was drawn: a black world, so a dark car). So: all six
+      // faces once at the start, then a fresh conversion after every cycle of four faces
+      const faces = R.primed ? [f] : [0, 1, 2, 3, 4, 5];
+      if (!R.primed) { P.mesh.grp.getWorldPosition(cc.position); cc.position.y += 0.9; cc.updateMatrixWorld(); }
+      try { for (const fc of faces) { r.setRenderTarget(R.rt, fc); r.render(this.scene, cc.children[fc]); } }
       finally { r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows; R.heavy.forEach((o) => { o.visible = o.userData.rv; }); P.mesh.grp.visible = vis; } if (this.flare) this.flare.visible = flareVis;
+      if (!R.primed || R.n % 4 === 0) R.rt.texture.needsPMREMUpdate = true;
+      R.primed = true;
     }
     if (this.flare) {
       // no sun to flare in rain, or at night
@@ -1064,7 +1093,12 @@ const App = {
     const fwd = new THREE.Vector3(Math.cos(P.h), 0, -Math.sin(P.h));
     const base = new THREE.Vector3(P.x, 0, -P.y);
     P.mesh.helmet.visible = P.mesh.visor.visible = P.mesh.shoulders.visible = mode !== 'cockpit';
-    if (this.grade) this.grade.uniforms.speed.value = race.phase === 'green' ? clamp((P.vx - 45) / 45, 0, 1) * (mode === 'far' ? 0.4 : 1) : 0;
+    if (this.grade) {
+      // lens effects (speed blur, fringe, vignette) can be switched off in Settings → Graphics; TV cameras use a trace
+      const lens = settings.lens !== false;
+      this.grade.uniforms.speed.value = lens && race.phase === 'green' ? clamp((P.vx - 45) / 45, 0, 1) * (mode === 'far' ? 0.4 : mode === 'tcam' ? 0.25 : 1) : 0;
+      this.grade.uniforms.vig.value = lens ? 0.3 : 0;
+    }
     this.heatHaze = settings.heat && settings.quality >= 2 && mode !== 'cockpit';
     S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002), 0.2);
     const look = inp.lookBack ? Math.PI : 0;
@@ -1114,7 +1148,7 @@ const App = {
     this.sun.target.position.copy(base).addScaledVector(fwd, 25);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(cam.position);
-    this.realismFrame(P, cam);
+    this.realismFrame(P, cam); this.marshalFrame(S.race);
     // mirrors
     if (S.mirror && (mode === 'cockpit' || mode === 'tcam')) {
       // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
@@ -1386,11 +1420,34 @@ const Hud = {
     for (const k in parts) el.querySelector(`[data-p=${k}]`).setAttribute('fill', col(parts[k]));
     for (let i = 0; i < 4; i++) { const h = Math.min(D.sus[i], D.tyre[i] < 0.95 ? 0.3 : 1), t = el.querySelector(`[data-p=w${i}]`); t.setAttribute('fill', D.punct[i] && blink ? '#ffffff' : col(h)); }
   },
+  // how many rows fit between the top of the tower and whatever sits below it on this screen
+  towerCap() {
+    const wrap = $('#tower-wrap'); if (!wrap || wrap.hidden) return 99;
+    const wr = wrap.getBoundingClientRect(), head = wrap.querySelector('.tw-head'), row = this.rows && this.rows.find((r) => r.style.display !== 'none');
+    const headH = head ? head.offsetHeight : 20, rowH = (row && row.offsetHeight) || 18;
+    let bottom = innerHeight - 8;
+    for (const el of document.querySelectorAll('#dash, #minimap, #mw-rot, #t-steer button, #t-wheel, #t-brk, #t-thr, .t-shift button, #h-dmg')) {
+      if (!el.offsetParent && getComputedStyle(el).position !== 'fixed') continue;
+      const r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || r.top <= wr.top + headH) continue;
+      if (r.right < wr.left || r.left > wr.left + wr.width) continue; // not under the tower
+      bottom = Math.min(bottom, r.top - 8);
+    }
+    return Math.max(2, Math.floor((bottom - wr.top - headH - rowH * 0.5) / rowH)); // half a row for the divider
+  },
   show(race) {
     $('#hud').hidden = false;
     const tower = $('#tower'); tower.innerHTML = '';
     this.rows = race.cars.map(() => { const r = document.createElement('div'); r.className = 'trow'; r.innerHTML = '<span class="tp"></span><span class="tc"></span><span class="td"></span><span class="tg"></span>'; tower.appendChild(r); return r; });
+    this.tdiv = document.createElement('div'); this.tdiv.className = 'tdiv'; this.towerOpenUntil = 0; this.towerCapN = 0; this.towerCapAt = 0;
     $('#tower-wrap').hidden = race.mode !== 'race';
+    if (!this.towerWired) {
+      // tap or click the tower (or press T) for the full order; it folds back after 8 seconds
+      this.towerWired = true;
+      const toggle = () => { this.towerOpenUntil = performance.now() < this.towerOpenUntil ? 0 : performance.now() + 8000; };
+      $('#tower-wrap').addEventListener('click', toggle);
+      addEventListener('keydown', (e) => { if (e.code === 'KeyT' && !e.repeat && App.session && !App.paused && !/INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || '')) toggle(); });
+      addEventListener('resize', () => { this.towerCapAt = 0; });
+    }
     $('#lightsbar').hidden = race.mode !== 'race';
     this.t = 0; this.delta = null; this.refLap = null; this.curLap = []; this.lastLapT = -1;
     $('#h-best').textContent = '--:--.---'; $('#h-last').textContent = '--:--.---';
@@ -1481,9 +1538,24 @@ const Hud = {
     else if (race.greenT > 1.5) lb.hidden = true; else $$('.lamp', lb).forEach((l) => l.classList.remove('on'));
     // timing tower
     if (race.mode === 'race') {
-      const st = race.standings(), leader = st[0];
+      const st = race.standings(), leader = st[0], N = st.length, me = st.indexOf(P);
+      // which rows to show: everything when it fits (or when opened); otherwise the top three, a divider and the cars
+      // round you. The space is measured, so the tower never runs into the car panel, the minimap or the phone's buttons
+      const now = performance.now(); if (now > this.towerCapAt) { this.towerCapAt = now + 1000; this.towerCapN = this.towerCap(); }
+      const cap = this.towerCapN, lastLap = race.lapsLeft(P) <= 1 && race.phase === 'green';
+      const open = now < this.towerOpenUntil || (lastLap && cap >= N);
+      const show = new Uint8Array(N); let divAt = -1;
+      if (open || N <= Math.min(cap, 8)) show.fill(1);
+      else {
+        const k = Math.max(3, Math.min(cap, 8)), top = k >= 6 ? 3 : 1, w = k - top;
+        if (me < k) for (let i = 0; i < k; i++) show[i] = 1;
+        else { for (let i = 0; i < top; i++) show[i] = 1; const a0 = Math.max(top, Math.min(N - w, me - ((w - 1) >> 1))); for (let i = a0; i < a0 + w; i++) show[i] = 1; divAt = a0; }
+      }
+      $('#tower-wrap').classList.toggle('open', open && N > cap); $('#tower-wrap').classList.toggle('folded', !open && N > Math.min(cap, 8));
+      if (divAt > 0) { if (this.tdiv.nextSibling !== this.rows[divAt]) this.rows[divAt].before(this.tdiv); } else if (this.tdiv.parentNode) this.tdiv.remove();
       st.forEach((c, i) => {
-        const r = this.rows[i]; r.classList.toggle('me', c === P);
+        const r = this.rows[i]; r.classList.toggle('me', c === P); r.style.display = show[i] ? '' : 'none';
+        r.classList.toggle('pit', !!c.pit); r.classList.toggle('out', !!c.dnf);
         r.children[0].textContent = i + 1;
         r.children[1].style.background = c.team.c1;
         r.children[2].textContent = c.driver.abbr || c.driver.code;
@@ -1495,6 +1567,7 @@ const Hud = {
           let g = race.gapBetween(leader, c); if (!(g > 0)) g = Math.max(0, leader.dist - c.dist) / Math.max(15, c.vx);
           gap = race.phase !== 'green' && race.time < 1 ? '' : lapsDown >= 1 && !c.finished ? `+${lapsDown} lap` : fmtGap(g);
         }
+        if (c.dnf) gap = 'OUT'; else if (c.pit && !c.finished && i > 0) gap = 'PIT';
         r.children[3].textContent = gap;
       });
     }
@@ -2135,6 +2208,23 @@ const Menu = {
     GFX.tex.garage = makeGarageTex(); this.buildTeams(); Career.render(); App.preview(settings.track);
     $('#roster-msg').textContent = msg;
   },
+  // the start bar's names never get cut off: shrink a little, then fall back to a shorter form (phones, small windows)
+  fitPickers(spec, dr) {
+    const fit = (el, texts, min) => {
+      if (!el || !el.offsetParent) { if (el) el.textContent = texts[0]; return; }
+      el.style.fontSize = ''; const base = parseFloat(getComputedStyle(el).fontSize) || 15;
+      for (const t of texts) {
+        el.textContent = t;
+        for (let f = base; f >= min; f -= 0.5) { el.style.fontSize = f + 'px'; if (el.scrollWidth <= el.clientWidth + 1) return; }
+      }
+      el.style.fontSize = min + 'px'; // the shortest form at the smallest size (still whole words)
+    };
+    const short = spec.name.replace(/^(Autodromo|Autódromo|Circuit de l'|Circuit de)\s*/i, '').replace(/\s+(Street Circuit|Circuit|Raceway|Ring|Park|Sands)$/i, '');
+    fit($('#pc-name'), [spec.name, short], 12);
+    fit($('#pt-name'), [dr.name, dr.name.split(' ').slice(-1)[0]], 12);
+    const sum = $('#opts-sum').textContent;
+    fit($('#opts-sum2'), [sum, sum.replace(/ tyres$/, '').replace(' rivals', ' cars'), sum.split(' · ').slice(0, 3).join(' · ')], 10);
+  },
   sync() {
     { const el = $('#gpu-note'); if (el && !el.dataset.done && App.renderer) { el.dataset.done = 1;
       el.innerHTML = App.remoteGPU
@@ -2174,6 +2264,7 @@ const Menu = {
     const st = teamStats(team);
     $('#pt-stats').innerHTML = [['PWR', st.power], ['AERO', st.aero], ['DRV', st.drivers]].map(([k, v]) => `<i><em>${k}</em><u><s style="width:${Math.max(0, (v - 40) / 59 * 100).toFixed(0)}%"></s></u></i>`).join('') + `<i class="ovr"><em>OVR</em><b>${st.overall}</b></i>`;
     $('#opts-sum2').textContent = $('#opts-sum').textContent;
+    this.fitPickers(spec, dr);
     $('#pickers').hidden = career; $('.startbar').hidden = career;
     { const guest = online && typeof Net !== 'undefined' && Net.peer && !Net.host; $('#pick-circuit').hidden = guest; $('#open-opts').hidden = guest; } // a guest races the host's circuit and settings $('#start').textContent = settings.mode === 'race' && settings.weekend === 'quali' ? 'Start qualifying' : { race: 'Start race', practice: 'Start practice', trial: 'Start trial' }[settings.mode] || 'Start';
     if (online) $('#sum').innerHTML = `<b>Online</b> · ${Net.code ? `room ${Net.code} · ${Net.players.length} driver${Net.players.length === 1 ? '' : 's'}` : 'create or join a room'} · ${spec.name}, ${settings.laps} laps`;
