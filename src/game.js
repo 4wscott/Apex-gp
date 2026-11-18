@@ -214,7 +214,7 @@ const App = {
       m.fillMats.forEach((mt) => (mt.userData.env0 = mt.envMapIntensity));
     }
     if (m.fillOn === on) return; m.fillOn = on;
-    m.fillMats.forEach((mt) => { mt.envMapIntensity = mt.userData.env0 * (on ? 1.8 : 1); });
+    m.fillMats.forEach((mt) => { mt.envMapIntensity = mt.userData.env0 * (on ? 1.45 : 1); });
   },
   // flag light panels on the marshal posts: yellow (flashing) in a sector with an incident or under the virtual safety
   // car, blue just ahead of you when a leader is about to lap you; dark otherwise. Colours change only when needed

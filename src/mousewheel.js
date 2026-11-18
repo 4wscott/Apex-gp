@@ -169,9 +169,10 @@ const MouseWheel = {
     if (vis) {
       this.el.dataset.mode = this.mode();
       // the how-to shows for 6 seconds at the start of your first 3 sessions, then not again (Settings → Controls brings it back)
-      clearTimeout(this.hintT); const n = settings.mwHints || 0;
+      clearTimeout(this.hintT); const fresh = this.hintSession !== App.session; this.hintSession = App.session;
+      const n = (settings.mwHints || 0) + (fresh ? 0 : -1); // counted once per session
       this.el.classList.toggle('quiet', n >= 3); this.el.classList.toggle('nohint', n >= 3);
-      if (n < 3) { settings.mwHints = n + 1; store.set('settings', settings); this.hintT = setTimeout(() => this.el.classList.add('quiet'), 6000); }
+      if (n < 3) { if (fresh) { settings.mwHints = n + 1; store.set('settings', settings); } this.hintT = setTimeout(() => this.el.classList.add('quiet'), 6000); }
       $('#mw-hint').textContent = this.hintText();
     }
     if (!on) { this.tgt = this.steer = 0; this.thrOn = this.brkOn = false; this.used = false; }

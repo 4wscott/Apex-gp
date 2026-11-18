@@ -68,7 +68,7 @@ const PROBE = async () => {
       // move the car onto a straight, away from walls and the pits: a third of the way round the lap
       const T = r.track, n = T.px.length; let best = Math.round(n / 3);
       for (let i = Math.round(n / 3); i < Math.round(n * 0.6); i++) if (Math.abs(T.kapW[i]) < 1 / 2000) { best = i; break; }
-      P.x = T.px[best]; P.y = T.py[best]; P.h = Math.atan2(T.ty[best], T.tx[best]); P.vx = P.vy = P.r = 0;
+      P.x = T.px[best]; P.y = T.py[best]; P.h = Math.atan2(T.ty[best], T.tx[best]); P.vx = P.vy = P.r = 0; P.idx = best; if (P.locate) P.locate(true);
       App.paused = true; document.querySelector('#hud').style.visibility = 'hidden'; const pz = document.querySelector('#pause'); if (pz) pz.hidden = true;
       if (window.MouseWheel) MouseWheel.show(false);
       await new Promise((ok) => { let k = 0; const f = () => (++k > 20 ? ok() : requestAnimationFrame(f)); requestAnimationFrame(f); }); // let the car's pose, shadows and reflections settle
@@ -79,7 +79,8 @@ const PROBE = async () => {
       const rafs = []; const oldRaf = window.requestAnimationFrame; // keep the game loop from moving the camera in between
       for (let k = 0; k < 8; k++) {
         const a = P.h + (k * Math.PI) / 4; // k=0: camera in front of the car, k=4: behind it
-        cam.position.set(P.x + Math.cos(a) * 7, 2.2, -(P.y + Math.sin(a) * 7)); cam.lookAt(P.x, 0.45, -P.y); cam.fov = 50; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+        const z = P.mesh.grp.position.y; // the car's height on the hills
+        cam.position.set(P.x + Math.cos(a) * 7, z + 2.2, -(P.y + Math.sin(a) * 7)); cam.lookAt(P.x, z + 0.45, -P.y); cam.fov = 50; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
         App.render(); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, img);
         const hidden = []; App.scene.traverse((o) => { if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && !carSet.has(o) && o.visible) { o.visible = false; hidden.push(o); } });
         const bg = App.scene.background, fog = App.scene.fog; App.scene.background = new THREE.Color(0); App.scene.fog = null; App.scene.overrideMaterial = white;
