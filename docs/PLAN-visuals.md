@@ -430,6 +430,10 @@ All phases are built. Phase 5's own check, on your PC and iPhone, is yours to do
   - The banking's extra grip was toned down to what real tyres give, where grip per kilo falls as load rises.
   - It's now worth 1.3 s a lap at Lakeside, and AI races there are clean (22 of 22 finish).
 - **Texture sheet on Lite:** the building image is 256×256 on Lite (not 512), to keep memory level.
+- **The live paint reflection:**
+  - Once the reflection was refreshed properly, a stray invalid pixel in it could black out the whole car on Balanced in a running race.
+  - It's now copied between frames from an 8-bit capture, and the paint ignores any invalid value. A live-race check in `test/visual1.js` guards it.
+- **Guardrail posts:** a post every 4 m. The first version placed more posts than it had room for, which drew giant streaks at Ardenne; that is fixed.
 
 ### Tests
 
