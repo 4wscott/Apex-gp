@@ -457,8 +457,7 @@ const App = {
     // showroom spot: on the start/finish line, with the main grandstand across the track behind it
     const st = GFX.mainStand, off = st ? ((st.mid > T.n / 2 ? st.mid - T.n : st.mid) * T.ds) : 0;
     const i = (Math.round((st && Math.abs(off) > st.L * 0.35 ? off : -3) / T.ds) + T.n) % T.n;
-    this.previewCar.grp.position.copy(W(T.px[i], T.py[i], 0));
-    this.previewCar.grp.rotation.y = Math.atan2(T.ty[i], T.tx[i]);
+    poseOnRoad(this.previewCar.grp, T, T.px[i], T.py[i], Math.atan2(T.ty[i], T.tx[i]), i);
     this.previewSpot = i;
     if (this.fireworks) this.fireworks.dispose();
     this.fireworks = new Fireworks(this.worldRoot, T, GFX.mainStand);
@@ -581,7 +580,7 @@ const App = {
     this.setupMirrors(car);
   },
   setupGhost(T, team) {
-    const best = store.get('tt.' + T.spec.id, null);
+    const best0 = store.get('tt.' + T.spec.id, null), best = best0 && (best0.layout || 1) === T.layout ? best0 : null; // a lap from before the hills is not a fair target
     const m = makeCar(team, 0, GFX.geo, GFX.mats);
     m.grp.traverse((o) => { if (o.material) { o.material = (Array.isArray(o.material) ? o.material : [o.material]).map((mm) => { const c = mm.clone(); c.transparent = true; c.opacity = 0.28; c.depthWrite = false; return c; }); if (o.material.length === 1) o.material = o.material[0]; o.castShadow = false; } });
     m.grp.visible = false; this.worldRoot.add(m.grp);
@@ -869,12 +868,13 @@ const App = {
       if (p.rest) continue;
       p.t += dt; p.v.y -= 9.8 * dt; p.o.position.addScaledVector(p.v, dt);
       p.o.rotation.x += p.w.x * dt; p.o.rotation.y += p.w.y * dt; p.o.rotation.z += p.w.z * dt;
-      if (p.o.position.y < p.r) { // hits the ground: bounce, lose speed, spin less
-        p.o.position.y = p.r; if (p.v.y < 0) p.v.y = -p.v.y * (p.wheel ? 0.45 : 0.25);
+      const gy = GFX.groundAt && App.session ? groundUnder(App.session.race.track, p.o.position.x, -p.o.position.z) : 0;
+      if (p.o.position.y < p.r + gy) { // hits the ground: bounce, lose speed, spin less
+        p.o.position.y = p.r + gy; if (p.v.y < 0) p.v.y = -p.v.y * (p.wheel ? 0.45 : 0.25);
         p.v.x *= p.wheel ? 0.9 : 0.6; p.v.z *= p.wheel ? 0.9 : 0.6; p.w.multiplyScalar(p.wheel ? 0.85 : 0.5);
         if (!p.wheel) { p.o.rotation.x *= 0.5; p.o.rotation.z *= 0.5; } // pieces settle flat
         else { p.o.rotation.x = Math.PI / 2 * Math.sign(p.o.rotation.x || 1) * 0.95; } // a wheel ends up on its side
-        if (p.v.length() < 0.6 && Math.abs(p.v.y) < 0.8) { p.rest = true; if (!p.wheel) p.o.rotation.set(0, p.o.rotation.y, 0); p.o.position.y = p.wheel ? 0.18 : 0.02; }
+        if (p.v.length() < 0.6 && Math.abs(p.v.y) < 0.8) { p.rest = true; if (!p.wheel) p.o.rotation.set(0, p.o.rotation.y, 0); p.o.position.y = gy + (p.wheel ? 0.18 : 0.02); }
       }
     }
   },
@@ -992,11 +992,11 @@ const App = {
         Hud.lapDone(e, race);
         if (race.mode === 'trial' && e.valid && S.ghost && e.time < S.ghost.best) {
           S.ghost.best = e.time; S.ghost.data = S.ghostRec.slice();
-          store.set('tt.' + race.track.spec.id, { time: e.time, ghost: S.ghost.data });
+          store.set('tt.' + race.track.spec.id, { time: e.time, ghost: S.ghost.data, layout: race.track.layout });
         }
         if (race.mode === 'practice' && e.valid) {
           const k = 'pr.' + race.track.spec.id, pb = store.get(k, null);
-          if (!pb || e.time < pb.time) { store.set(k, { time: e.time }); $('#h-pb-wrap').hidden = false; $('#h-pb').textContent = fmtTime(e.time); if (pb) Hud.flash('New practice best'); }
+          if (!pb || (pb.layout || 1) !== race.track.layout || e.time < pb.time) { store.set(k, { time: e.time, layout: race.track.layout }); $('#h-pb-wrap').hidden = false; $('#h-pb').textContent = fmtTime(e.time); if (pb) Hud.flash('New practice best'); }
         }
         S.ghostRec = []; S.ghostT = 0;
         if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) (this.cfg && this.cfg.gp ? Weekend : Career).finishQuali(race); }, 1800); }
@@ -1016,7 +1016,7 @@ const App = {
       const f = (race.time - P.lapStart) / 0.05, i = Math.floor(f), k = f - i;
       if ((i + 1) * 3 + 2 < d.length) {
         const x = lerp(d[i * 3], d[i * 3 + 3], k), y = lerp(d[i * 3 + 1], d[i * 3 + 4], k), h = d[i * 3 + 2] + angleDiff(d[i * 3 + 5], d[i * 3 + 2]) * k;
-        g.mesh.grp.visible = true; g.mesh.grp.position.copy(W(x, y, 0)); g.mesh.grp.rotation.y = h;
+        g.mesh.grp.visible = true; poseOnRoad(g.mesh.grp, race.track, x, y, h);
       } else g.mesh.grp.visible = false;
     } else g.mesh.grp.visible = false;
   },
@@ -1024,11 +1024,11 @@ const App = {
     const race = S.race, P = race.player, T = race.track;
     // lights gantry
     this.lightMats.forEach((m, k) => { const on = race.phase !== 'green' && race.lightsOn > k; m.emissiveIntensity = on ? 8 : 0; m.color.setHex(on ? 0xff3030 : 0x1a0000); });
-    if (race.sc && !race.sc.gone) { if (!this.sc || !this.sc.grp.visible) this.scMesh(true); this.sc.grp.position.set(race.sc.x, 0, -race.sc.y); this.sc.grp.rotation.y = race.sc.h; this.sc.bar.material.emissiveIntensity = performance.now() % 500 < 250 ? 6 : 0.5; }
+    if (race.sc && !race.sc.gone) { if (!this.sc || !this.sc.grp.visible) this.scMesh(true); poseOnRoad(this.sc.grp, race.track, race.sc.x, race.sc.y, race.sc.h); this.sc.bar.material.emissiveIntensity = performance.now() % 500 < 250 ? 6 : 0.5; }
     else if (this.sc && this.sc.grp.visible) this.sc.grp.visible = false;
     for (const c of race.cars) {
       const m = c.mesh;
-      m.grp.position.set(c.x, 0, -c.y); m.grp.rotation.y = c.h;
+      poseOnRoad(m.grp, race.track, c.x, c.y, c.h, Replay.on ? null : c.idx);
       m.body.rotation.z = clamp(c.axS * 0.0016, -0.02, 0.012);
       m.body.rotation.x = clamp(c.ay * 0.0011, -0.025, 0.025);
       // the driver's head leans with lateral load and nods under braking
@@ -1091,7 +1091,8 @@ const App = {
     const cam = this.camera, O = S.orbit, mode = O && O.on ? 'orbit' : S.camMode;
     if (O) this.orbitEase(O, dt);
     const fwd = new THREE.Vector3(Math.cos(P.h), 0, -Math.sin(P.h));
-    const base = new THREE.Vector3(P.x, 0, -P.y);
+    S.camY = S.camY == null || Math.abs(S.camY - P.mesh.grp.position.y) > 6 ? P.mesh.grp.position.y : S.camY + (P.mesh.grp.position.y - S.camY) * (1 - Math.exp(-dt * 8)); // steady over crests
+    const base = new THREE.Vector3(P.x, S.camY, -P.y);
     P.mesh.helmet.visible = P.mesh.visor.visible = P.mesh.shoulders.visible = mode !== 'cockpit';
     if (this.grade) {
       // lens effects (speed blur, fringe, vignette) can be switched off in Settings → Graphics; TV cameras use a trace
@@ -1104,8 +1105,8 @@ const App = {
     const look = inp.lookBack ? Math.PI : 0;
     if (mode === 'orbit') {
       // free camera: dragged round the car by a finger or the mouse, pinch or scroll to zoom
-      const a = P.h + Math.PI + O.yaw, d = O.dist, tgt = new THREE.Vector3(P.x, 0.7, -P.y);
-      cam.position.set(P.x + Math.cos(a) * d * Math.cos(O.pitch), 0.7 + d * Math.sin(O.pitch), -(P.y + Math.sin(a) * d * Math.cos(O.pitch)));
+      const a = P.h + Math.PI + O.yaw, d = O.dist, tgt = new THREE.Vector3(P.x, base.y + 0.7, -P.y);
+      cam.position.set(P.x + Math.cos(a) * d * Math.cos(O.pitch), base.y + 0.7 + d * Math.sin(O.pitch), -(P.y + Math.sin(a) * d * Math.cos(O.pitch)));
       cam.up.set(0, 1, 0); cam.lookAt(tgt); cam.fov = settings.fov; cam.near = 0.1; S.camSmooth = null;
     } else if (mode === 'cockpit' || mode === 'tcam') {
       // driver's eye: further back from the wheel and a little higher, so the wheel sits low and the road fills the view
@@ -1115,9 +1116,9 @@ const App = {
       const wp = local.applyMatrix4(P.mesh.body.matrixWorld);
       cam.position.copy(wp);
       const yaw = P.h + look + clamp(P.r * 0.04, -0.08, 0.08) * (mode === 'cockpit' ? 1 : 0);
-      const tgt = wp.clone().add(new THREE.Vector3(Math.cos(yaw), mode === 'cockpit' ? -0.055 : -0.09, -Math.sin(yaw)));
+      const tgt = wp.clone().add(new THREE.Vector3(Math.cos(yaw), (mode === 'cockpit' ? -0.055 : -0.09) + Math.tan(P.mesh.grp.rotation.z), -Math.sin(yaw))); // climbs and drops tilt the view
       cam.up.set(0, 1, 0); cam.lookAt(tgt);
-      cam.rotateZ(-P.mesh.body.rotation.x * 0.6);
+      cam.rotateZ(-P.mesh.body.rotation.x * 0.6 - P.mesh.grp.rotation.x); // and so does the banking
       cam.fov = settings.fov; cam.near = mode === 'cockpit' ? 0.06 : 0.12;
     } else if (P.pit && GFX.pit && (P.pit.phase === 'stop' || P.pit.phase === 'parked' || P.pit.phase === 'queue' || (P.pit.phase === 'in' && P.pit.box - P.pit.s < 30) || (P.pit.phase === 'out' && P.pit.s < P.pit.box + 12))) {
       // TV angle on the pit box: from the fast-lane side, ahead of the car, looking back across the crew at the garage
@@ -1343,12 +1344,12 @@ class Particles {
     this.sets = {};
     const mk = (name, n, tex, size, blending, color) => {
       const geo = new THREE.BufferGeometry();
-      const pos = new Float32Array(n * 3).fill(0), vel = new Float32Array(n * 3), life = new Float32Array(n);
+      const pos = new Float32Array(n * 3).fill(0), vel = new Float32Array(n * 3), life = new Float32Array(n), gnd = new Float32Array(n);
       pos.fill(-9999);
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({ size, map: tex, transparent: true, depthWrite: false, blending, color, sizeAttenuation: true });
       const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; scene.add(pts);
-      this.sets[name] = { pts, pos, vel, life, n, next: 0, drag: name === 'spark' ? 0.4 : 2.5, grav: name === 'spark' ? -9 : 0.6, max: name === 'spark' ? 0.35 : 1.4 };
+      this.sets[name] = { pts, pos, vel, life, gnd, n, next: 0, drag: name === 'spark' ? 0.4 : 2.5, grav: name === 'spark' ? -9 : 0.6, max: name === 'spark' ? 0.35 : 1.4 };
     };
     this.ready = (tex) => {
       mk('spark', 600, tex.spark, 0.12, THREE.AdditiveBlending, 0xffffff);
@@ -1358,35 +1359,36 @@ class Particles {
     };
     if (GFX.tex) this.ready(GFX.tex);
   }
-  spawn(name, x, y, z, vx, vy, vz) {
+  spawn(name, x, y, z, vx, vy, vz, g = 0) {
     const s = this.sets[name]; if (!s) return;
-    const i = s.next; s.next = (s.next + 1) % s.n;
+    const i = s.next; s.next = (s.next + 1) % s.n; s.gnd[i] = g; // g: the ground's height where it starts (hills)
     s.pos[i * 3] = x; s.pos[i * 3 + 1] = y; s.pos[i * 3 + 2] = z; s.vel[i * 3] = vx; s.vel[i * 3 + 1] = vy; s.vel[i * 3 + 2] = vz; s.life[i] = s.max * (0.6 + Math.random() * 0.4);
   }
   emitFor(c, dt) {
     if (!this.sets.spark) { if (GFX.tex) this.ready(GFX.tex); else return; }
+    const z0 = c.z || 0, spawn0 = this.spawn.bind(this), sp = { spawn: (k, x, y, z, a, b, d) => spawn0(k, x, y + z0, z, a, b, d, z0) }; // heights on the hills
     const ch = Math.cos(c.h), sh = Math.sin(c.h), wx = c.vx * ch - c.vy * sh, wy = c.vx * sh + c.vy * ch;
     const kmh = c.vx * 3.6;
     // rain spray thrown up behind the rear tyres
     const wet = c.env ? c.env.wet : 0;
-    if (wet > 0.15 && kmh > 40) { const n = Math.min(5, Math.floor(wet * kmh * dt * 0.9 + Math.random() * 0.8)); for (let k = 0; k < n; k++) { const sd = Math.random() < 0.5 ? 0.75 : -0.75; this.spawn('spray', c.x - ch * 2.2 - sh * sd, 0.35 + Math.random() * 0.3, -(c.y - sh * 2.2 + ch * sd), wx * 0.35 + (Math.random() - 0.5) * 3, 1.2 + Math.random() * 1.5, -wy * 0.35 + (Math.random() - 0.5) * 3); } }
+    if (wet > 0.15 && kmh > 40) { const n = Math.min(5, Math.floor(wet * kmh * dt * 0.9 + Math.random() * 0.8)); for (let k = 0; k < n; k++) { const sd = Math.random() < 0.5 ? 0.75 : -0.75; sp.spawn('spray', c.x - ch * 2.2 - sh * sd, 0.35 + Math.random() * 0.3, -(c.y - sh * 2.2 + ch * sd), wx * 0.35 + (Math.random() - 0.5) * 3, 1.2 + Math.random() * 1.5, -wy * 0.35 + (Math.random() - 0.5) * 3); } }
     // titanium skid blocks: sparks at high speed, more over kerbs and when braking hard
-    const rate = (kmh > 250 ? (kmh - 250) * 0.9 + (c.brake > 0.5 ? 30 : 0) : 0) + (c.kerbHit && kmh > 160 ? 70 : 0);
+    const rate = (kmh > 250 ? (kmh - 250) * 0.9 + (c.brake > 0.5 ? 30 : 0) : 0) + (c.kerbHit && kmh > 160 ? 70 : 0) + (c.loadK > 1.45 && kmh > 140 ? (c.loadK - 1.35) * 260 : 0); // compressions squash the floor onto the road
     let n = rate * dt; while (n > 0) {
       if (Math.random() < n) {
         const off = -0.6 - Math.random() * 1.2, lat = (Math.random() - 0.5) * 1.2;
         const x = c.x + ch * off - sh * lat, y = c.y + sh * off + ch * lat;
-        this.spawn('spark', x, 0.03, -y, wx * 0.75 + (Math.random() - 0.5) * 6, 1 + Math.random() * 3, -(wy * 0.75 + (Math.random() - 0.5) * 6));
+        sp.spawn('spark', x, 0.03, -y, wx * 0.75 + (Math.random() - 0.5) * 6, 1 + Math.random() * 3, -(wy * 0.75 + (Math.random() - 0.5) * 6));
       }
       n -= 1;
     }
     const sliding = (c.lockF || c.lockR || c.spin || Math.abs(c.slipR) > 0.16) && c.speed > 4;
     if (sliding && (c.surface === 'tarmac' || c.surface === 'kerb') && Math.random() < dt * 40) {
       const off = c.lockF ? 1.8 : -1.8;
-      for (const s of [0.8, -0.8]) this.spawn('smoke', c.x + ch * off - sh * s, 0.35, -(c.y + sh * off + ch * s), wx * 0.2, 0.6, -wy * 0.2);
+      for (const s of [0.8, -0.8]) sp.spawn('smoke', c.x + ch * off - sh * s, 0.35, -(c.y + sh * off + ch * s), wx * 0.2, 0.6, -wy * 0.2);
     }
     if ((c.surface === 'gravel' || c.surface === 'grass') && c.speed > 5 && Math.random() < dt * 30)
-      this.spawn('dust', c.x - ch * 1.8, 0.4, -(c.y - sh * 1.8), wx * 0.3 + (Math.random() - 0.5) * 3, 1.2, -wy * 0.3);
+      sp.spawn('dust', c.x - ch * 1.8, 0.4, -(c.y - sh * 1.8), wx * 0.3 + (Math.random() - 0.5) * 3, 1.2, -wy * 0.3);
   }
   update(dt) {
     for (const k in this.sets) {
@@ -1397,11 +1399,29 @@ class Particles {
         if (s.life[i] <= 0) { s.pos[i * 3 + 1] = -9999; continue; }
         const f = Math.exp(-s.drag * dt);
         s.vel[i * 3] *= f; s.vel[i * 3 + 2] *= f; s.vel[i * 3 + 1] = s.vel[i * 3 + 1] * f + s.grav * dt;
-        s.pos[i * 3] += s.vel[i * 3] * dt; s.pos[i * 3 + 1] = Math.max(0.02, s.pos[i * 3 + 1] + s.vel[i * 3 + 1] * dt); s.pos[i * 3 + 2] += s.vel[i * 3 + 2] * dt;
+        s.pos[i * 3] += s.vel[i * 3] * dt; s.pos[i * 3 + 1] = Math.max(s.gnd[i] + 0.02, s.pos[i * 3 + 1] + s.vel[i * 3 + 1] * dt); s.pos[i * 3 + 2] += s.vel[i * 3 + 2] * dt;
       }
       s.pts.geometry.attributes.position.needsUpdate = true;
     }
   }
+}
+
+// ---- hills: put a car (or anything car-shaped) on the road: height, nose up or down with the slope, leaning with
+// the banking. i: its nearest track sample when known
+function poseOnRoad(grp, T, x, y, h, i) {
+  if (!T || !T.hasElev) { grp.position.set(x, 0, -y); grp.rotation.set(0, h, 0); return; }
+  if (i == null || i < 0) i = trackDistance(T, x, y, -1, 0, 2).i;
+  if (i < 0) { grp.position.set(x, 0, -y); grp.rotation.set(0, h, 0); return; }
+  const R = roadAt(T, x, y, i), ch = Math.cos(h), sh = Math.sin(h);
+  grp.rotation.order = 'YZX'; grp.position.set(x, R.z, -y);
+  grp.rotation.set(Math.atan(-R.gx * sh + R.gy * ch), h, Math.atan(R.gx * ch + R.gy * sh)); // x: lean (left side up +), z: pitch (nose up +)
+}
+// the ground's height anywhere: the road near the track, the terrain further out
+function groundUnder(T, x, y) {
+  if (!T || !T.hasElev) return 0;
+  const q = trackDistance(T, x, y, -1, 0, 1);
+  if (q.i >= 0 && q.d < Math.max(T.wallL[q.i], T.wallR[q.i])) return roadAt(T, x, y, q.i).z;
+  return GFX.groundAt ? GFX.groundAt(x, y) : 0;
 }
 
 // ---- HUD --------------------------------------------------------------------
@@ -1453,7 +1473,7 @@ const Hud = {
     $('#h-best').textContent = '--:--.---'; $('#h-last').textContent = '--:--.---';
     $$('.sec').forEach((s) => (s.className = 'sec'));
     const ttBest = race.mode === 'trial' ? store.get('tt.' + race.track.spec.id, null) : race.mode === 'practice' ? store.get('pr.' + race.track.spec.id, null) : null;
-    $('#h-pb-wrap').hidden = !ttBest; if (ttBest) $('#h-pb').textContent = fmtTime(ttBest.time);
+    $('#h-pb-wrap').hidden = !ttBest; if (ttBest) $('#h-pb').textContent = fmtTime(ttBest.time) + ((ttBest.layout || 1) !== race.track.layout ? ' (old layout)' : '');
     $('#h-track').textContent = race.track.spec.name;
   },
   hide() { $('#hud').hidden = true; },

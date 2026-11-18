@@ -1,6 +1,7 @@
 // ==== Rendering: world, track dressing, car models (three r160) ============
 // World mapping: sim (x, y) -> three (x, height, -y).
 const W = (x, y, h = 0) => new THREE.Vector3(x, h, -y);
+const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const GFX = { maxAniso: 8 };
 // The colour grade lives in the film tone curve, so every quality level gets it exactly once and it costs no extra pass
 // (Low draws straight to the screen; Medium and up go through OutputPass, which uses the same curve). Worked out in
@@ -452,7 +453,7 @@ function ribbon(T, from, to, opts) {
     if (inc) {
       const a = from(i), b = to(i);
       for (let c = 0; c < cols; c++) {
-        const u = c / (cols - 1), lat = lerp(a, b, u), y = profile ? profile(u) : lerp(y0, y1, u);
+        const u = c / (cols - 1), lat = lerp(a, b, u), y = (profile ? profile(u) : lerp(y0, y1, u)) + roadZ(T, i, lat);
         pos.push(T.px[i] + T.nx[i] * lat, y, -(T.py[i] + T.ny[i] * lat)); uv.push(uScale ? lat / uScale : u, s / vScale);
         if (color) { const v = color(i, lat); col.push(v[0], v[1], v[2]); }
       }
@@ -479,7 +480,7 @@ function wallRibbon(T, off, side, h0, h1, vScale, include = null, offTop = null)
     const i = k % T.n, o = off[i] * side, x = T.px[i] + T.nx[i] * o, y = T.py[i] + T.ny[i] * o;
     const ot = offTop ? offTop[i] * side : o, xt = T.px[i] + T.nx[i] * ot, yt = T.py[i] + T.ny[i] * ot;
     const u = (side > 0 ? s : -s) / vScale; // the right wall is seen from the other side: run its texture backwards so text reads
-    pos.push(x, h0, -y, xt, h1, -yt); uv.push(u, 0, u, 1);
+    pos.push(x, h0 + roadZ(T, i, o), -y, xt, h1 + roadZ(T, i, ot), -yt); uv.push(u, 0, u, 1);
     if (k && (!include || (include(i) && include((i - 1 + T.n) % T.n)))) { const b = k * 2; idx.push(b - 2, b, b - 1, b - 1, b, b + 1); }
     s += T.ds;
   }
@@ -540,7 +541,7 @@ function cornerStand(L, rows, white, steel, crowdMat, rng, quality) {
 function buildPitComplex(T, P, world, add, tx, steel, white, quality) {
   const n = T.n, sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
   const pitS = (i) => ((i - P.a + n) % n) * T.ds, inPit = (i) => pitS(i) <= P.L;
-  const at = (sa, dist, h = 0) => { const i = P.idx(sa), j = (i + 1) % n, f = (sa % T.ds) / T.ds; return W(T.px[i] + (T.px[j] - T.px[i]) * f - T.nx[i] * dist, T.py[i] + (T.py[j] - T.py[i]) * f - T.ny[i] * dist, h); };
+  const at = (sa, dist, h = 0) => { const i = P.idx(sa), j = (i + 1) % n, f = (sa % T.ds) / T.ds; h += roadZ(T, i, -dist); return W(T.px[i] + (T.px[j] - T.px[i]) * f - T.nx[i] * dist, T.py[i] + (T.py[j] - T.py[i]) * f - T.ny[i] * dist, h); };
   const hd = (sa) => { const i = P.idx(sa); return Math.atan2(T.ty[i], T.tx[i]); };
   const place = (obj, sa, dist, h = 0) => { obj.position.copy(at(sa, dist, h)); obj.rotation.y = hd(sa); world.add(obj); return obj; }; // local +x along the lane, +z toward the garages
   const outer = (sa) => P.path(sa) + 4 + P.mainFactor(sa) * (P.garageDist + 16 - P.path(sa) - 4);
@@ -703,35 +704,69 @@ function buildWorld(T, themeKey, quality) {
   const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s1 = new THREE.Vector3(1, 1, 1), p4 = new THREE.Vector3(), cc = new THREE.Color(), UP = new THREE.Vector3(0, 1, 0);
   const keepOut = []; // footprints (x, y, radius) other scenery must keep clear of: corner stands and the like
 
-  // ---- terrain: flat infield, rolling hills beyond ----
+  // ---- terrain: the land follows the road's hills near the circuit, a flat infield beyond, rolling hills far out ----
   const b = T.bounds, cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const R0 = Math.hypot(b.maxX - b.minX, b.maxY - b.minY) / 2 + 380;
   const NZ = makeNoise(hashStr(T.spec.id) ^ 77);
-  const size = R0 * 2 + 9000, segs = quality >= 2 ? 220 : 140;
-  const hillAmp0 = { forest: 260, parkland: 120, airfield: 60, street: 220, tropical: 200, island: 0, desert: 90, prairie: 70 }[themeKey];
-  // ground height at a sim (x, y) point, matching the terrain mesh below
-  const hAt = (sx, sy) => {
-    const x = sx, z = -sy, d = Math.hypot(x - cx, z + cy), k = clamp((d - R0) / 900, 0, 1), ks = k * k * (3 - 2 * k);
-    return Math.max(-0.15 + ks * hillAmp0 * (NZ.fbm(x / 1400, z / 1400, 5) * 1.6 - 0.25), -0.15);
-  };
-  const tg = new THREE.PlaneGeometry(size, size, segs, segs); tg.rotateX(-Math.PI / 2);
-  const tp = tg.attributes.position, tcol = [];
+  const size = R0 * 2 + 9000;
   const hillAmp = { forest: 260, parkland: 120, airfield: 60, street: 220, tropical: 200, island: 0, desert: 90, prairie: 70 }[themeKey];
-  const groundC = new THREE.Color(th.ground), forestC = new THREE.Color(th.hills), rockC = new THREE.Color('#8b8478');
-  const dryC = new THREE.Color(desert ? '#c9a46c' : street ? '#77706a' : '#8f8a4e'), lushC = new THREE.Color(desert ? '#a88a5c' : street ? '#5c5a55' : '#3f6a2b');
-  for (let i = 0; i < tp.count; i++) {
-    const x = tp.getX(i) + cx, z = tp.getZ(i) - cy, d = Math.hypot(x - cx, z + cy);
-    const k = clamp((d - R0) / 900, 0, 1), ks = k * k * (3 - 2 * k);
+  const natural = (x, z) => {
+    const d = Math.hypot(x - cx, z + cy), k = clamp((d - R0) / 900, 0, 1), ks = k * k * (3 - 2 * k);
     let h = -0.15 + ks * hillAmp * (NZ.fbm(x / 1400, z / 1400, 5) * 1.6 - 0.25);
     if (th.water) h = d > R0 - 150 ? -2 - clamp((d - R0 + 150) / 300, 0, 1) * 10 : -0.15;
-    tp.setXYZ(i, x, Math.max(h, th.water ? -14 : -0.15), z);
-    const f = NZ.fbm(x / 300, z / 300, 3), f2 = NZ.fbm(x / 700 + 13, z / 700 - 7, 2);
-    const c = groundC.clone().lerp(forestC, clamp(ks * 1.2 * (0.5 + f), 0, 0.9)).lerp(rockC, clamp((h - 160) / 140, 0, 0.6));
-    if (!th.water || d < R0 - 150) c.lerp(dryC, clamp((f2 - 0.5) * 1.6, 0, 0.32)).lerp(lushC, clamp((0.45 - f2) * 1.4, 0, 0.22)); // drier and lusher patches
-    c.multiplyScalar(0.82 + f * 0.36); tcol.push(c.r, c.g, c.b);
+    return Math.max(h, th.water ? -14 : -0.15);
+  };
+  // a grid that is fine round the circuit (8 m, 14 m on Lite and Smooth) and coarse far out: one mesh, no seams
+  const sp = quality >= 2 ? 8 : 14, pad = 260;
+  const axis = (lo, hi, c) => { const L0 = c - size / 2, L1 = c + size / 2, Ni = clamp(Math.round((hi - lo) / sp), 40, 320), No = quality >= 2 ? 30 : 20, a = [];
+    for (let k = 0; k < No; k++) a.push(L0 + ((lo - L0) * k) / No); for (let k = 0; k <= Ni; k++) a.push(lo + ((hi - lo) * k) / Ni); for (let k = 1; k <= No; k++) a.push(hi + ((L1 - hi) * k) / No); return a; };
+  const xs = axis(b.minX - pad, b.maxX + pad, cx), zs = axis(-b.maxY - pad, -b.minY + pad, -cy), Nx = xs.length, Nz = zs.length;
+  const TH = new Float32Array(Nx * Nz);
+  {
+    // the road's height spread onto the grid round it (banking included), weighted by nearness, then blended into the
+    // natural ground over ~150 m; just below the road's own height where the verges lie on top of it
+    const hs = new Float32Array(Nx * Nz), ws = new Float32Array(Nx * Nz), dm = new Float32Array(Nx * Nz).fill(1e9), R = 220;
+    const find = (arr, v) => { let lo = 0, hi = arr.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
+    if (T.hasElev) for (let i = 0; i < n; i += 2) {
+      const x0 = T.px[i], z0 = -T.py[i], wl = Math.max(T.wallL[i], T.wallR[i]) + 2;
+      for (let a = find(xs, x0 - R); a < Nx && xs[a] <= x0 + R; a++) for (let c = find(zs, z0 - R); c < Nz && zs[c] <= z0 + R; c++) {
+        const dx = xs[a] - x0, dz = zs[c] - z0, d2 = dx * dx + dz * dz; if (d2 > R * R) continue;
+        const lat = clamp(dx * T.nx[i] - dz * T.ny[i], -wl, wl), w = 1 / ((d2 + 16) * Math.sqrt(d2 + 16)), k = a * Nz + c;
+        hs[k] += w * roadZ(T, i, lat); ws[k] += w; if (d2 < dm[k]) dm[k] = d2;
+      }
+    }
+    const wallMax = Math.max(...T.wallL, ...T.wallR);
+    for (let a = 0; a < Nx; a++) for (let c = 0; c < Nz; c++) {
+      const k = a * Nz + c, nat = natural(xs[a], zs[c]);
+      if (ws[k] > 0) { const d = Math.sqrt(dm[k]), bl = 1 - smoothstep(wallMax + 4, wallMax + 160, d); TH[k] = (hs[k] / ws[k] - 0.15) * bl + nat * (1 - bl); } else TH[k] = nat;
+    }
   }
-  tg.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 3)); tg.computeVertexNormals();
-  const tuv = tg.attributes.uv; for (let i = 0; i < tuv.count; i++) tuv.setXY(i, tp.getX(i) / 9, tp.getZ(i) / 9);
+  // ground height at a sim (x, y) point, matching the terrain mesh (bilinear between grid points)
+  const hAt = (sx, sy) => {
+    const x = sx, z = -sy; let a = 0, c = 0;
+    { let lo = 0, hi = Nx - 2; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (xs[m] <= x) lo = m; else hi = m - 1; } a = lo; }
+    { let lo = 0, hi = Nz - 2; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (zs[m] <= z) lo = m; else hi = m - 1; } c = lo; }
+    const u = clamp((x - xs[a]) / (xs[a + 1] - xs[a]), 0, 1), v = clamp((z - zs[c]) / (zs[c + 1] - zs[c]), 0, 1);
+    const h00 = TH[a * Nz + c], h10 = TH[(a + 1) * Nz + c], h01 = TH[a * Nz + c + 1], h11 = TH[(a + 1) * Nz + c + 1];
+    return (h00 * (1 - u) + h10 * u) * (1 - v) + (h01 * (1 - u) + h11 * u) * v;
+  };
+  GFX.groundAt = hAt;
+  const tpos = new Float32Array(Nx * Nz * 3), tcol = [], tuvA = new Float32Array(Nx * Nz * 2), tidx = [];
+  const groundC = new THREE.Color(th.ground), forestC = new THREE.Color(th.hills), rockC = new THREE.Color('#8b8478');
+  const dryC = new THREE.Color(desert ? '#c9a46c' : street ? '#77706a' : '#8f8a4e'), lushC = new THREE.Color(desert ? '#a88a5c' : street ? '#5c5a55' : '#3f6a2b');
+  for (let a = 0; a < Nx; a++) for (let c = 0; c < Nz; c++) {
+    const k = a * Nz + c, x = xs[a], z = zs[c], h = TH[k], d = Math.hypot(x - cx, z + cy);
+    tpos.set([x, h, z], k * 3); tuvA.set([x / 9, z / 9], k * 2);
+    const kk = clamp((d - R0) / 900, 0, 1), ks = kk * kk * (3 - 2 * kk);
+    const f = NZ.fbm(x / 300, z / 300, 3), f2 = NZ.fbm(x / 700 + 13, z / 700 - 7, 2);
+    const col = groundC.clone().lerp(forestC, clamp(ks * 1.2 * (0.5 + f), 0, 0.9)).lerp(rockC, clamp((h - 160) / 140, 0, 0.6));
+    if (!th.water || d < R0 - 150) col.lerp(dryC, clamp((f2 - 0.5) * 1.6, 0, 0.32)).lerp(lushC, clamp((0.45 - f2) * 1.4, 0, 0.22)); // drier and lusher patches
+    col.multiplyScalar(0.82 + f * 0.36); tcol.push(col.r, col.g, col.b);
+    if (a < Nx - 1 && c < Nz - 1) { const k1 = k + Nz; tidx.push(k, k + 1, k1, k + 1, k1 + 1, k1); }
+  }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.BufferAttribute(tpos, 3)); tg.setAttribute('uv', new THREE.BufferAttribute(tuvA, 2)); tg.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 3));
+  tg.setIndex(tidx); tg.computeVertexNormals();
   const groundMat = new THREE.MeshStandardMaterial({ map: groundAlb, normalMap: groundN, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 0.95, vertexColors: true });
   antiTile(groundMat); add(tg, groundMat);
   if (th.water) {
@@ -815,7 +850,7 @@ function buildWorld(T, themeKey, quality) {
     const capPos = [], capIdx = [];
     for (let k = 0; k <= n; k++) {
       const i = k % n;
-      for (const [o2, hh] of [[ov[i], 0.97], [ov[i] + 0.07, 1.05], [ov[i] + 0.35, 1.05]]) { const o = o2 * side; capPos.push(T.px[i] + T.nx[i] * o, hh, -(T.py[i] + T.ny[i] * o)); }
+      for (const [o2, hh] of [[ov[i], 0.97], [ov[i] + 0.07, 1.05], [ov[i] + 0.35, 1.05]]) { const o = o2 * side; capPos.push(T.px[i] + T.nx[i] * o, hh + roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); }
       if (k && inc(i) && inc((i - 1 + n) % n) && !arm(i) && !arm((i - 1 + n) % n)) { const b = k * 3, a0 = b - 3; for (const c of [0, 1]) { if (side > 0) capIdx.push(a0 + c, b + c, a0 + c + 1, a0 + c + 1, b + c, b + c + 1); else capIdx.push(a0 + c, a0 + c + 1, b + c, a0 + c + 1, b + c + 1, b + c); } }
     }
     const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(capPos, 3)); cg.setIndex(capIdx); cg.computeVertexNormals();
@@ -837,7 +872,7 @@ function buildWorld(T, themeKey, quality) {
       add(fg, fenceMat, { rs: false });
       for (let i = 0; i < n; i += 2) {
         if (!keep(i)) continue; const o = fo[i] * side;
-        q4.setFromAxisAngle(UP, Math.atan2(-side * T.ny[i], -side * T.nx[i])); p4.set(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); posts.setMatrixAt(pk++, m4);
+        q4.setFromAxisAngle(UP, Math.atan2(-side * T.ny[i], -side * T.nx[i])); p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); posts.setMatrixAt(pk++, m4);
       }
     }
     posts.count = pk; world.add(posts);
@@ -851,7 +886,7 @@ function buildWorld(T, themeKey, quality) {
       const si = side > 0 ? 0 : 1, arm = armcoAt(si), inc = (i) => keepWall(side)(i) && arm(i);
       add(wallRibbon(T, off, side, 0.42, 0.74, 4, inc), railMat, { cs: quality >= 2 });
       add(wallRibbon(T, off, side, 0.78, 1.1, 4, inc), railMat, { cs: quality >= 2 });
-      for (let i = 0; i < n; i++) { if (!inc(i)) continue; const o = (off[i] + 0.16) * side; q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); rposts.setMatrixAt(rk++, m4); }
+      for (let i = 0; i < n; i++) { if (!inc(i)) continue; const o = (off[i] + 0.16) * side; q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); rposts.setMatrixAt(rk++, m4); }
     }
     rposts.count = rk; world.add(rposts);
   }
@@ -878,8 +913,8 @@ function buildWorld(T, themeKey, quality) {
         q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i]));
         if (zkind[si][i] === 1) {
           cc.set(palette[zcol[si][i] % palette.length]);
-          for (let r = 0; r < rows && fk < foamN; r++) { const o = (off[i] + 0.46 + r * 0.92) * side; p4.set(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); foam.setMatrixAt(fk, m4); foam.setColorAt(fk++, cc); }
-        } else if (yk < tyreN) { const o = (off[i] + 0.72) * side; p4.set(T.px[i] + T.nx[i] * o, 0, -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); tyreWall.setMatrixAt(yk++, m4); }
+          for (let r = 0; r < rows && fk < foamN; r++) { const o = (off[i] + 0.46 + r * 0.92) * side; p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); foam.setMatrixAt(fk, m4); foam.setColorAt(fk++, cc); }
+        } else if (yk < tyreN) { const o = (off[i] + 0.72) * side; p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); tyreWall.setMatrixAt(yk++, m4); }
       }
     }
     foam.count = fk; tyreWall.count = yk; foam.castShadow = foam.receiveShadow = true; tyreWall.castShadow = tyreWall.receiveShadow = true;
@@ -924,7 +959,7 @@ function buildWorld(T, themeKey, quality) {
   for (let d = 1; iB - iA <= 40 && d < Math.round(400 / T.ds); d++) for (const j of [d, -d]) { const [a, b] = straightAt(j); if (b - a > 40 && iB - iA <= 40) [iA, iB] = [a, b]; }
   if (iB - iA > 40) {
     const L = Math.min((iB - iA) * T.ds, 360), mid = (Math.round((iA + iB) / 2) + n) % n, hd = Math.atan2(T.ty[mid], T.tx[mid]);
-    const place = (obj, lat, h) => { obj.position.copy(W(T.px[mid] + T.nx[mid] * lat, T.py[mid] + T.ny[mid] * lat, h)); obj.rotation.y = hd; world.add(obj); return obj; };
+    const place = (obj, lat, h) => { obj.position.copy(W(T.px[mid] + T.nx[mid] * lat, T.py[mid] + T.ny[mid] * lat, h + roadZ(T, mid, lat))); obj.rotation.y = hd; world.add(obj); return obj; };
     const near = (i) => { let d = i - mid; if (d > n / 2) d -= n; if (d < -n / 2) d += n; return Math.abs(d) * T.ds < L / 2 + 30; };
     const wr = T.wallR[mid];
     // stepped grandstand: profile rises away from the track
@@ -977,7 +1012,7 @@ function buildWorld(T, themeKey, quality) {
     // flags on poles along the grandstand roof line
     for (let k = -5; k <= 5; k++) {
       const i = (mid + Math.round((k * L * 0.08) / T.ds) + n) % n, tm = TEAMS[(k + 5) % TEAMS.length];
-      const o = T.wallL[i] + 5.5, base = W(T.px[i] + T.nx[i] * o, T.py[i] + T.ny[i] * o, 0);
+      const o = T.wallL[i] + 5.5, base = W(T.px[i] + T.nx[i] * o, T.py[i] + T.ny[i] * o, roadZ(T, i, o));
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 9, 8).translate(0, 4.5, 0), steel); pole.position.copy(base); world.add(pole);
       const flag = new THREE.Mesh(GFX.flagGeo, flagMaterial(tm)); flag.position.copy(base).add(new THREE.Vector3(0, 8.9, 0)); flag.rotation.y = hd + (k * 0.3); world.add(flag);
     }
@@ -1002,7 +1037,7 @@ function buildWorld(T, themeKey, quality) {
     apexes.sort((a, b) => b.k - a.k).slice(0, 4).forEach(({ i }) => {
       const side = T.kapW[i] > 0 ? -1 : 1, off = (side > 0 ? T.wallL[i] : T.wallR[i]) + 14, x = T.px[i] + T.nx[i] * off * side, y = T.py[i] + T.ny[i] * off * side;
       if (pitArea(x, y)) return;
-      const t = tower(); t.position.copy(W(x, y, 0)); t.lookAt(W(T.px[i], T.py[i], 0).setY(0)); world.add(t);
+      const t = tower(); t.position.copy(W(x, y, hAt(x, y))); t.lookAt(W(T.px[i], T.py[i], 0).setY(t.position.y)); world.add(t);
     });
     // crane: a long boom with a camera over the run to the first corner
     const j = Math.round(Math.min(T.length * 0.12, 260) / T.ds) % n, cOff = T.wallR[j] + 10;
@@ -1012,7 +1047,7 @@ function buildWorld(T, themeKey, quality) {
       const boom = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, 16).translate(0, 0, 8), towerSteel); boom.position.y = 14; boom.rotation.x = 0.25; cr.add(boom);
       const ccam = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.8), camMat); ccam.position.set(0, 14 - Math.sin(0.25) * 16 - 0.5, Math.cos(0.25) * 16); cr.add(ccam);
       const base = new THREE.Mesh(new THREE.BoxGeometry(3, 0.8, 3).translate(0, 0.4, 0), new THREE.MeshStandardMaterial({ color: 0xf2b705, roughness: 0.6 })); cr.add(base);
-      cr.position.copy(W(cx, cy, 0)); cr.lookAt(W(T.px[j], T.py[j], 0).setY(0)); world.add(cr);
+      cr.position.copy(W(cx, cy, hAt(cx, cy))); cr.lookAt(W(T.px[j], T.py[j], 0).setY(cr.position.y)); world.add(cr);
     }
   }
   // braking boards and corner grandstands
@@ -1025,22 +1060,22 @@ function buildWorld(T, themeKey, quality) {
       const i = (entry + Math.round(-d / T.ds) + n * 2 + Math.round(60 / T.ds)) % n;
       const side = T.lineO[i] > 0 ? 1 : -1, off = (side > 0 ? T.wallL : T.wallR)[i] - 0.5;
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshStandardMaterial({ map: boardTex[d], roughness: 0.6 }));
-      m.position.copy(W(T.px[i] + T.nx[i] * off * side, T.py[i] + T.ny[i] * off * side, 1.9)); m.rotation.y = Math.atan2(T.ty[i], T.tx[i]) - Math.PI / 2; world.add(m);
-      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), steel); pole.position.copy(m.position); pole.position.y = 0.7; world.add(pole);
+      m.position.copy(W(T.px[i] + T.nx[i] * off * side, T.py[i] + T.ny[i] * off * side, 1.9 + roadZ(T, i, off * side))); m.rotation.y = Math.atan2(T.ty[i], T.tx[i]) - Math.PI / 2; world.add(m);
+      const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), steel); pole.position.copy(m.position); pole.position.y = m.position.y - 1.2; world.add(pole);
     });
     if (bzk % 2 === 0) {
       const side = T.kapW[apex] > 0 ? -1 : 1, off = (side > 0 ? T.wallL : T.wallR)[apex] + 10;
       const x = T.px[apex] + T.nx[apex] * off * side, y = T.py[apex] + T.ny[apex] * off * side;
       if (trackDistance(T, x, y, -1, 0, 2).d > off - 3 && !pitArea(x, y)) {
         const st = cornerStand(64, 12, white, steel, crowdMat, rng, quality); keepOut.push({ x, y, r: 42 });
-        st.position.copy(W(x, y, 0)); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st); world.updateMatrixWorld(true); if (st.userData.fill) st.userData.fill();
+        st.position.copy(W(x, y, hAt(x, y))); st.rotation.y = Math.atan2(T.ty[apex], T.tx[apex]) + (side > 0 ? 0 : Math.PI); world.add(st); world.updateMatrixWorld(true); if (st.userData.fill) st.userData.fill();
         if (quality >= 1) {
           // TV camera tower beside the stand
           const tw = new THREE.Group(), leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 8, 0.3), steel); leg.position.y = 4; tw.add(leg);
           const plat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 2.2), steel); plat.position.y = 8; tw.add(plat);
           const cam = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.45), new THREE.MeshStandardMaterial({ color: 0x1b1d22, roughness: 0.5 })); cam.position.set(0, 8.6, 0); tw.add(cam);
           const ap = (apex + Math.round(25 / T.ds)) % n, o2 = off - 4;
-          tw.position.copy(W(T.px[ap] + T.nx[ap] * o2 * side, T.py[ap] + T.ny[ap] * o2 * side, 0)); tw.lookAt(W(T.px[apex], T.py[apex], 8.6)); world.add(tw);
+          { const tx2 = T.px[ap] + T.nx[ap] * o2 * side, ty2 = T.py[ap] + T.ny[ap] * o2 * side, hz = hAt(tx2, ty2); tw.position.copy(W(tx2, ty2, hz)); tw.lookAt(W(T.px[apex], T.py[apex], 8.6 + hz)); } world.add(tw);
         }
       }
     }
@@ -1055,7 +1090,7 @@ function buildWorld(T, themeKey, quality) {
       const br = new THREE.Group();
       const deck = new THREE.Mesh(new THREE.BoxGeometry(4, 3.2, wdt), [ad, ad, white, white, white, white]); deck.position.y = 9; deck.castShadow = true; br.add(deck);
       for (const s of [1, -1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(2, 8, 2), white); leg.position.set(0, 4, s * (wdt / 2)); leg.castShadow = true; br.add(leg); }
-      br.position.copy(W(T.px[i] + T.nx[i] * off, T.py[i] + T.ny[i] * off, 0)); br.rotation.y = Math.atan2(T.ty[i], T.tx[i]); world.add(br);
+      br.position.copy(W(T.px[i] + T.nx[i] * off, T.py[i] + T.ny[i] * off, roadZ(T, i, off))); br.rotation.y = Math.atan2(T.ty[i], T.tx[i]); world.add(br);
     }
   }
 
@@ -1118,7 +1153,7 @@ function buildWorld(T, themeKey, quality) {
       const q = trackDistance(T, x, y, i, 0, 1);
       if (q.i >= 0 && q.d < hw + 1.7) continue;
       const sc = 0.6 + rng() * 0.9;
-      q4.setFromAxisAngle(UP, rng() * 6.28); p4.set(x, onVerge ? 0 : hAt(x, y) + 0.12, -y); m4.compose(p4, q4, new THREE.Vector3(sc, sc * (0.7 + rng() * 0.7), sc));
+      q4.setFromAxisAngle(UP, rng() * 6.28); p4.set(x, onVerge ? roadZ(T, i, off * side) : hAt(x, y) + 0.12, -y); m4.compose(p4, q4, new THREE.Vector3(sc, sc * (0.7 + rng() * 0.7), sc));
       tuft.setMatrixAt(k, m4); tmp.copy(gc).offsetHSL((rng() - 0.5) * 0.04, (rng() - 0.5) * 0.1, (rng() - 0.5) * 0.12); tuft.setColorAt(k, tmp); k++;
     }
     tuft.count = k; tuft.receiveShadow = true; world.add(tuft);
@@ -1154,7 +1189,7 @@ function buildWorld(T, themeKey, quality) {
       const side = k % 2 ? 1 : -1, off = ((side > 0 ? T.wallL : T.wallR)[i] + 2.4) * side;
       const x = T.px[i] + T.nx[i] * off, y = T.py[i] + T.ny[i] * off;
       if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 0.5 || pitArea(x, y)) continue;
-      q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i]) + (side > 0 ? 0 : Math.PI)); p4.set(x, 0, -y); m4.compose(p4, q4, s1); post.setMatrixAt(k, m4); post.setColorAt(k, cc.set(0)); postIdx.push(i); k++;
+      q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i]) + (side > 0 ? 0 : Math.PI)); p4.set(x, roadZ(T, i, off), -y); m4.compose(p4, q4, s1); post.setMatrixAt(k, m4); post.setColorAt(k, cc.set(0)); postIdx.push(i); k++;
     }
     post.count = k; post.castShadow = true; world.add(post);
     GFX.marshal = { mesh: post, idx: postIdx, key: '' };
@@ -1172,8 +1207,8 @@ function buildWorld(T, themeKey, quality) {
       const x = T.px[i] + T.nx[i] * off, y = T.py[i] + T.ny[i] * off;
       if (trackDistance(T, x, y, -1, 0, 1).d < Math.abs(off) - 1 || pitArea(x, y)) continue;
       q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i]) + Math.PI / 2);
-      p4.set(x, 0, -y); m4.compose(p4, q4, s1); poles.setMatrixAt(k, m4);
-      p4.y = 24; m4.compose(p4, q4, s1); heads.setMatrixAt(k, m4); k++;
+      p4.set(x, hAt(x, y), -y); m4.compose(p4, q4, s1); poles.setMatrixAt(k, m4);
+      p4.y += 24; m4.compose(p4, q4, s1); heads.setMatrixAt(k, m4); k++;
     }
     poles.count = heads.count = k; world.add(poles, heads);
   }
@@ -1381,7 +1416,7 @@ function buildCity(o) {
     for (let i = 40; i < n - 40; i += Math.round(420 / T.ds)) {
       let k = i; while (k < i + 60 && Math.abs(T.kapW[k % n]) > 1 / 900) k++; k %= n; if (pitArea(T.px[k], T.py[k])) continue;
       for (let lat = -hw + 0.8; lat <= hw - 0.8; lat += 1.0) {
-        const corners = [[-0.25, -1.6], [0.25, -1.6], [0.25, 1.6], [-0.25, 1.6]].map(([dl, ds]) => { const l = lat + dl; return [T.px[k] + T.nx[k] * l + T.tx[k] * ds, 0.012, -(T.py[k] + T.ny[k] * l + T.ty[k] * ds)]; });
+        const corners = [[-0.25, -1.6], [0.25, -1.6], [0.25, 1.6], [-0.25, 1.6]].map(([dl, ds]) => { const l = lat + dl; return [T.px[k] + T.nx[k] * l + T.tx[k] * ds, 0.012 + roadZ(T, k, l), -(T.py[k] + T.ny[k] * l + T.ty[k] * ds)]; });
         const b0 = pos.length / 3; corners.forEach((c) => pos.push(...c)); idx.push(b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2);
       }
       crossings++;

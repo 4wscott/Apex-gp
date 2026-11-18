@@ -103,13 +103,13 @@ const Replay = {
     const out = [];
     for (let s = 40; s < T.length; s += 170) {
       const i = Math.round(s / T.ds) % T.n, side = (out.length % 2 ? 1 : -1), off = (side > 0 ? T.wallL[i] : T.wallR[i]) + 12;
-      out.push({ s, x: T.px[i] + T.nx[i] * off * side, y: T.py[i] + T.ny[i] * off * side, z: 8 + (out.length % 3) * 3 });
+      out.push({ s, x: T.px[i] + T.nx[i] * off * side, y: T.py[i] + T.ny[i] * off * side, z: 8 + (out.length % 3) * 3 + roadZ(T, i, off * side) });
     }
     this.tvT = T; this.tv = out; return out;
   },
   camera(cam) {
     const S = App.session, race = S.race, T = race.track, c = race.cars[this.focus], dt = 1 / 60;
-    const base = new THREE.Vector3(c.x, 0.7, -c.y), fwd = new THREE.Vector3(Math.cos(c.h), 0, -Math.sin(c.h));
+    const base = new THREE.Vector3(c.x, 0.7 + c.mesh.grp.position.y, -c.y), fwd = new THREE.Vector3(Math.cos(c.h), 0, -Math.sin(c.h));
     let mode = this.camMode;
     if (mode === 'director') {
       this.dirT += dt;
@@ -127,7 +127,7 @@ const Replay = {
       const dist = cam.position.distanceTo(base); cam.fov = clamp((2 * Math.atan(7 / dist) * 180) / Math.PI, 6, 55);
     } else if (mode === 'heli') {
       const a = (this.t * 0.08) % (Math.PI * 2);
-      cam.position.set(base.x + Math.cos(a) * 55, 42, base.z + Math.sin(a) * 55); cam.lookAt(base); cam.fov = 32;
+      cam.position.set(base.x + Math.cos(a) * 55, base.y + 41.3, base.z + Math.sin(a) * 55); cam.lookAt(base); cam.fov = 32;
     } else if (mode === 'onboard') {
       c.mesh.body.updateMatrixWorld();
       const eye = new THREE.Vector3(-0.35, 1.22, 0).applyMatrix4(c.mesh.body.matrixWorld);
