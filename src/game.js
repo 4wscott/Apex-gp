@@ -176,20 +176,22 @@ const App = {
   // High and Ultra: the player's paint reflects the real surroundings (a cube camera riding with the car) and the sun flares the lens
   setupRealism(P) {
     const q = settings.quality;
-    if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; }
+    if (this.reflect) { this.reflect.rt.dispose(); if (this.reflect.pmrt) this.reflect.pmrt.dispose(); this.reflect.pm.dispose(); this.reflect = null; }
     if (this.flare) { this.flare.parent && this.flare.parent.remove(this.flare); this.flare = null; }
     if (q < 2) return;
-    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 160 : 112, { type: THREE.HalfFloatType, generateMipmaps: false, minFilter: THREE.LinearFilter }); /* the blurred levels for rough paint come from the PMREM conversion */
+    const rt = new THREE.WebGLCubeRenderTarget(q >= 3 ? 160 : 112, { type: THREE.UnsignedByteType, generateMipmaps: false, minFilter: THREE.LinearFilter }); /* 8-bit on purpose: a stray invalid pixel (NaN) from the scene becomes 0 instead of spreading over the whole blurred copy and blacking out the paint. The blurred levels for rough paint come from the PMREM copy */
     const cam = new THREE.CubeCamera(0.5, 800, rt);
     const shared = new Set(Object.values(GFX.mats));
     const mats = [];
     P.mesh.grp.traverse((o) => { if (!o.isMesh) return; for (const m of [].concat(o.material)) if (m && m.clearcoat >= 0.5 && !shared.has(m) && !mats.includes(m)) mats.push(m); });
-    mats.forEach((m) => { m.envMap = rt.texture; m.envMapIntensity = 1.15; m.needsUpdate = true; });
+    // the paint reads a blurred (PMREM) copy of the cube, made here between frames (see realismFrame); until the first
+    // copy exists it keeps the sky image's light
+    mats.forEach((m) => { m.envMapIntensity = 1.15; });
     // the reflection view skips the thousands of instanced fans, flags, trees and tufts: invisible in a car's paint, but
     // most of the cost; and it renders the four side faces in turn, the sky/ground faces only now and then (steady cost)
     const heavy = []; this.scene.traverse((o) => { if ((o.isInstancedMesh && o.count > 150) || o.isPoints) heavy.push(o); });
     cam.children.forEach((c) => { c.far = 350; c.updateProjectionMatrix(); });
-    this.reflect = { rt, cam, n: 0, mats, heavy, order: [0, 4, 1, 5], k: 0 };
+    this.reflect = { rt, cam, n: 0, mats, heavy, order: [0, 4, 1, 5], k: 0, pm: new THREE.PMREMGenerator(this.renderer), pmrt: null };
     // lens flare: a soft glow on the sun plus ghosts along the line through the centre of the frame
     const tex = (stops, size = 128) => { const c = document.createElement('canvas'); c.width = c.height = size; const g = c.getContext('2d'), gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2); stops.forEach(([o, col]) => gr.addColorStop(o, col)); g.fillStyle = gr; g.fillRect(0, 0, size, size); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
     const glow = tex([[0, 'rgba(255,250,235,1)'], [0.12, 'rgba(255,240,210,0.7)'], [0.4, 'rgba(255,220,170,0.12)'], [1, 'rgba(255,220,170,0)']], 256);
@@ -248,14 +250,18 @@ const App = {
       P.mesh.grp.visible = false; if (this.flare) this.flare.visible = false;
       const prev = r.getRenderTarget(), shadows = r.shadowMap.autoUpdate;
       r.shadowMap.autoUpdate = false; // the main view already updated the shadow map this frame
-      // the paint reads this cube through three.js's PMREM conversion, which only re-runs when asked: without the flag the
-      // paint kept the first conversion forever (made before any face was drawn: a black world, so a dark car). So: all six
-      // faces once at the start, then a fresh conversion after every second cycle of four faces
+      // (the paint used to read a blurred copy made once, before any face was drawn: a black world, so a dark car). Now all
+      // six faces once at the start, then one face a frame, and a fresh blurred copy after every second cycle (below)
       const faces = R.primed ? [f] : [0, 1, 2, 3, 4, 5];
       if (!R.primed) { P.mesh.grp.getWorldPosition(cc.position); cc.position.y += 0.9; cc.updateMatrixWorld(); }
       try { for (const fc of faces) { r.setRenderTarget(R.rt, fc); r.render(this.scene, cc.children[fc]); } }
       finally { r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows; R.heavy.forEach((o) => { o.visible = o.userData.rv; }); P.mesh.grp.visible = vis; } if (this.flare) this.flare.visible = flareVis;
-      if (!R.primed || R.n % 8 === 0) R.rt.texture.needsPMREMUpdate = true; // every second cycle: plenty for paint, half the cost
+      // a fresh blurred copy for the paint every second cycle, made here between draws: three.js would otherwise make it
+      // lazily in the middle of drawing (even while drawing into this cube), which corrupts the picture
+      if (!R.primed || R.n % 8 === 0) {
+        R.pmrt = R.pm.fromCubemap(R.rt.texture, R.pmrt || null); r.setRenderTarget(prev);
+        for (const m of R.mats) if (m.envMap !== R.pmrt.texture) { m.envMap = R.pmrt.texture; m.needsUpdate = true; }
+      }
       R.primed = true;
     }
     if (this.flare) {
@@ -628,7 +634,7 @@ const App = {
     Radio.reset();
     if (Replay.on) { Replay.on = false; $('#replay').hidden = true; document.body.classList.remove('replaying'); }
     $('#perf').hidden = true;
-    if (this.reflect) { this.reflect.rt.dispose(); this.reflect = null; } this.flare = null;
+    if (this.reflect) { this.reflect.rt.dispose(); if (this.reflect.pmrt) this.reflect.pmrt.dispose(); this.reflect.pm.dispose(); this.reflect = null; } this.flare = null;
     document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;

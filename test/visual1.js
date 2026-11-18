@@ -31,6 +31,31 @@ const frames = (page, n = 3) => page.evaluate((n) => new Promise((ok) => { let k
     }
   }
 
+  // ---- 1b. in a running race on Balanced the paint's live reflection keeps the car shaded (it once turned the car
+  // black: a stray invalid pixel in the reflection spread over the whole blurred copy)
+  if (process.env.BRIGHT !== '0') {
+    const br = await launch();
+    const page = await open(br, { quality: 2, mode: 'race', track: 'parco', camera: 'chase', opponents: 5, weather: 'dry', tod: 'auto', grid: 'mid', team: 'ardent' }, { viewport: { width: 960, height: 540 } });
+    await start(page, { mode: 'race' }); await page.waitForTimeout(1500);
+    await page.evaluate(() => { const r = App.session.race; r.lightsOutAt = 0; const ai = new SIM.AIDriver(r.player, 1.0, 4); for (let n = 0; n < 360 * 22; n++) r.step(1 / 360, ai.control(1 / 360, r.cars, r)); });
+    await frames(page, 24);
+    const r = await page.evaluate(() => {
+      const R = App.renderer, gl = R.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, img = new Uint8Array(w * h * 4), mask = new Uint8Array(w * h * 4), P = App.session.race.player;
+      App.render(); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      const carSet = new Set(); P.mesh.grp.traverse((o) => carSet.add(o)); const hidden = [];
+      App.scene.traverse((o) => { if ((o.isMesh || o.isPoints || o.isLine || o.isSprite) && !carSet.has(o) && o.visible) { o.visible = false; hidden.push(o); } });
+      const bg = App.scene.background, fog = App.scene.fog; App.scene.background = new THREE.Color(0); App.scene.fog = null; App.scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const tm = R.toneMapping; R.toneMapping = THREE.NoToneMapping; R.setRenderTarget(null); R.render(App.scene, App.camera); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, mask);
+      R.toneMapping = tm; App.scene.overrideMaterial = null; App.scene.background = bg; App.scene.fog = fog; hidden.forEach((o) => (o.visible = true));
+      let n = 0, dark = 0, sum = 0; for (let i = 0; i < w * h; i++) if (mask[i * 4] > 128) { n++; const L = (img[i * 4] + img[i * 4 + 1] + img[i * 4 + 2]) / 3; if (L < 6) dark++; sum += L; }
+      return { dark: dark / Math.max(1, n), mean: sum / Math.max(1, n), live: !!(App.reflect && App.reflect.pmrt) };
+    });
+    ok(r.live && r.dark < 0.08 && r.mean > 45, `racing on Balanced: the car stays shaded with its live reflection (${(r.dark * 100).toFixed(1)} % near-black, brightness ${r.mean.toFixed(0)})`);
+    await page.screenshot({ path: OUT + 'balanced-race.png', timeout: 240000 });
+    ok(!page.errs.length, 'no errors' + (page.errs.length ? ': ' + page.errs.join(' | ') : ''));
+    await br.close();
+  }
+
   // ---- 2. lens effects, 3. timing tower, 4. cockpit mouse wheel on PC
   {
     const br = await launch();
