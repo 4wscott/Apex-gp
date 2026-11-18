@@ -2458,6 +2458,17 @@ function carPaintLook(mat) {
     prev.call(mat, sh, r);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replace('? getShadow( directionalShadowMap[ i ]', '? 0.22 + 0.78 * getShadow( directionalShadowMap[ i ]'))
+      // a reflection that ever holds an invalid value (NaN) must not black out the paint: drop it, keep the rest
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        #if defined( RE_IndirectSpecular )
+          if (any(isnan(radiance)) || any(isinf(radiance))) radiance = vec3(0.0);
+          #ifdef USE_CLEARCOAT
+            if (any(isnan(clearcoatRadiance)) || any(isinf(clearcoatRadiance))) clearcoatRadiance = vec3(0.0);
+          #endif
+        #endif
+        #if defined( RE_IndirectDiffuse )
+          if (any(isnan(iblIrradiance)) || any(isinf(iblIrradiance))) iblIrradiance = vec3(0.0);
+        #endif`)
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n#if NUM_HEMI_LIGHTS > 0\n reflectedLight.indirectDiffuse += BRDF_Lambert(material.diffuseColor) * getHemisphereLightIrradiance(hemisphereLights[0], geometryNormal) * 0.9; // sky fill: the side away from the sun keeps its colour (follows day, dusk, night)\n#endif')
       .replace('#include <opaque_fragment>', 'outgoingLight += vec3(0.62, 0.7, 0.8) * pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0) * 0.16;\n#include <opaque_fragment>');
   };
