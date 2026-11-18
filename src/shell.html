@@ -45,6 +45,7 @@ output { font-family: var(--f-data); font-size: 13px; min-width: 70px; }
 #circuits { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
 .circuit { display: grid; gap: 2px; text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 10px; cursor: pointer; min-width: 0; }
 .circuit canvas { width: 100%; height: auto; aspect-ratio: 240 / 150; max-width: 100%; }
+.circuit canvas.c-prof { aspect-ratio: 240 / 30; margin: -2px 0 2px; }
 .circuit[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .c-name { font-family: var(--f-display); font-weight: 700; font-size: 17px; line-height: 1.1; }
 .c-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -151,6 +152,11 @@ body.mwheel #dash .dash-grid { grid-template-columns: 1fr 1fr; gap: 2px 8px; }
 body.mwheel #dash .dash-grid small { font-size: 9px; } body.mwheel #dash .dash-grid b { font-size: 12.5px; }
 #mw-hint { margin-bottom: 20px; transition: opacity 1s; } #mwheel.quiet #mw-hint { opacity: 0; }
 body.replaying #mwheel { display: none !important; }
+/* cockpit view: the car's own wheel is visible, so the on-screen one hides (steer by dragging low on the screen) */
+#mwheel.cockpit { pointer-events: none; } #mwheel.cockpit #mw-rot { visibility: hidden; }
+#mwheel.nohint #mw-hint { display: none; }
+#mw-ghost { position: fixed; width: 120px; height: 120px; margin: 0; border: 2px solid rgba(255,255,255,0.35); border-top-color: #ffd21f; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+#mw-ghost.on { opacity: 1; transition: opacity 0.1s; }
 body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replaying #perf { display: none !important; }
 @media (max-width: 900px), (max-height: 500px) {
   #rp-bar { padding: 6px 8px; gap: 5px; bottom: max(6px, env(safe-area-inset-bottom, 0px)); }
@@ -441,6 +447,13 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 .trow .tg { text-align: right; color: #c8ced8; font-family: var(--f-data); font-size: 12px; }
 .trow.me { background: rgba(255, 210, 31, 0.18); }
 .trow.me .td { color: var(--accent); }
+/* compact tower: the top three, a divider, then the cars round you; tap (or T) opens the full order for 8 seconds */
+#tower-wrap { pointer-events: auto; cursor: pointer; }
+.tdiv { height: 9px; position: relative; } .tdiv::after { content: ""; position: absolute; left: 8px; right: 8px; top: 4px; border-top: 1px dashed rgba(255,255,255,0.28); }
+#tower-wrap.folded .tw-head::after { content: "▾"; float: right; opacity: 0.7; }
+#tower-wrap.open { z-index: 5; box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+.trow.pit .tg, .trow.out .tg { color: var(--accent); font-family: var(--f-display); font-weight: 700; letter-spacing: 0.06em; }
+.trow.out .td, .trow.out .tp { opacity: 0.5; }
 #timing { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); background: rgba(10, 12, 16, 0.78); border-radius: 6px; padding: 8px 12px; min-width: 228px; display: grid; gap: 2px; }
 .tm-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 #h-pos { font-weight: 800; font-size: 28px; color: var(--accent); }
@@ -711,6 +724,7 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Wheel speed sensitivity</label><div class="ctl seg" data-set="wheelAssist"><button type="button" data-v="false">Off (1:1 like a real wheel)</button><button type="button" data-v="true">On</button></div></div>
         <div class="row"><label>Mouse steering (PC)</label><div class="ctl seg" data-set="mouseSteer"><button type="button" data-v="off">Off</button><button type="button" data-v="grab">Grab the wheel</button><button type="button" data-v="follow">Follow the mouse</button></div></div>
         <div class="row"><label>Mouse sensitivity</label><div class="ctl seg" data-set="mouseSens"><button type="button" data-v="0.7">Low</button><button type="button" data-v="1">Normal</button><button type="button" data-v="1.4">High</button></div></div>
+        <div class="row"><label>Mouse wheel help</label><div class="ctl seg" data-set="mwHints"><button type="button" data-v="0">Show again</button><button type="button" data-v="3">Hidden</button></div></div>
         <p class="hint">Mouse steering puts an F1 wheel in the bottom right of the screen. <b>Grab the wheel:</b> press on it and turn it, and it springs back to centre when you let go. Use W/S or ↑/↓ (or a controller) for the pedals; hold the brake when stopped to reverse. <b>Follow the mouse:</b> move the mouse left and right to steer, hold the left button to accelerate and the right button to brake.</p>
         <p class="hint">Browsers cannot drive wheel force feedback, so wheels run without it. Gamepads get rumble on kerbs, lock-ups and impacts.</p>
         </div>
@@ -747,6 +761,7 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Preset</label><div class="ctl seg preset" data-set="preset"><button type="button" data-v="lite"><b>Lite</b><small>Built-in graphics (laptops)</small></button><button type="button" data-v="smooth"><b>Smooth</b><small>Steadiest frame rate</small></button><button type="button" data-v="balanced"><b>Balanced</b><small>Recommended</small></button><button type="button" data-v="beautiful"><b>Beautiful</b><small>Most realistic, needs a strong PC</small></button><button type="button" data-v="custom" disabled><b>Custom</b><small>Your own mix</small></button></div></div>
         <div class="row"><label>Quality</label><div class="ctl seg" data-set="quality"><button type="button" data-v="0">Low</button><button type="button" data-v="1">Medium</button><button type="button" data-v="2">High</button><button type="button" data-v="3">Ultra</button></div></div>
         <div class="row"><label>Resolution</label><div class="ctl seg" data-set="autoRes"><button type="button" data-v="false">Sharp (full resolution)</button><button type="button" data-v="true">Auto (lowers it to stay smooth)</button></div></div>
+        <div class="row"><label>Lens effects</label><div class="ctl seg" data-set="lens"><button type="button" data-v="true">On</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label>Heat shimmer</label><div class="ctl seg" data-set="heat"><button type="button" data-v="true">On (High and Ultra)</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label>Team radio</label><div class="ctl seg" data-set="radio"><button type="button" data-v="off">Off</button><button type="button" data-v="text">Messages</button><button type="button" data-v="voice">Messages + voice</button></div></div>
         <div class="row"><label>Performance meter</label><div class="ctl seg" data-set="showPerf"><button type="button" data-v="false">Hidden</button><button type="button" data-v="true">Show frame rate</button></div></div>

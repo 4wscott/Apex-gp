@@ -144,8 +144,91 @@ function buildTrack(spec) {
   buildGrid(T);
   computeWalls(T);
   computeRacingLine(T);
+  // hills, crests and banking: worked out against the flat racing speeds (to ease crests that would be too sharp),
+  // then the speeds are worked out again on the real road
+  computeElevation(T);
+  if (T.hasElev) { const sp = T.speedProfile(1.5, 4.4, 800, 720e3, 1.45); T.lineV = sp.v; T.lineVf = sp.vf; }
   computeZones(T);
   return T;
+}
+
+// ---- elevation (graphics plan, phase 4): height T.h, slope T.grade (dh/ds), vertical curvature T.kv (d2h/ds2, + in a
+// dip or compression, - over a crest) and banking T.bankL (dh/dlat, + when the left side is higher) per sample. The pit
+// lane's main section and 30 m either side stay level at 0, so the garages, grid, gantry and podium need no heights
+function computeElevation(T) {
+  const n = T.n, E = (typeof ELEV !== 'undefined' && ELEV[T.spec.id]) || null;
+  T.h = new Float64Array(n); T.grade = new Float64Array(n); T.kv = new Float64Array(n); T.bankL = new Float64Array(n); T.crown = 0.015;
+  T.hasElev = !!E; T.layout = E ? 2 : 1;
+  if (!E) return;
+  const PL = pitLane(T), at = (sAlong) => ((Math.round(PL.a + sAlong / T.ds) % n) + n) % n;
+  const fA = at(PL.mainStart - 30), fB = at(PL.mainEnd + 30), mA = at(PL.mainStart), mB = at(PL.mainEnd);
+  const fwd = (a, b) => ((b - a) % n + n) % n; // samples from a forward to b
+  const inSpan = (a, b) => (i) => fwd(a, i) <= fwd(a, b);
+  const inFlat = inSpan(fA, fB), inMain = inSpan(mA, mB);
+  // keys round the lap; the level span's ends are keys at 0 with a flat tangent; periodic cubic (Catmull-Rom tangents)
+  const keys = E.h.map(([f, h]) => [Math.round(f * n) % n, h, null]).filter(([i]) => !inFlat(i)).concat([[fA, 0, 0], [fB, 0, 0]]).sort((a, b) => a[0] - b[0]);
+  const m = keys.length, raw = new Float64Array(n);
+  const tan = (k) => { if (keys[k][2] === 0) return 0; const a = keys[(k - 1 + m) % m], b = keys[(k + 1) % m]; return (b[1] - a[1]) / (fwd(a[0], b[0]) || 1); };
+  for (let k = 0; k < m; k++) {
+    const A = keys[k], B = keys[(k + 1) % m], L = fwd(A[0], B[0]) || n, ta = tan(k) * L, tb = tan((k + 1) % m) * L;
+    for (let d = 0; d <= L; d++) {
+      const t = d / L, t2 = t * t, t3 = t2 * t;
+      raw[(A[0] + d) % n] = (2 * t3 - 3 * t2 + 1) * A[1] + (t3 - 2 * t2 + t) * ta + (-2 * t3 + 3 * t2) * B[1] + (t3 - t2) * tb;
+    }
+  }
+  // smoothing that never moves the pit lane's main section (it stays exactly level): like heat spreading with the
+  // level straight held fixed, so the road eases out of it instead of kinking
+  const free = new Uint8Array(n); for (let i = 0; i < n; i++) free[i] = inMain(i) ? 0 : 1;
+  const box = (src, R, mask) => { const out = new Float64Array(n); for (let i = 0; i < n; i++) { if (!mask[i]) { out[i] = src[i]; continue; } let a = 0; for (let j = -R; j <= R; j++) a += src[(i + j + n) % n]; out[i] = a / (2 * R + 1); } return out; };
+  let h = raw; for (let i = 0; i < n; i++) if (!free[i]) h[i] = 0;
+  for (let r = 0; r < 3; r++) h = box(h, 8, free);
+  // ease crests (the car goes light, never flies) and compressions (a hard squeeze, not a wall) at racing speed, and
+  // keep slopes under 18 %. Done on the slope (rise per sample), smoothed where needed and then added up again from
+  // the end of the level straight: the slope is zero along the straight, so the road eases out of it with no kink
+  const kvOf = (hh, i) => (hh[(i + 3) % n] - 2 * hh[i] + hh[(i - 3 + n) % n]) / (9 * T.ds * T.ds);
+  let g = new Float64Array(n); for (let i = 0; i < n; i++) g[i] = free[i] && free[(i + 1) % n] ? h[(i + 1) % n] - h[i] : 0;
+  const nFree = g.reduce((a, _, i) => a + (free[i] && free[(i + 1) % n] ? 1 : 0), 0);
+  const integrate = () => {
+    let S = 0; for (let i = 0; i < n; i++) S += g[i];
+    for (let i = 0; i < n; i++) if (free[i] && free[(i + 1) % n]) g[i] -= S / nFree; // the lap closes on itself
+    const out = new Float64Array(n); let z = 0;
+    for (let k = 0; k < n; k++) { const i = (mB + k) % n; out[i] = free[i] ? z : 0; z += g[i]; }
+    return out;
+  };
+  h = integrate();
+  for (let it = 0; it < 150; it++) {
+    const bad = new Uint8Array(n); let nb = 0;
+    for (let i = 0; i < n; i++) {
+      const v = Math.max(30, T.lineV ? T.lineV[i] : 60), a = v * v * kvOf(h, i), gr = Math.abs(g[i]) / T.ds; // at least 108 km/h: cars leave a slow corner much faster
+      if (a < -0.6 * G || a > 2.0 * G || gr > 0.18) { for (let k = -12; k <= 12; k++) { const q = (i + k + n) % n; if (free[q] && free[(q + 1) % n]) bad[q] = 1; } nb++; }
+    }
+    if (!nb) break;
+    g = box(g, 8, bad);
+    h = integrate();
+  }
+  T.h = h;
+  for (let i = 0; i < n; i++) { T.grade[i] = (h[(i + 1) % n] - h[(i - 1 + n) % n]) / (2 * T.ds); T.kv[i] = kvOf(h, i); }
+  T.kv = box(T.kv, 2, new Uint8Array(n).fill(1));
+  // banking: [from, to, degrees] eased in and out over 25 m; the turn's direction decides which side is high
+  for (const [fa, fb, deg] of E.bank || []) {
+    const a = Math.round(fa * n) % n, b = Math.round(fb * n) % n, mid = (a + Math.round(fwd(a, b) / 2)) % n, sgn = Math.sign(T.kapW[mid]) || 1;
+    const R = Math.round(25 / T.ds), tb = Math.tan((deg * Math.PI) / 180);
+    for (let d = -R; d <= fwd(a, b) + R; d++) {
+      const i = (a + d + n) % n, w = d < 0 ? 1 + d / R : d > fwd(a, b) ? 1 - (d - fwd(a, b)) / R : 1, e = w * w * (3 - 2 * w);
+      T.bankL[i] = -sgn * tb * e;
+    }
+  }
+}
+// height of the road at sample i, lat metres to the left of the centreline (banking, a slight crown on the tarmac)
+function roadZ(T, i, lat) { return T.hasElev ? T.h[i] + lat * T.bankL[i] - T.crown * Math.min(Math.abs(lat), T.hw) : 0; }
+// height, slope (dh/dx, dh/dy in the sim's plane) and vertical curvature under a point near sample i
+function roadAt(T, x, y, i) {
+  const n = T.n, ox = x - T.px[i], oy = y - T.py[i], along = (ox * T.tx[i] + oy * T.ty[i]) / T.ds, lat = ox * T.nx[i] + oy * T.ny[i];
+  if (!T.hasElev) return { z: 0, gx: 0, gy: 0, kv: 0, lat };
+  const j = along >= 0 ? (i + 1) % n : (i - 1 + n) % n, f = Math.min(1, Math.abs(along));
+  const hh = T.h[i] + (T.h[j] - T.h[i]) * f, bk = T.bankL[i] + (T.bankL[j] - T.bankL[i]) * f, gr = T.grade[i] + (T.grade[j] - T.grade[i]) * f;
+  const sl = bk - (Math.abs(lat) < T.hw ? T.crown * Math.sign(lat) : 0);
+  return { z: hh + lat * bk - T.crown * Math.min(Math.abs(lat), T.hw), gx: gr * T.tx[i] + sl * T.nx[i], gy: gr * T.ty[i] + sl * T.ny[i], kv: T.kv[i] + (T.kv[j] - T.kv[i]) * f, lat };
 }
 
 // spatial hash of centreline samples (40 m cells)
@@ -254,27 +337,30 @@ function computeRacingLine(T) {
 
 function speedProfile(T, mu, ClA, m, Pmax, CdA) {
   const n = T.n, kd = (0.5 * RHO * ClA) / m, kdrag = (0.5 * RHO * CdA) / m;
-  const v = new Float64Array(n);
+  const v = new Float64Array(n), el = !!T.hasElev;
+  // on a real road: a banked corner holds the car (the bank's share of gravity, and more load), a compression adds
+  // load and a crest takes it away; climbing helps the brakes and costs acceleration
+  const kvA = (i) => (el ? T.kv[i] : 0), sbA = (i) => (el ? Math.sign(T.lineK[i]) * T.bankL[i] : 0), grA = (i) => (el ? T.grade[i] : 0);
   for (let i = 0; i < n; i++) {
-    const k = Math.abs(T.lineK[i]);
-    const den = k - mu * kd;
-    v[i] = den <= 0 ? 95 : Math.min(95, Math.sqrt((mu * G) / den));
+    const k = Math.abs(T.lineK[i]), sb = sbA(i);
+    const den = k - mu * (kd + kvA(i) + 0.12 * k * sb);
+    v[i] = den <= 0 ? 95 : Math.min(95, Math.sqrt((G * (mu + sb)) / den));
   }
   for (let rep = 0; rep < 2; rep++)
     for (let c = 0; c < n; c++) {
       const i = (n - 1 - c + n) % n, j = (i + 1) % n;
       const vj = v[j];
-      const lat = vj * vj * Math.abs(T.lineK[i]), tot = mu * (G + kd * vj * vj);
-      const avail = Math.sqrt(Math.max(0, tot * tot - lat * lat)) * 0.92 + kdrag * vj * vj;
-      v[i] = Math.min(v[i], Math.sqrt(vj * vj + 2 * avail * T.dsL[i]));
+      const lat = vj * vj * Math.abs(T.lineK[i]), tot = mu * (G + (kd + kvA(i)) * vj * vj);
+      const avail = Math.sqrt(Math.max(0, tot * tot - lat * lat)) * 0.92 + kdrag * vj * vj + G * grA(i);
+      v[i] = Math.min(v[i], Math.sqrt(Math.max(0, vj * vj + 2 * Math.max(1, avail) * T.dsL[i])));
     }
   const vf = Float64Array.from(v);
   for (let rep = 0; rep < 2; rep++)
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n, vi = Math.max(vf[i], 5);
-      const lat = vi * vi * Math.abs(T.lineK[i]), tot = mu * (G * 0.55 + kd * vi * vi);
+      const lat = vi * vi * Math.abs(T.lineK[i]), tot = mu * (G * 0.55 + (kd + kvA(i) * 0.55) * vi * vi);
       const trac = Math.sqrt(Math.max(0, tot * tot - lat * lat));
-      const acc = Math.min(trac, Pmax / (m * vi)) - kdrag * vi * vi;
+      const acc = Math.min(trac, Pmax / (m * vi)) - kdrag * vi * vi - G * grA(i);
       vf[j] = Math.min(v[j], Math.sqrt(Math.max(0, vi * vi + 2 * acc * T.dsL[i])));
     }
   return { v, vf };
@@ -469,6 +555,19 @@ class Car {
   step(dt, inp) {
     const p = this.p, T = this.track; this.simT = (this.simT || 0) + dt;
     this.locate(false);
+    // --- the road under the car: gravity along its slope, and how hard it presses up (a crest lightens the car, a
+    // compression squeezes it, a banked turn holds it)
+    let Lk = 1, Fgx = 0, Fgy = 0;
+    if (T.hasElev) {
+      const R = roadAt(T, this.x, this.y, this.idx), c0 = Math.cos(this.h), s0 = Math.sin(this.h); this.z = R.z;
+      const gl = R.gx * c0 + R.gy * s0, gt = -R.gx * s0 + R.gy * c0; // slope along the car (+ uphill) and across it (+ left side up)
+      Fgx = -p.m * G * gl; Fgy = -p.m * G * gt;
+      const vt = (this.vx * c0 - this.vy * s0) * T.tx[this.idx] + (this.vx * s0 + this.vy * c0) * T.ty[this.idx];
+      const axw = this.axS * c0 - (this.ay || 0) * s0, ayw = this.axS * s0 + (this.ay || 0) * c0;
+      Lk = clamp(1 + (R.kv * vt * vt - 0.12 * (axw * R.gx + ayw * R.gy)) / G, 0.12, 2.6); // the load a banked turn adds counts for less: tyres grip less per kilo as the load rises
+      this.slopeL = gl; this.slopeT = gt;
+    } else { this.z = 0; this.slopeL = this.slopeT = 0; }
+    this.loadK = Lk;
     // --- surface
     const ad = Math.abs(this.d), side = this.d >= 0 ? 1 : -1, hw = T.hw;
     let smu = 1, sdrag = 0, bump = 0; this.surface = 'tarmac';
@@ -556,8 +655,8 @@ class Car {
     const drag = q * cdA;
 
     // --- loads with longitudinal weight transfer
-    let FzF = (p.m * G * p.b) / p.L + DfF - (p.m * this.axS * p.h) / p.L;
-    let FzR = (p.m * G * p.a) / p.L + DfR + (p.m * this.axS * p.h) / p.L;
+    let FzF = (p.m * G * p.b * Lk) / p.L + DfF - (p.m * this.axS * p.h) / p.L;
+    let FzR = (p.m * G * p.a * Lk) / p.L + DfR + (p.m * this.axS * p.h) / p.L;
     FzF = Math.max(FzF, 200); FzR = Math.max(FzR, 200);
     const cp = COMPOUNDS[this.compound], wet = this.env ? this.env.wet : 0;
     this.gripWet = wetGrip(this.compound, wet);
@@ -630,8 +729,8 @@ class Car {
     const cd = Math.cos(deltaW), sd = Math.sin(deltaW);
     const v = Math.hypot(this.vx, this.vy);
     const rolling = (p.rr * (FzF + FzR) + sdrag * Math.min(v, 20) / 20 * 3 + (4 - tyreH[0] - tyreH[1] - tyreH[2] - tyreH[3]) * 700) * (vxa > 0.1 ? 1 : 0); // running on a rim drags
-    const Fx = FxF * cd - FyF * sd + FxR - (drag + rolling) * sgn;
-    const Fy = FxF * sd + FyF * cd + FyR;
+    const Fx = FxF * cd - FyF * sd + FxR - (drag + rolling) * sgn + Fgx;
+    const Fy = FxF * sd + FyF * cd + FyR + Fgy;
     const Mz = p.a * (FyF * cd + FxF * sd) - p.b * FyR;
     const ax = Fx / p.m + this.vy * this.r, ay = Fy / p.m - this.vx * this.r;
     const prevVx = this.vx;
@@ -649,7 +748,8 @@ class Car {
       const rk = (this.vx * Math.tan(this.delta)) / p.L;
       this.r = lerp(this.r, rk, k); this.vy = lerp(this.vy, rk * p.b, k);
     }
-    if (vxa < 0.3 && thr < 0.05 && revDrive < 0.05) { this.vx *= 0.9; this.vy *= 0.9; this.r *= 0.9; }
+    // at rest: the brakes hold it (on a slope too); with no brake on a slope it rolls
+    if (vxa < 0.3 && thr < 0.05 && revDrive < 0.05 && (brk > 0.2 || Math.abs(this.slopeL) < 0.015)) { this.vx *= 0.9; this.vy *= 0.9; this.r *= 0.9; if (brk > 0.2 && Math.abs(this.slopeL) >= 0.015) this.vx = 0; }
 
     this.axS = lerp(this.axS, Fx / p.m, Math.min(1, dt * 12));
     this.ay = Fy / p.m;

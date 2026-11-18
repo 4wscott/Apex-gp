@@ -77,7 +77,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
 
 2. **Subtle lens effects (item 5).**
    - **Today:** a fixed purple/green fringe at the screen edges, even when the car is stopped.
-   - **New fringe:** about a third as strong, and it only appears at speed, growing from 150 km/h. There's none in menus or when stopped, and replay TV cameras use only a trace.
+   - **New fringe:** about a third as strong, and it only appears at speed, growing from about 160 km/h. There's none in menus or when stopped, and replay TV cameras use only a trace.
    - **New setting:** Settings → Graphics → **Lens effects** On/Off switches off the fringe, vignette and speed blur together.
 
 3. **Halo and cockpit (item 6).**
@@ -92,7 +92,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
    - **Space-aware:**
      - The tower measures the space it has. On PC it stops above the car panel (ERS, aero, brake bias, tyres) and never runs into it.
      - On phones it stays clear of the left/right steering buttons at every phone size.
-   - **Status markers:** PIT, OUT and DNF show on the rows.
+   - **Status markers:** PIT and OUT (retired) show on the rows.
 
 5. **Mouse wheel in cockpit view (item 9).**
    - **The duplicate goes:** in cockpit view the on-screen wheel hides, and the car's own 3D wheel turns with the mouse.
@@ -100,7 +100,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
    - **Follow mode:** works as it does now.
    - **The hint:**
      - It shows for 6 seconds at the start of your first 3 sessions, then not again.
-     - Settings → Controls → **Show controls help** brings it back.
+     - Settings → Controls → **Mouse wheel help** → Show again brings it back.
 
 6. **Phone menu (item 10).**
    - **Full text:** the circuit name and the race settings line fit in full, by wrapping to two lines or shrinking slightly.
@@ -142,7 +142,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
    - **Layout:** along street circuits, buildings form a continuous street wall facing the track, with gaps for side streets, instead of scattered boxes.
 
 3. **Depth where you can see it.**
-   - **Close to the track:** balconies and cornices are real geometry within about 60 m of the track, on Balanced and Beautiful.
+   - **Close to the track:** balconies and cornices are real geometry within about 90 m of the track, on Balanced and Beautiful.
    - **Further away, and on Lite and Smooth:** a relief texture gives the same look for free.
 
 4. **Dusk and night:** windows light randomly in warm and cool tones, and shop windows and signs glow.
@@ -174,7 +174,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
 
 - **Buildings:**
   - All buildings stay one draw call at every preset. Each building picks its style from the texture sheet, so there's no extra call per style.
-  - The texture sheet replaces today's window texture: 1024×1024 on Balanced and Beautiful, 512×512 on Lite and Smooth.
+  - The texture sheet replaces today's window texture: 1024×1024 on Balanced and Beautiful, 512×512 on Smooth and 256×256 on Lite.
 - **Balcony and cornice geometry:** Balanced and Beautiful only, merged into the existing 24 track sections, so it adds no draw calls.
 - **Foam barriers:** a low-poly rounded block on Lite and Smooth, and a smoother one on Balanced and Beautiful.
 - **Physics:** wall contact uses the same barrier line as today. This is a visual change only.
@@ -216,7 +216,7 @@ This plan comes from the review of 18 November 2026: races at Riviera, Silverwoo
 7. **Wind:** the trees' gentle sway stays, and palm frond tips move too.
 
 **Cost:**
-- **Trees:** the same tree count per preset. Distant trees become cheaper, so Lite can show about 0.4× today's full tree count (up from 0.15×) for the same cost.
+- **Trees:** the same number of full 3D trees per preset. Distant trees are cheap pictures, so every preset also gets a treeline further out: Lite shows 0.4× today's full tree count in all (up from 0.15×).
 - **Grass:** the same tuft count or fewer.
 
 **Tests:**
@@ -367,4 +367,98 @@ Today every circuit is flat; only the land beyond the barriers has hills. This i
 
 ## Status
 
-Not started.
+All phases are built. Phase 5's own check, on your PC and iPhone, is yours to do.
+
+### What the baseline showed
+
+**The dark car was a bug, not just lighting.**
+- **The cause:** on Balanced and Beautiful, the car's paint gets its light from a reflection of its surroundings. That reflection was converted for the paint only once, before anything had been drawn into it. So the paint was lit by a black world for the whole race.
+- **Before:** your car measured 42–77 brightness (out of 255) from 8 directions on Balanced, against 64–111 on Smooth.
+- **After the fix (Parco):** 75–95 from every direction, against 42–77 before. The darkest side is now 79% as bright as the brightest, up from 54%.
+- **Riviera and Ardenne:** 83–92 and 86–116.
+
+### Built
+
+- **Phase 1:**
+  - **Car lighting:** the reflection fix, plus a soft rim light on the paint, sky fill on the side away from the sun, and car shadows that are deep but never black.
+  - **Lens effects:** fringe only at speed, plus the Lens effects switch.
+  - **Cockpit:** a fill light in cockpit view.
+  - **Timing tower:** compact 8 rows, tap or T for all 22, PIT and OUT markers, sized to the space it has.
+  - **Mouse wheel in cockpit view:** hidden; drag low on the screen to steer.
+  - **Wheel help:** shown in the first 3 sessions only.
+  - **Phone menu:** names that never get cut off.
+- **Phase 2:**
+  - **Street buildings:**
+    - Riviera has about 840 buildings: a street wall facing the track, shops and cafés at street level, towers on podiums, tiled roofs, and towns on the hills behind.
+    - On Balanced and up there are about 1,400 balconies, cornices and roof units, plus lamp posts, café umbrellas and painted crossings.
+  - **Barriers:**
+    - Concrete walls with joints and a chamfered top, and catch fences with an angled top.
+    - Steel guardrail at Ardenne and Nordhang.
+    - Rounded foam blocks in two rows, and belted tyre walls, at the big stops.
+    - Marshal posts with flag light panels.
+- **Phase 3:**
+  - **Trees:** new palms with drooping fronds and light through them, fuller broadleaf trees, denser pines.
+  - **Distant trees:** flat pictures that face the camera.
+  - **Grass:** softer and lighter, fading with distance.
+  - **Ground:** drier and lusher patches, and worn paths behind the barriers.
+- **Phase 4:**
+  - **Hills and banking:** on all 12 circuits (heights below).
+  - **Physics:** slopes, crests, compressions and banking, with the AI speed plan to match.
+  - **On the hills:** cars, cameras, sparks and flying parts all follow the road's height.
+  - **Saved data:** old time-trial records are marked "old layout", and online play checks both players have the same version.
+  - **Menu:** each circuit card shows the lap's height profile.
+
+| Circuit | Height range | Steepest | Banking |
+|---|---|---|---|
+| Autodromo del Parco | 8 m | 1 % | – |
+| Silverwood | 9 m | 1 % | – |
+| Ardenne Forest Ring | 88 m | 18 % | – |
+| Riviera Street Circuit | 40 m | 11 % | – |
+| Serra Azul | 34 m | 8 % | 4°, and one off-camber corner |
+| Circuit de l'Ile | 3 m | 1 % | – |
+| Sahra Sands | 14 m | 2 % | – |
+| Baía Dourada | 37 m | 8 % | 3°, and one off-camber corner |
+| Nordhang Ring | 59 m | 7 % | – |
+| Autódromo Monte Alto | 7 m | 4 % | – |
+| Lakeside Park | 18 m | 3 % | two corners at 18°, turn 1 at 6° |
+| Lone Star Raceway | 32 m | 15 % | 5°, and one off-camber corner |
+
+### Changes from the plan
+
+- **Banking strength:**
+  - The first version made Lakeside's banked corners about 40% faster. That bunched the field and caused crashes.
+  - The banking's extra grip was toned down to what real tyres give, where grip per kilo falls as load rises.
+  - It's now worth 1.3 s a lap at Lakeside, and AI races there are clean (22 of 22 finish).
+- **Texture sheet on Lite:** the building image is 256×256 on Lite (not 512), to keep memory level.
+
+### Tests
+
+- `test/visual1.js`: phase 1 (brightness, lens, tower, cockpit wheel, phones, menu).
+- `test/visual23.js`: phases 2–3 (buildings, barriers, trees, screenshots).
+- `test/hills.js`: phase 4 (road, slopes, crests, banking, AI races).
+- `test/visualbase.js`: the baseline, the speed numbers and before/after screenshots.
+
+The existing simulation tests still pass (simtest, racecraft, carhit, pits, racetest), and so does the damage test.
+
+The podium test has two checks that depend on frame rate. In the software renderer used here they time out on the old build as well (the champagne check fails on both). The car still gets to its pit box and the results still appear; it just takes longer than the test waits when frames are slow.
+
+### Performance (software renderer, 22 cars, before → after)
+
+Measured in a software renderer (no graphics card), so frame times are only a rough guide (about ±5–10 % between runs). Draw calls, triangles and memory are exact.
+
+| Preset | Circuit | Draw calls | Triangles | Texture memory | Geometry memory | Frame time |
+|---|---|---|---|---|---|---|
+| Lite | Riviera | 526 → 527 | 1.49 M → 1.08 M | 232 → 232 MB | 39 → 39 MB | 2.45 → 2.12 s |
+| Lite | Ardenne | 544 → 548 | 1.70 M → 1.31 M | 236 → 237 MB | 42 → 43 MB | 2.28 → 2.23 s |
+| Smooth | Riviera | 604 → 605 | 2.10 M → 1.80 M | 231 → 233 MB | 41 → 41 MB | 3.15 → 3.29 s |
+| Smooth | Ardenne | 624 → 627 | 3.16 M → 2.88 M | 235 → 237 MB | 46 → 48 MB | 4.22 → 4.12 s |
+| Balanced | Riviera | 1254 → 1262 | 6.24 M → 5.91 M | 232 → 237 MB | 43 → 44 MB | 5.86 → 6.05 s |
+| Balanced | Ardenne | 1294 → 1300 | 10.38 M → 10.10 M | 236 → 242 MB | 49 → 55 MB | 8.98 → 9.39 s |
+
+- **Lite and Smooth:**
+  - Up to 4 more draw calls and 2 MB more memory (under 1 %). These come from the distant-tree pictures and, at Ardenne and Nordhang, the guardrail posts.
+  - 9–27 % fewer triangles, and no slower.
+- **Balanced:**
+  - 6–8 more draw calls and 5–6 MB more memory, within the plan's budget.
+  - About 3–5 % slower, roughly the measurement's noise. Part of it is the car-reflection fix, which now refreshes the reflection every 8 frames.
+
