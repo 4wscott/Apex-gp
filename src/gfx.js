@@ -1352,14 +1352,22 @@ function buildCity(o) {
       const up = uppers[(rng() * uppers.length) | 0], k = (up === F.GLASS ? 10 : 4) + ((rng() * 10) | 0);
       addB(x, y, b.hd, w, d, storeys(k, false), up, -1, 1, 0, tints[(rng() * tints.length) | 0]);
     }
-    // the city climbing the hills behind: smaller blocks scattered on the slopes beyond the circuit
-    const nHill = Math.round(nTarget * 0.45);
-    for (let a = 0, placed = 0; a < nHill * 6 && placed < nHill; a++) {
-      const ang = rng() * Math.PI * 2, r = R0 + 80 + Math.pow(rng(), 0.8) * 1300, x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
-      const q = trackDistance(T, x, y, -1, 0, 2); if (q.i >= 0 && q.d < 120) continue;
-      const w = 12 + rng() * 14, d = 12 + rng() * 14, up = uppers[(rng() * uppers.length) | 0], hd = rng() * 6.28;
-      list.push({ x, y, hd, w, d, h: storeys(2 + ((rng() * 5) | 0), false), up, gr: -1, sides: 0, roof: up === F.APT || up === F.PASTEL ? 2 + rng() * 2 : 0, tint: tints[(rng() * tints.length) | 0], z: hAt(x, y) - 1.5 });
-      placed++;
+    // the town climbing the hills behind: tight clusters of small blocks (narrow streets between them), turned to
+    // the same few angles within a cluster, thinning out up the slopes
+    const nHill = Math.round(nTarget * 0.7);
+    for (let cl = 0, placed = 0; cl < 60 && placed < nHill; cl++) {
+      const ang = rng() * Math.PI * 2, r = R0 - 100 + Math.pow(rng(), 1.4) * 800, ccx = cx + Math.cos(ang) * r, ccy = cy + Math.sin(ang) * r;
+      const q0 = trackDistance(T, ccx, ccy, -1, 0, 2); if (q0.i >= 0 && q0.d < 140) continue;
+      const hd0 = rng() * Math.PI, size = 50 + rng() * 90, per = 8 + ((rng() * 14) | 0);
+      for (let a = 0, k = 0; a < per * 4 && k < per && placed < nHill; a++) {
+        const u = (rng() - 0.5) * size, v = (rng() - 0.5) * size * 0.7, x = ccx + Math.cos(hd0) * u - Math.sin(hd0) * v, y = ccy + Math.sin(hd0) * u + Math.cos(hd0) * v;
+        const q = trackDistance(T, x, y, -1, 0, 2); if (q.i >= 0 && q.d < 110) continue;
+        const w = 10 + rng() * 12, d = 9 + rng() * 10, hd = hd0 + (rng() < 0.5 ? 0 : Math.PI / 2), up = uppers[(rng() * uppers.length) | 0];
+        if (!clear(x, y, hd, w, d)) continue;
+        foot.push({ x, y, hd, w, d });
+        list.push({ x, y, hd, w, d, h: storeys(1 + ((rng() * 4) | 0), false), up: up === F.GLASS ? F.APT : up, gr: -1, sides: 0, roof: rng() < 0.7 ? 1.8 + rng() * 1.6 : 0, tint: tints[(rng() * tints.length) | 0], z: hAt(x, y) - 1.2 });
+        k++; placed++;
+      }
     }
   } else {
     // scattered blocks round the circuit (offices, flats, the odd glass building), as before but with real facades

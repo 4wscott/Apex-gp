@@ -199,7 +199,7 @@ function computeElevation(T) {
   for (let it = 0; it < 150; it++) {
     const bad = new Uint8Array(n); let nb = 0;
     for (let i = 0; i < n; i++) {
-      const v = T.lineV ? T.lineV[i] : 60, a = v * v * kvOf(h, i), gr = Math.abs(g[i]) / T.ds;
+      const v = Math.max(30, T.lineV ? T.lineV[i] : 60), a = v * v * kvOf(h, i), gr = Math.abs(g[i]) / T.ds; // at least 108 km/h: cars leave a slow corner much faster
       if (a < -0.6 * G || a > 2.0 * G || gr > 0.18) { for (let k = -12; k <= 12; k++) { const q = (i + k + n) % n; if (free[q] && free[(q + 1) % n]) bad[q] = 1; } nb++; }
     }
     if (!nb) break;
@@ -343,7 +343,7 @@ function speedProfile(T, mu, ClA, m, Pmax, CdA) {
   const kvA = (i) => (el ? T.kv[i] : 0), sbA = (i) => (el ? Math.sign(T.lineK[i]) * T.bankL[i] : 0), grA = (i) => (el ? T.grade[i] : 0);
   for (let i = 0; i < n; i++) {
     const k = Math.abs(T.lineK[i]), sb = sbA(i);
-    const den = k - mu * (kd + kvA(i) + 0.3 * k * sb);
+    const den = k - mu * (kd + kvA(i) + 0.12 * k * sb);
     v[i] = den <= 0 ? 95 : Math.min(95, Math.sqrt((G * (mu + sb)) / den));
   }
   for (let rep = 0; rep < 2; rep++)
@@ -564,7 +564,7 @@ class Car {
       Fgx = -p.m * G * gl; Fgy = -p.m * G * gt;
       const vt = (this.vx * c0 - this.vy * s0) * T.tx[this.idx] + (this.vx * s0 + this.vy * c0) * T.ty[this.idx];
       const axw = this.axS * c0 - (this.ay || 0) * s0, ayw = this.axS * s0 + (this.ay || 0) * c0;
-      Lk = clamp(1 + (R.kv * vt * vt - 0.3 * (axw * R.gx + ayw * R.gy)) / G, 0.12, 2.6); // the load a banked turn adds counts for less: tyres grip less per kilo as the load rises
+      Lk = clamp(1 + (R.kv * vt * vt - 0.12 * (axw * R.gx + ayw * R.gy)) / G, 0.12, 2.6); // the load a banked turn adds counts for less: tyres grip less per kilo as the load rises
       this.slopeL = gl; this.slopeT = gt;
     } else { this.z = 0; this.slopeL = this.slopeT = 0; }
     this.loadK = Lk;
