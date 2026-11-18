@@ -1,2 +1,1 @@
-{ "name": "apex-gp-tools", "private": true, "description": "Asset preparation scripts (not needed to play or build the game)",
-  "dependencies": { "@gltf-transform/core": "4.1.1", "@gltf-transform/extensions": "4.1.1", "@gltf-transform/functions": "4.1.1", "meshoptimizer": "0.22.0" } }
+{"name":"apex-gp-tools","private":true,"description":"Asset preparation scripts (not needed to play or build the game)","dependencies":{"@gltf-transform/core":"4.1.1","@gltf-transform/extensions":"4.1.1","@gltf-transform/functions":"4.1.1","meshoptimizer":"0.22.0","meshoptimizer-simplifier":"npm:meshoptimizer@^0.25.0"}}
