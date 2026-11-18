@@ -725,20 +725,24 @@ function buildWorld(T, themeKey, quality) {
   {
     // the road's height spread onto the grid round it (banking included), weighted by nearness, then blended into the
     // natural ground over ~150 m; just below the road's own height where the verges lie on top of it
-    const hs = new Float32Array(Nx * Nz), ws = new Float32Array(Nx * Nz), dm = new Float32Array(Nx * Nz).fill(1e9), R = 220;
+    const hs = new Float32Array(Nx * Nz), ws = new Float32Array(Nx * Nz), dm = new Float32Array(Nx * Nz).fill(1e9), R = 220, zn = new Float32Array(Nx * Nz);
     const find = (arr, v) => { let lo = 0, hi = arr.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
     if (T.hasElev) for (let i = 0; i < n; i += 2) {
       const x0 = T.px[i], z0 = -T.py[i], wl = Math.max(T.wallL[i], T.wallR[i]) + 2;
       for (let a = find(xs, x0 - R); a < Nx && xs[a] <= x0 + R; a++) for (let c = find(zs, z0 - R); c < Nz && zs[c] <= z0 + R; c++) {
         const dx = xs[a] - x0, dz = zs[c] - z0, d2 = dx * dx + dz * dz; if (d2 > R * R) continue;
         const lat = clamp(dx * T.nx[i] - dz * T.ny[i], -wl, wl), w = 1 / ((d2 + 16) * Math.sqrt(d2 + 16)), k = a * Nz + c;
-        hs[k] += w * roadZ(T, i, lat); ws[k] += w; if (d2 < dm[k]) dm[k] = d2;
+        const rz = roadZ(T, i, lat); hs[k] += w * rz; ws[k] += w; if (d2 < dm[k]) { dm[k] = d2; zn[k] = rz; } // zn: the road right beside this point
       }
     }
     const wallMax = Math.max(...T.wallL, ...T.wallR);
     for (let a = 0; a < Nx; a++) for (let c = 0; c < Nz; c++) {
       const k = a * Nz + c, nat = natural(xs[a], zs[c]);
-      if (ws[k] > 0) { const d = Math.sqrt(dm[k]), bl = 1 - smoothstep(wallMax + 4, wallMax + 160, d); TH[k] = (hs[k] / ws[k] - 0.15) * bl + nat * (1 - bl); } else TH[k] = nat;
+      if (ws[k] > 0) {
+        const d = Math.sqrt(dm[k]), bl = 1 - smoothstep(wallMax + 4, wallMax + 160, d); TH[k] = (hs[k] / ws[k] - 0.15) * bl + nat * (1 - bl);
+        // never above the road beside it (in a dip the average of the road round about is higher than the road itself)
+        if (d < wallMax + 6) TH[k] = Math.min(TH[k], zn[k] - 0.15 - 0.6 * (1 - smoothstep(wallMax - 2, wallMax + 6, d)));
+      } else TH[k] = nat;
     }
   }
   // ground height at a sim (x, y) point, matching the terrain mesh (bilinear between grid points)
@@ -881,14 +885,15 @@ function buildWorld(T, themeKey, quality) {
   if (armcoTrack) {
     const railMat = new THREE.MeshStandardMaterial({ map: tx.armco, color: 0xc9ced3, metalness: 0.75, roughness: 0.38, side: THREE.DoubleSide });
     const rposts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.1, 1.0, 0.16).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x8a8f95, metalness: 0.7, roughness: 0.5 }), n + 8);
-    let rk = 0;
+    let rk = 0; const rails = [];
     for (const [off, side] of [[T.wallL, 1], [T.wallR, -1]]) {
       const si = side > 0 ? 0 : 1, arm = armcoAt(si), inc = (i) => keepWall(side)(i) && arm(i);
-      add(wallRibbon(T, off, side, 0.42, 0.74, 4, inc), railMat, { cs: quality >= 2 });
-      add(wallRibbon(T, off, side, 0.78, 1.1, 4, inc), railMat, { cs: quality >= 2 });
+      rails.push(wallRibbon(T, off, side, 0.42, 0.74, 4, inc), wallRibbon(T, off, side, 0.78, 1.1, 4, inc));
       for (let i = 0; i < n; i++) { if (!inc(i)) continue; const o = (off[i] + 0.16) * side; q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); rposts.setMatrixAt(rk++, m4); }
     }
     rposts.count = rk; world.add(rposts);
+    // all four rails as one piece (one draw call for the lap, not one per stretch)
+    const rm = add(mergeGeometries(rails, false), railMat, { cs: quality >= 2 }); rm.userData.noBatch = true; rails.forEach((g) => g.dispose());
   }
   // foam blocks (rounded, in cover wraps, one colour per corner) and belted tyre walls, in the space the wall stepped back
   {
@@ -1109,7 +1114,7 @@ function buildWorld(T, themeKey, quality) {
   };
   // trees: full 3D near the circuit (the same number per preset as before); further out they are flat pictures of the
   // same trees that turn to face the camera (two triangles each), so every preset shows a proper treeline
-  const nTrees = Math.round(th.trees * [0.15, 0.6, 1, 1.5][quality]), nFar = Math.round(th.trees * [0.45, 0.5, 0.45, 0.4][quality]);
+  const nTrees = Math.round(th.trees * [0.15, 0.6, 1, 1.5][quality]), nFar = Math.round(Math.min(th.trees * [0.25, 0.35, 0.45, 0.4][quality], [600, 900, 1200, 1500][quality])); // forests already have plenty of real trees
   if (nTrees > 0) {
     const kinds = th.treeKind === 'mixed' ? ['broad', 'pine'] : [th.treeKind];
     const barkMat = new THREE.MeshStandardMaterial({ map: tx.bark, roughness: 1 });
@@ -1289,7 +1294,8 @@ function buildCity(o) {
   const F = FACADE, list = [], detail = [], foot = [];
   const montealto = T.spec.id === 'montealto';
   // looks per circuit: the Riviera is Mediterranean, Monte Alto brighter and more modern; scattered blocks elsewhere are offices and flats
-  const uppers = street ? (montealto ? [F.PASTEL, F.MODERN, F.OFFICE, F.OCHRE, F.GLASS, F.APT] : [F.APT, F.APT, F.OCHRE, F.HOTEL, F.STONE, F.PASTEL, F.MODERN, F.GLASS]) : [F.OFFICE, F.MODERN, F.GLASS, F.APT];
+  const country = ['forest', 'parkland', 'prairie', 'airfield'].includes(T.spec.theme);
+  const uppers = street ? (montealto ? [F.PASTEL, F.MODERN, F.OFFICE, F.OCHRE, F.GLASS, F.APT] : [F.APT, F.APT, F.OCHRE, F.HOTEL, F.STONE, F.PASTEL, F.MODERN, F.GLASS]) : country ? [F.APT, F.STONE, F.PASTEL, F.MODERN] : [F.OFFICE, F.MODERN, F.GLASS, F.APT];
   const tints = street ? (montealto ? ['#ffffff', '#fff3e6', '#f2fbff', '#fff0f4', '#f7ffe9', '#fff8dc'] : ['#ffffff', '#fffaf0', '#fff4e4', '#fbf6ef', '#fffdf7']) : ['#ffffff', '#f4f6f8', '#fbfaf6'];
   const groundFor = (up) => up === F.GLASS || up === F.OFFICE ? F.LOBBY : up === F.HOTEL ? F.ARCH : up === F.STONE ? F.RUSTIC : [F.CAFE, F.SHOP, F.SHOP, F.CAFE][(rng() * 4) | 0];
   // footprints may touch but not overlap (oriented rectangles); keep-out circles round stands and towers
@@ -1379,7 +1385,9 @@ function buildCity(o) {
       const w = 14 + rng() * 22, d = 14 + rng() * 22, hd = Math.atan2(T.ty[i], T.tx[i]) + (side > 0 ? 0 : Math.PI);
       if (!fits(x, y, hd, w, d, 10) || !clear(x, y, hd, w, d)) continue;
       const up = uppers[(rng() * uppers.length) | 0];
-      addB(x, y, hd, w, d, storeys(1 + ((rng() * 5) | 0), true), up, groundFor(up), 0, 0, tints[(rng() * tints.length) | 0]); placed++;
+      if (country) addB(x, y, hd, w * 0.6, d * 0.6, storeys(1 + ((rng() * 2) | 0), false), up, -1, 0, up === F.MODERN ? 0 : 2 + rng() * 2, tints[(rng() * tints.length) | 0]); // a village house or farm with a tiled roof
+      else addB(x, y, hd, w, d, storeys(1 + ((rng() * 5) | 0), true), up, groundFor(up), 0, 0, tints[(rng() * tints.length) | 0]);
+      placed++;
     }
   }
   if (!list.length) return null;
@@ -1519,7 +1527,7 @@ function treeAssets(kind) {
       v.y += 0.35; v.normalize(); nr.setXYZ(i, v.x, v.y, v.z);
     }
   }
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: kind === 'palm' ? 0.4 : 0.32, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.95, envMapIntensity: 0.6 });
+  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: kind === 'palm' ? 0.4 : 0.32, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.95, envMapIntensity: 0.3 }); // leaves reflect little sky (no blue sheen on the tops)
   windify(mat, kind === 'pine' ? 0.05 : kind === 'palm' ? 0.05 : 0.09, 3, { translucent: kind === 'pine' ? 0.25 : 0.55, lean: kind === 'palm' });
   const barkMat = trunkTex ? new THREE.MeshStandardMaterial({ map: trunkTex, roughness: 1 }) : null;
   if (barkMat) windify(barkMat, 0, 3, { lean: true });
@@ -1554,7 +1562,7 @@ function treeImpostors() {
 }
 function treeBillboards(list) {
   const I = treeImpostors(), quad = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  const mat = new THREE.MeshStandardMaterial({ map: I.tex, alphaTest: 0.45, roughness: 1, side: THREE.DoubleSide });
+  const mat = new THREE.MeshLambertMaterial({ map: I.tex, alphaTest: 0.45, side: THREE.DoubleSide }); // simple lighting, no shadows: they are far away
   mat.onBeforeCompile = (sh) => {
     sh.vertexShader = 'attribute float aCell;\n' + sh.vertexShader
       .replace('#include <uv_vertex>', '#include <uv_vertex>\n vMapUv = vec2((uv.x + aCell) / 3.0, uv.y);')
@@ -1575,7 +1583,7 @@ function treeBillboards(list) {
     inst.setColorAt(k, t.col); cell[k] = I.kinds.indexOf(t.kind);
   });
   quad.setAttribute('aCell', new THREE.InstancedBufferAttribute(cell, 1));
-  inst.frustumCulled = false; inst.receiveShadow = true;
+  inst.frustumCulled = false; inst.receiveShadow = false;
   return inst;
 }
 // gentle wind sway, stronger with height above the ground. Options: translucent (light through the leaves: a leaf
@@ -2439,8 +2447,9 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   grp.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m && m.isMeshPhysicalMaterial && m.clearcoat >= 0.5) carPaintLook(m); });
   return out;
 }
-// the painted bodywork, like a TV shot: a soft rim of sky light on the edges (the car never merges into the road), and
-// shadows on the car that are deep but never black (a car under its own rear wing, or under a garage roof)
+// the painted bodywork, like a TV shot: a soft rim of sky light on the edges (the car never merges into the road), more
+// light from the sky on the side away from the sun (in a dark forest too), and shadows on the car that are deep but
+// never black (a car under its own rear wing, or under a garage roof)
 function carPaintLook(mat) {
   if (mat.userData.paintLook) return; mat.userData.paintLook = true;
   const prev = mat.onBeforeCompile, k0 = mat.customProgramCacheKey();
@@ -2448,6 +2457,7 @@ function carPaintLook(mat) {
     prev.call(mat, sh, r);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replace('? getShadow( directionalShadowMap[ i ]', '? 0.22 + 0.78 * getShadow( directionalShadowMap[ i ]'))
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n#if NUM_HEMI_LIGHTS > 0\n reflectedLight.indirectDiffuse += BRDF_Lambert(material.diffuseColor) * getHemisphereLightIrradiance(hemisphereLights[0], geometryNormal) * 0.9; // sky fill: the side away from the sun keeps its colour (follows day, dusk, night)\n#endif')
       .replace('#include <opaque_fragment>', 'outgoingLight += vec3(0.62, 0.7, 0.8) * pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0) * 0.16;\n#include <opaque_fragment>');
   };
   mat.customProgramCacheKey = () => k0 + '|paint';

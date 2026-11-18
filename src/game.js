@@ -250,12 +250,12 @@ const App = {
       r.shadowMap.autoUpdate = false; // the main view already updated the shadow map this frame
       // the paint reads this cube through three.js's PMREM conversion, which only re-runs when asked: without the flag the
       // paint kept the first conversion forever (made before any face was drawn: a black world, so a dark car). So: all six
-      // faces once at the start, then a fresh conversion after every cycle of four faces
+      // faces once at the start, then a fresh conversion after every second cycle of four faces
       const faces = R.primed ? [f] : [0, 1, 2, 3, 4, 5];
       if (!R.primed) { P.mesh.grp.getWorldPosition(cc.position); cc.position.y += 0.9; cc.updateMatrixWorld(); }
       try { for (const fc of faces) { r.setRenderTarget(R.rt, fc); r.render(this.scene, cc.children[fc]); } }
       finally { r.setRenderTarget(prev); r.shadowMap.autoUpdate = shadows; R.heavy.forEach((o) => { o.visible = o.userData.rv; }); P.mesh.grp.visible = vis; } if (this.flare) this.flare.visible = flareVis;
-      if (!R.primed || R.n % 4 === 0) R.rt.texture.needsPMREMUpdate = true;
+      if (!R.primed || R.n % 8 === 0) R.rt.texture.needsPMREMUpdate = true; // every second cycle: plenty for paint, half the cost
       R.primed = true;
     }
     if (this.flare) {
