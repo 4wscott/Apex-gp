@@ -32,9 +32,9 @@ async function start(page, set) {
 
 async function perf() {
   const res = {};
-  for (const q of [0, 1, 2, 3]) for (const track of ['silver', 'riviera']) {
+  for (const q of (process.env.QS ? process.env.QS.split(',').map(Number) : [0, 1, 2, 3])) for (const track of (process.env.TRACKS ? process.env.TRACKS.split(',') : ['silver', 'riviera', 'ardenne'])) {
     const br = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-    const page = await open(br, { quality: q, mode: 'race', track, camera: 'chase', opponents: 21, mirrors: q >= 2, weather: 'dry', tod: 'noon' });
+    const page = await open(br, { quality: q, mode: 'race', track, camera: 'chase', opponents: 21, mirrors: q >= 2, weather: 'dry', tod: 'noon' }, { viewport: { width: 960, height: 540 } });
     const load = await start(page, { track, mode: 'race' });
     await page.waitForTimeout(3000);
     const r = await page.evaluate(() => {
@@ -48,9 +48,9 @@ async function perf() {
       App.scene.traverse((o) => { if (!o.material) return; for (const m of [].concat(o.material)) for (const k of ['map', 'normalMap', 'roughnessMap', 'emissiveMap', 'alphaMap', 'metalnessMap', 'aoMap', 'clearcoatNormalMap']) add(m[k]); });
       let geoMB = 0; const gs = new Set(); App.scene.traverse((o) => { const g = o.geometry; if (!g || gs.has(g)) return; gs.add(g); for (const a of Object.values(g.attributes)) geoMB += a.array.byteLength / 1e6; if (g.index) geoMB += g.index.array.byteLength / 1e6; if (o.isInstancedMesh) geoMB += o.instanceMatrix.array.byteLength / 1e6; });
       // frame time: 24 renders, each forced to finish with a 1-pixel read
-      for (let i = 0; i < 4; i++) { App.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
-      const t0 = performance.now(); for (let i = 0; i < 24; i++) { App.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
-      const ms = (performance.now() - t0) / 24;
+      for (let i = 0; i < 2; i++) { App.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
+      const t0 = performance.now(); for (let i = 0; i < 8; i++) { App.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
+      const ms = (performance.now() - t0) / 8;
       return { calls, tris, textures: R.info.memory.textures, geometries: R.info.memory.geometries, programs: R.info.programs.length, texMB: Math.round(mb), geoMB: Math.round(geoMB), frameMs: +ms.toFixed(1), heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null, px: App.renderPx };
     });
     r.loadMs = load; res['q' + q + ':' + track] = r;

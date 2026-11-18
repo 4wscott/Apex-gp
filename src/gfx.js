@@ -716,9 +716,9 @@ function buildWorld(T, themeKey, quality) {
     if (th.water) h = d > R0 - 150 ? -2 - clamp((d - R0 + 150) / 300, 0, 1) * 10 : -0.15;
     return Math.max(h, th.water ? -14 : -0.15);
   };
-  // a grid that is fine round the circuit (8 m, 14 m on Lite and Smooth) and coarse far out: one mesh, no seams
-  const sp = quality >= 2 ? 8 : 14, pad = 260;
-  const axis = (lo, hi, c) => { const L0 = c - size / 2, L1 = c + size / 2, Ni = clamp(Math.round((hi - lo) / sp), 40, 320), No = quality >= 2 ? 30 : 20, a = [];
+  // a grid that is fine round the circuit (8 m; 16 m on Smooth, 20 m on Lite) and coarse far out: one mesh, no seams
+  const sp = [20, 16, 8, 8][quality], pad = 260; // Lite keeps about the old grid's size (memory); the road itself is its own mesh
+  const axis = (lo, hi, c) => { const L0 = c - size / 2, L1 = c + size / 2, Ni = clamp(Math.round((hi - lo) / sp), 40, 320), No = quality >= 2 ? 30 : 16, a = [];
     for (let k = 0; k < No; k++) a.push(L0 + ((lo - L0) * k) / No); for (let k = 0; k <= Ni; k++) a.push(lo + ((hi - lo) * k) / Ni); for (let k = 1; k <= No; k++) a.push(hi + ((L1 - hi) * k) / No); return a; };
   const xs = axis(b.minX - pad, b.maxX + pad, cx), zs = axis(-b.maxY - pad, -b.minY + pad, -cy), Nx = xs.length, Nz = zs.length;
   const TH = new Float32Array(Nx * Nz);
@@ -2436,7 +2436,21 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   }
   const out = { sw, modelBody, fwParts: modelBody ? null : { end: fwEndR }, avatar, mirrors, grp, body, wheels, steer, flapPivot, fw, helmet: head, visor: hans, shoulders, rainLight, paint, discs, blurs, swTilt, swSpin, swSimple, arms, brakeT: 0 };
   if (typeof updateArms === 'function') updateArms(out); // pose the forearms onto the grips
+  grp.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m && m.isMeshPhysicalMaterial && m.clearcoat >= 0.5) carPaintLook(m); });
   return out;
+}
+// the painted bodywork, like a TV shot: a soft rim of sky light on the edges (the car never merges into the road), and
+// shadows on the car that are deep but never black (a car under its own rear wing, or under a garage roof)
+function carPaintLook(mat) {
+  if (mat.userData.paintLook) return; mat.userData.paintLook = true;
+  const prev = mat.onBeforeCompile, k0 = mat.customProgramCacheKey();
+  mat.onBeforeCompile = (sh, r) => {
+    prev.call(mat, sh, r);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin.replace('? getShadow( directionalShadowMap[ i ]', '? 0.22 + 0.78 * getShadow( directionalShadowMap[ i ]'))
+      .replace('#include <opaque_fragment>', 'outgoingLight += vec3(0.62, 0.7, 0.8) * pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 3.0) * 0.16;\n#include <opaque_fragment>');
+  };
+  mat.customProgramCacheKey = () => k0 + '|paint';
 }
 
 // detailed 2026-style F1 steering wheel: carbon faceplate, rubber grips, shift-light

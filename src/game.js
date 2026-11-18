@@ -203,6 +203,19 @@ const App = {
     fl.addElement(new LensflareElement(ring, 200, 1.25));
     this.worldRoot.add(fl); this.flare = fl;
   },
+  // cockpit view: your own car takes more light from the sky (its reflections and soft fill), so the halo, wheel,
+  // gloves and dash read clearly from inside; it stays darker than outside, like an onboard camera. No extra lights,
+  // so nothing to recompile and no cost
+  cockpitFill(P, on) {
+    const m = P && P.mesh; if (!m) return;
+    if (!m.fillMats) {
+      const shared = new Set(Object.values(GFX.mats || {})); m.fillMats = [];
+      m.grp.traverse((o) => { if (!o.isMesh) return; for (const mt of [].concat(o.material)) if (mt && mt.isMeshStandardMaterial && !shared.has(mt) && !m.fillMats.includes(mt)) m.fillMats.push(mt); });
+      m.fillMats.forEach((mt) => (mt.userData.env0 = mt.envMapIntensity));
+    }
+    if (m.fillOn === on) return; m.fillOn = on;
+    m.fillMats.forEach((mt) => { mt.envMapIntensity = mt.userData.env0 * (on ? 1.8 : 1); });
+  },
   // flag light panels on the marshal posts: yellow (flashing) in a sector with an incident or under the virtual safety
   // car, blue just ahead of you when a leader is about to lap you; dark otherwise. Colours change only when needed
   marshalFrame(race) {
@@ -1149,7 +1162,7 @@ const App = {
     this.sun.target.position.copy(base).addScaledVector(fwd, 25);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 200);
     this.sky.position.copy(cam.position);
-    this.realismFrame(P, cam); this.marshalFrame(S.race);
+    this.realismFrame(P, cam); this.marshalFrame(S.race); this.cockpitFill(P, mode === 'cockpit' && !(S.orbit && S.orbit.on));
     // mirrors
     if (S.mirror && (mode === 'cockpit' || mode === 'tcam')) {
       // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
@@ -2066,6 +2079,17 @@ const Menu = {
       const b = document.createElement('button'); b.className = 'circuit'; b.dataset.id = spec.id; b.type = 'button';
       b.innerHTML = `<canvas width="240" height="150"></canvas><span class="c-name">${spec.name}</span><span class="c-meta">${spec.country} · ${(T.length / 1000).toFixed(3)} km · ${T.corners} corners</span><span class="c-style">${spec.style}</span>`;
       drawMiniMap(b.querySelector('canvas'), T);
+      if (T.hasElev) {
+        // the lap's height profile under the map: start/finish on the left, the climbs and drops along the lap
+        let lo = Infinity, hi = -Infinity; for (const h of T.h) { lo = Math.min(lo, h); hi = Math.max(hi, h); }
+        const cv = document.createElement('canvas'); cv.className = 'c-prof'; cv.width = 240; cv.height = 30; cv.title = 'Height round the lap: ' + Math.round(hi - lo) + ' m from lowest to highest';
+        const g = cv.getContext('2d'), span = Math.max(12, hi - lo), N = 120;
+        g.beginPath(); g.moveTo(0, 30);
+        for (let k = 0; k <= N; k++) { const i = Math.floor((k / N) * (T.n - 1)); g.lineTo((k / N) * 240, 27 - ((T.h[i] - lo) / span) * 22); }
+        g.lineTo(240, 30); g.closePath(); g.fillStyle = 'rgba(255,210,31,0.22)'; g.fill(); g.strokeStyle = 'rgba(255,210,31,0.85)'; g.lineWidth = 1.5; g.stroke();
+        b.querySelector('canvas').after(cv);
+        const meta = b.querySelector('.c-meta'); if (meta) meta.textContent += ` · ${Math.round(hi - lo)} m climb`;
+      }
       b.onclick = () => { settings.track = spec.id; settings.laps = Math.max(1, Math.min(settings.laps, 60)); saveSettings(); this.sync(); App.preview(spec.id); this.drawer(null); };
       grid.appendChild(b);
     });
@@ -2355,5 +2379,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.roadZ = roadZ; window.roadAt = roadAt; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
+window.App = App; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
