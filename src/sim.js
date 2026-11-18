@@ -994,6 +994,16 @@ class AIDriver {
     const sl = Math.abs(c.slipR) > 0.05 ? c.slipR - Math.sign(c.slipR) * 0.05 : 0;
     let delta = Math.atan(c.p.L * kap) + 0.0007 * v * v * kap + 0.8 * hErrL + Math.atan((0.9 * eLat) / (v + 4)) + clamp(sl, -0.25, 0.25) * 0.8;
     inp.steer = clamp(delta / c.p.maxSteer, -1, 1);
+    if (c.isBike) {
+      // a rider: aim at a point ahead on the line it wants (pure pursuit) and lean for the arc that reaches it. The lean
+      // takes a moment to build, and the point is far enough ahead to start the flick in time
+      const Ld = clamp(v * 0.5, 7, 45), j = (c.idx + Math.round(Ld / T.ds)) % n, off = clamp(T.lineO[j] + this.lat, -lim + 0.3, lim - 0.3); // a margin to the edge: the lean lags a little on the exits
+      const dx = T.px[j] + T.nx[j] * off - c.x, dy = T.py[j] + T.ny[j] * off - c.y, al = angleDiff(Math.atan2(dy, dx), c.h);
+      const kap2 = (2 * Math.sin(al)) / Math.max(3, Math.hypot(dx, dy));
+      const lmax = c.leanLimit() * 0.96; // a rider feels the grip and leans no further than the tyres will take
+      inp.lean = clamp(Math.atan((v * v * kap2) / G), -lmax, lmax); inp.steer = clamp(Math.atan(c.p.L * kap2) / 0.6, -1, 1);
+      this.bikeOff = Math.abs(T.lineO[c.idx] + this.lat - c.d); // off its line: slow down to get back on it
+    }
 
     // speed target from the profile, with traffic and per-corner variation
     this.noiseT -= dt; if (this.noiseT < 0) { this.noiseT = 2 + this.rng() * 3; this.noise = (this.rng() - 0.5) * 0.02; }
@@ -1002,6 +1012,7 @@ class AIDriver {
     for (let m = 0; m <= look; m += 2) vT = Math.min(vT, T.lineV[(c.idx + m) % n]);
     vT *= this.pace * (1 + this.noise) * (race ? race.aiPace : 1) * (this.cool ? 0.7 : 1);
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
+    if (c.isBike && this.bikeOff > 1.2) vT *= 1 - Math.min(0.25, (this.bikeOff - 1.2) * 0.04);
     // following: brake early enough not to run into the car ahead (bumper gap, closing speed, the braking it has)
     if (blocked && Math.abs(blocked.d - c.d) < 2.4) {
       const closing = c.vx - blocked.vx, room = gapAhead - 6.2;
@@ -1607,6 +1618,342 @@ class Race {
 }
 
 // one flying lap by a reference AI at pace 1.0, used to derive qualifying times
+// ==== Race motorcycles ========================================================================================
+// A prototype racing bike: ~300 hp, 157 kg plus a 75 kg rider. Same single-track road model as the car (forces at the
+// two contact patches, weight transfer, the friction circle, the road's slopes and banking), with what makes a bike a bike:
+// - the rider steers by leaning. The input sets the lean wanted; the bike rolls toward it at a limited rate (a full
+//   left-to-right flick takes ~0.8 s and is slower at high speed), and the turn follows from the lean: the tyres must
+//   supply g * tan(lean) sideways. If they can't (too much lean for the grip), the front tucks or the rear slides out.
+// - a high centre of gravity: hard acceleration lifts the front (a wheelie at ~1.15 g), hard braking lifts the rear
+//   (a stoppie at ~1.35 g), so both are limited by the bike's balance, not by the engine or the brakes.
+// - drag depends on the rider: tucked behind the screen on the straights, sitting up into the wind under braking.
+// - crashes: a lowside (front tuck, or too much lean on a cold or wet tyre), a highside (the rear slides, then grips
+//   again while leaned), a front lock, or hitting a wall or another bike. Rider and bike then slide apart; if the bike
+//   survives, the rider runs back, picks it up and rejoins.
+const BIKE_BASE = {
+  m: 232, Iz: 45, L: 1.46, a: 0.74, b: 0.72, h: 0.62, hBrake: 0.56, // a/b: centre of gravity to front/rear axle; hBrake: the rider slides back and down under braking
+  ClA: 0.08, aeroBal: 0.6, CdTuck: 0.3, CdUp: 0.48, mu: 1.56, muR: 1.0,
+  Pmax: 220e3, eta: 0.92, brakeMax: 3600, brakeBias: 0.86, maxLean: 1.0, maxSteer: 0.5, // maxLean: bike and rider together (the bike itself shows ~6 degrees more, the rider hangs off)
+  rr: 0.015, wheelR: 0.3, rollRate: 3.0, rollAcc: 24,
+  gears: [135, 178, 220, 262, 310, 362], redline: 18000, idle: 4200,
+};
+// engine maps take the place of the hybrid modes: power against fuel (22 litres must last the race)
+const BIKE_MAPS = [
+  { name: 'FUEL SAVE', power: 0.9, fuel: 0.86 },
+  { name: 'RACE', power: 0.97, fuel: 1 },
+  { name: 'ATTACK', power: 1, fuel: 1.1 },
+];
+// the bike's outline for wall contact (m from the centre of gravity, x forward, y left): front tyre, handlebars, footpegs, tail
+const BIKE_OUTLINE = [[1.03, 0], [0.62, 0.36], [0.62, -0.36], [-0.35, 0.3], [-0.35, -0.3], [-1.04, 0]];
+
+class Bike extends Car {
+  constructor(track, team, driver, opts = {}) {
+    super(track, team, driver, opts);
+    const p = Object.assign({}, BIKE_BASE), up = opts.upgrades;
+    p.Pmax *= team.perf.p; p.ClA *= team.perf.a; p.mu *= 1 + (team.perf.a - 1) * 0.5; // a better chassis: a little more grip
+    if (up) { p.Pmax *= 1 + 0.006 * (up.power || 0); p.mu *= 1 + 0.004 * (up.grip || 0) + 0.002 * (up.aero || 0); }
+    this.p = p; this.isBike = true;
+    this.assist = Object.assign({ tc: 2, abs: true, autoGear: true, aw: true, comb: true, leanAssist: false }, opts.assist || {});
+    this.remount = opts.remount !== false; // false: "Crash ends race"
+    this.reset();
+  }
+  reset() {
+    super.reset();
+    this.lean = 0; this.leanRate = 0; this.pitch = 0; this.pitchRate = 0; this.wheelie = 0; this.stoppie = 0;
+    this.slideYaw = 0; this.slideRate = 0; this.slidePeak = 0; this.slideT = 0; this.overLean = 0; this.lockT = 0;
+    this.tuck = 1; this.fuel = 1; this.down = null; this.crashes = 0; this.ersMode = 1; this.gear = 1; this.rpm = BIKE_BASE.idle;
+  }
+  shift(dir) {
+    const g = this.gear + dir, n = this.p.gears.length;
+    if (g < 1 || g > n || this.shiftTimer > 0) return;
+    if (dir < 0 && this.vx * 3.6 > this.p.gears[g - 1] * 1.02) return;
+    this.gear = g; this.shiftTimer = 0.03; this.justShifted = dir; // a seamless quick-shifter: barely a gap in the drive
+  }
+  // how far the bike can lean here: the grip the tyres have now (lean assist keeps a margin under it)
+  leanLimit() { return Math.min(this.p.maxLean, Math.atan(this.gripNow || this.p.mu)); }
+
+  step(dt, inp) {
+    const p = this.p, T = this.track; this.simT = (this.simT || 0) + dt;
+    if (this.down) { this.crashStep(dt); return; }
+    this.locate(false);
+    // --- the road: slope along and across, and how hard it presses up (crest, compression, banking)
+    let Lk = 1, Fgx = 0, Fgy = 0;
+    if (T.hasElev) {
+      const R = roadAt(T, this.x, this.y, this.idx), c0 = Math.cos(this.h), s0 = Math.sin(this.h); this.z = R.z;
+      const gl = R.gx * c0 + R.gy * s0, gt = -R.gx * s0 + R.gy * c0;
+      Fgx = -p.m * G * gl; Fgy = -p.m * G * gt;
+      Lk = clamp(1 + (R.kv * this.vx * this.vx - 0.12 * (this.axS * gl)) / G, 0.12, 2.6);
+      this.slopeL = gl; this.slopeT = gt;
+    } else { this.z = 0; this.slopeL = this.slopeT = 0; }
+    this.loadK = Lk;
+    // --- surface: off the tarmac a leaned bike goes down
+    const ad = Math.abs(this.d), side = this.d >= 0 ? 1 : -1, hw = T.hw, wet = this.env ? this.env.wet : 0;
+    let smu = 1, sdrag = 0, bump = 0; this.surface = 'tarmac';
+    if (ad > hw) {
+      if (T.kerb[this.idx] && ad < hw + 1.4) { this.surface = 'kerb'; smu = 0.9 - wet * 0.25; bump = 1; } // wet paint is slippery
+      else {
+        const grav = (side > 0 ? T.gravelL : T.gravelR)[this.idx];
+        const kind = grav ? 'gravel' : T.spec.runoff === 'grass' ? 'grass' : 'runoff';
+        this.surface = kind;
+        if (kind === 'gravel') { smu = 0.4; sdrag = 700; bump = 2; } else if (kind === 'grass') { smu = 0.5; sdrag = 160; bump = 1.5; } else smu = 0.95;
+      }
+    }
+    this.kerbHit = bump;
+    // --- rider inputs
+    const vxa = Math.abs(this.vx), v = Math.max(vxa, 0.5);
+    let thr = clamp(inp.throttle, 0, 1), brk = clamp(inp.brake, 0, 1), brkR = clamp(inp.rearBrake || 0, 0, 1);
+    if (this.assist.brakeAssist && vxa > 15) {
+      let need = 0; const D = 11; // about 1.1 g: well inside what the bike can do
+      for (let k = 2; k < 90; k += 3) { const j = (this.idx + k) % T.n, allow = Math.sqrt(T.lineV[j] * T.lineV[j] * 1.04 + 2 * D * k * T.ds); if (vxa > allow) need = Math.max(need, clamp((vxa - allow) / 6, 0.3, 1)); }
+      if (need > brk) { brk = need; thr = 0; } this.assisting = need > 0;
+    } else this.assisting = false;
+    // --- lean: the rider asks for a lean (AI riders and tests give it directly), the bike rolls toward it
+    const slowK = clamp((vxa - 1.5) / 4, 0, 1); // at walking pace a bike can't lean, it steers
+    let lim = p.maxLean * slowK; if (this.assist.leanAssist) lim = Math.min(lim, this.leanLimit() * 0.94);
+    const want = clamp(inp.lean !== undefined ? inp.lean : clamp(inp.steer, -1, 1) * p.maxLean, -lim, lim);
+    const wmax = p.rollRate * clamp(1.25 - vxa / 110, 0.55, 1.1); // gyroscopic wheels: slower to flick at high speed
+    const rateT = clamp((want - this.lean) * 9, -wmax, wmax);
+    this.leanRate += clamp(rateT - this.leanRate, -p.rollAcc * dt, p.rollAcc * dt);
+    this.lean += this.leanRate * dt;
+    // --- gearbox, engine
+    const kmh = Math.max(0, this.vx * 3.6), ng = p.gears.length;
+    if (this.shiftTimer > 0) this.shiftTimer -= dt;
+    if (this.assist.autoGear) { const g = this.gear; if (g < ng && kmh > p.gears[g - 1] * 0.975) this.shift(1); else if (g > 1 && kmh < p.gears[g - 2] * (brk > 0.2 ? 0.86 : 0.72)) this.shift(-1); }
+    else { if (inp.shiftUp) this.shift(1); if (inp.shiftDown) this.shift(-1); }
+    this.rpm = clamp((kmh / p.gears[this.gear - 1]) * p.redline, p.idle, p.redline + 200);
+    if (kmh < 25 && thr > 0.2) this.rpm = Math.max(this.rpm, p.idle + thr * 6500); // slipping the clutch off the line
+    const limiter = this.rpm > p.redline, map = BIKE_MAPS[this.ersMode] || BIKE_MAPS[1];
+    const curve = clamp(0.42 + 0.58 * Math.sin(clamp((this.rpm - 3000) / 14500, 0, 1) * Math.PI * 0.55), 0.3, 1);
+    const D = this.dmg, real = this.damageMode === 'real', puH = real ? D.pu : 1;
+    let P = p.Pmax * p.eta * curve * map.power * (0.6 + 0.4 * puH) * (this.fuel > 0 ? 1 : 0);
+    if (this.shiftTimer > 0.01) P *= 0.6;
+    let Fdrive = limiter ? 0 : (thr * P) / Math.max(vxa, 6);
+    if (thr < 0.05 && vxa > 5) Fdrive -= 260 + 0.04 * this.rpm * 0.1; // engine braking (slipper clutch keeps it gentle)
+    if (this.fuelBudget) this.fuel = Math.max(0, this.fuel - (thr * P * map.fuel * dt) / this.fuelBudget);
+    // --- aero: the rider tucks on the straights, sits up under braking
+    const tuckT = brk > 0.15 || vxa < 20 ? 0 : clamp(1 - Math.abs(this.lean) * 1.6, 0, 1) * (thr > 0.5 ? 1 : 0.6);
+    this.tuck += clamp(tuckT - this.tuck, -3 * dt, 2 * dt);
+    const q = 0.5 * RHO * this.vx * this.vx, drag = q * lerp(p.CdUp, p.CdTuck, this.tuck) * (1 - this.tow * 0.38);
+    const Df = q * p.ClA * (1 - this.dirty * 0.1), DfF = Df * p.aeroBal, DfR = Df * (1 - p.aeroBal);
+    // --- loads: weight transfer with the tall bike (and the rider moving back under braking)
+    // (the transfer comes from the tyres' own forces: drag acts about as high as the centre of gravity, so it moves no load)
+    const axT = this.axT || 0, hEff = axT < 0 ? lerp(p.h, p.hBrake, clamp(-axT / 10, 0, 1)) : p.h, aEff = axT < 0 ? p.a + (p.h - hEff) * 0.7 : p.a;
+    let FzF = (p.m * G * p.b * Lk) / p.L + DfF - (p.m * axT * hEff) / p.L;
+    let FzR = (p.m * G * aEff * Lk) / p.L + DfR + (p.m * axT * hEff) / p.L;
+    FzF = Math.max(FzF, 0); FzR = Math.max(FzR, 0);
+    if (this.wheelie > 0.01) FzF = 0; if (this.stoppie > 0.01) FzR = 0;
+    const cp = COMPOUNDS[this.compound]; this.gripWet = wetGrip(this.compound, wet);
+    const gripT = (t) => (0.8 + 0.2 * Math.exp(-(((t - cp.temp) / 26) ** 2))) * cp.grip; // a cold bike tyre has much less grip than a hot one
+    const wearF = 1 - 0.1 * this.wear - 0.5 * Math.max(0, this.wear - 0.65) ** 2 * 4;
+    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF;
+    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR;
+    this.gripNow = (capF + capR) / (p.m * G * Lk + Df + 1);
+    // --- brakes and drive at each tyre
+    const sgn = this.vx >= 0 ? 1 : -1, stopped = vxa < 0.3 ? 0 : 1;
+    const front = brk * (this.assist.comb ? p.brakeBias : 1), rear = Math.max(brkR, this.assist.comb ? brk * (1 - p.brakeBias) * 1.6 : 0);
+    let FxF = -front * p.brakeMax * stopped * sgn, FxR = Fdrive - rear * p.brakeMax * 0.35 * stopped * sgn;
+    // anti-wheelie and rear-lift control: keep the bike's pitch balance (a little lift is allowed)
+    // (and, leaned over, the front keeps enough load for the corner: drive that would unload it is held back)
+    const ayDes = G * Math.tan(this.lean), FyFreq = (p.m * ayDes * p.b) / p.L, FyRreq = (p.m * ayDes * p.a) / p.L;
+    if ((this.assist.aw || this.assist.tc > 0) && FxR > 0) {
+      const FzF0 = (p.m * G * p.b * Lk) / p.L + DfF, muF = FzF > 1 ? capF / FzF : p.mu, need = Math.abs(FyFreq) / Math.max(0.3, muF * 0.9) + 120;
+      let cap = Math.max(0, ((FzF0 - need) * p.L) / p.h); if (this.assist.aw) cap = Math.min(cap, p.m * G * Lk * (p.b / p.h) * 0.98); // over a crest the bike is lighter: less drive lifts the front
+      if (FxR > cap) FxR = Math.max(cap, Math.min(FxR, 300));
+    }
+    if (this.assist.abs) {
+      // cornering ABS: the pitch limit (no stoppie), and leaned over, braking that would leave the rear too light to hold
+      // its share of the corner is held back (the reason riders brake upright and let the brake off as they lean in)
+      const muR = FzR > 1 ? capR / FzR : p.mu, needR = Math.abs(FyRreq) / Math.max(0.3, muR * 0.9) + 60;
+      const stopCap = Math.max(300, Math.min(p.m * G * (aEff / hEff) * 0.97, (p.m * G * aEff * Lk + DfR * p.L - needR * p.L) / hEff));
+      if (-FxF - FxR > stopCap) FxF = -Math.max(0, stopCap + Math.min(0, FxR));
+      if (-FxF > capF * 0.95) FxF = -capF * 0.95;
+      // engine-brake control and rear ABS: the rear's braking (engine and brake) takes only what its share of the corner leaves
+      if (FxR < 0) { const room = Math.sqrt(Math.max(0, (capR * 0.93) ** 2 - (Math.abs(FyRreq) * 1.05) ** 2)); if (-FxR > room) FxR = -room; }
+    }
+    if (this.assist.tc > 0 && FxR > 0) { // traction control leaves room for the cornering force the rear tyre is carrying
+      const latUse = Math.abs(this.FyRprev || 0), room = Math.sqrt(Math.max(0, capR * capR - Math.min(latUse, capR * 0.98) ** 2)) * (this.assist.tc === 2 ? 0.88 : 0.97);
+      if (FxR > room) FxR = this.assist.tc === 2 ? room : lerp(FxR, room, 0.75);
+    }
+    this.lockF = -FxF > capF && vxa > 2; this.lockR = FxR < 0 && -FxR > capR && vxa > 2; this.spin = FxR > capR && vxa > 1;
+    if (this.lockF) FxF = -capF * 0.85; if (this.lockR) FxR = -capR * 0.85; if (this.spin) FxR = capR * 0.9;
+    const latF = Math.sqrt(Math.max(0, capF * capF - FxF * FxF)) * (this.lockF ? 0.25 : 1), latR = Math.sqrt(Math.max(0, capR * capR - FxR * FxR)) * (this.lockR || this.spin ? 0.35 : 1);
+    // --- the turn the lean asks for, and what the tyres can give
+    const satF = Math.abs(FyFreq) > latF, satR = Math.abs(FyRreq) > latR; this.satF = satF; this.satR = satR;
+    const FyF = satF ? Math.sign(FyFreq) * latF * 0.92 : FyFreq, FyR = satR ? Math.sign(FyRreq) * latR * 0.92 : FyRreq;
+    this.FyRprev = FyR; this.slipF = satF ? 0.14 * Math.sign(FyF) : (FyF / (latF + 1)) * 0.06; this.slipR = this.slideYaw + (FyR / (latR + 1)) * 0.05;
+    // the rear stepping out: it slides wider the more it's asked for beyond the grip (or spun up), then it hooks up again
+    const exR = satR ? Math.abs(FyRreq) / Math.max(latR, 1) - 1 : 0, spinK = this.spin ? 0.6 + thr * 0.6 : 0;
+    const slideT = Math.sign(this.lean || FyRreq) * -(exR * 0.9 + spinK * Math.abs(this.lean) * 0.8);
+    this.slideRate = lerp(this.slideRate, (slideT - this.slideYaw) * 5, Math.min(1, dt * 10));
+    this.slideYaw = clamp(this.slideYaw + this.slideRate * dt, -0.9, 0.9);
+    if (!satR && !this.spin) this.slideYaw *= Math.exp(-dt * 9);
+    // --- forces on the bike, in its own frame
+    const Fx = FxF + FxR - (drag + p.rr * (FzF + FzR) + sdrag * Math.min(v, 20) / 20) * sgn * (vxa > 0.1 ? 1 : 0) + Fgx;
+    const Fy = FyF + FyR + Fgy * 0.15; // a leaning bike hardly feels the road's sideways tilt
+    const ax = Fx / p.m, ay = Fy / p.m, prevVx = this.vx; this.axTyre = (FxF + FxR) / p.m; this.axT = lerp(this.axT || 0, this.axTyre, Math.min(1, dt * 25));
+    this.vx += ax * dt;
+    if (prevVx > 0 && this.vx < 0 && Fdrive <= 0) this.vx = 0;
+    // the turn: at walking pace the bars steer it, above that the lean and the tyres do
+    const rKin = vxa < 6 ? (this.vx * Math.tan(clamp(inp.steer || 0, -1, 1) * 0.6)) / p.L : 0;
+    const rDyn = ay / v; this.r = lerp(rKin, rDyn, slowK) + this.slideRate * 0.5;
+    this.vy = this.slideYaw * this.vx * 0.25;
+    this.delta = clamp(Math.atan((p.L * this.r) / Math.max(v, 3)) - this.slideYaw * 0.4, -p.maxSteer, p.maxSteer); // the handlebar angle (shown, and countersteer on a slide)
+    // --- wheelies and stoppies: the pitch balance about the rear (or front) contact patch
+    const Ip = p.m * 0.55, wTorque = FxR * p.h - p.m * G * p.b * Math.cos(this.wheelie) * Lk, sTorque = -(FxF + Math.min(0, FxR)) * hEff - p.m * G * aEff * Math.cos(this.stoppie) * Lk;
+    if (this.wheelie > 0 || wTorque > 0) { this.pitchRate += (wTorque / Ip) * dt; this.wheelie = Math.max(0, this.wheelie + this.pitchRate * dt); if (this.wheelie === 0) this.pitchRate = 0; }
+    else if (this.stoppie > 0 || sTorque > 0) { this.pitchRate += (sTorque / Ip) * dt; this.stoppie = Math.max(0, this.stoppie + this.pitchRate * dt); if (this.stoppie === 0) this.pitchRate = 0; }
+    else this.pitchRate = 0;
+    this.pitch = this.wheelie - this.stoppie;
+    // --- crashes
+    // the rear running out of grip turns into a slide (the tail steps out and the bike keeps its balance), so only the
+    // front's share counts against the lean
+    const supported = Math.atan(Math.abs((FyF + (satR && !satF ? FyRreq : FyR)) / p.m) / G);
+    this.overLean = Math.abs(this.lean) > 0.2 ? Math.max(0, Math.abs(this.lean) - supported) : 0;
+    // the front pushing under power: the bike runs wide and stands up (the rider can't hold the lean), it doesn't fall
+    const FzF0 = (p.m * G * p.b * Lk) / p.L + DfF, holdLean = Math.atan(((FzF > 1 ? capF / FzF : p.mu) * FzF0 * 0.97) / ((p.m * G * p.b) / p.L)), byDrive = Math.abs(want) < holdLean; // the lean wanted would hold with the throttle shut
+    if (satF && FxR > 0 && byDrive && this.overLean > 0.02) { const sg = Math.sign(this.lean); this.lean -= sg * Math.min(this.overLean, this.overLean * dt * 10 + dt * 0.2); this.leanRate *= 0.5; this.overLean = 0; this.pushing = true; } else this.pushing = false;
+    // a short front slide can be saved; held for longer than about a third of a second (more lean than grip), it tucks
+    this.frontSlideT = this.overLean > 0.05 ? (this.frontSlideT || 0) + dt * (this.overLean / 0.08) : Math.max(0, (this.frontSlideT || 0) - dt * 2);
+    if ((this.overLean > 0.16 || this.frontSlideT > 0.35) && vxa > 6) return this.crash(satF ? 'front' : 'lowside');
+    if (Math.abs(this.slideYaw) > 0.55 && vxa > 8) return this.crash('lowside');
+    // highside: a big rear slide that suddenly grips again while leaned flips the rider over the top
+    if (Math.abs(this.slideYaw) > 0.2) { this.slidePeak = Math.max(this.slidePeak, Math.abs(this.slideYaw)); this.slideT = 0; } else this.slideT += dt;
+    if (this.slidePeak > 0.3 && this.slideT < 0.12 && !satR && Math.abs(this.lean) > 0.45 && vxa > 15) return this.crash('highside');
+    if (this.slideT > 0.4) this.slidePeak = 0;
+    this.lockT = this.lockF ? this.lockT + dt : 0;
+    if (this.lockF && (Math.abs(this.lean) > 0.15 || this.lockT > 0.45) && vxa > 6) return this.crash('front');
+    if (this.wheelie > 0.95) return this.crash('loop');
+    if (this.stoppie > 0.6) return this.crash('over the bars');
+    if ((this.surface === 'gravel' || this.surface === 'grass') && Math.abs(this.lean) > (this.surface === 'gravel' ? 0.3 : 0.4) && vxa > 8) return this.crash('gravel');
+    // --- move
+    this.axS = lerp(this.axS, ax, Math.min(1, dt * 12)); this.ay = ay;
+    const ch = Math.cos(this.h), sh = Math.sin(this.h);
+    this.x += (this.vx * ch - this.vy * sh) * dt; this.y += (this.vx * sh + this.vy * ch) * dt; this.h += this.r * dt;
+    this.wheelAng += (this.vx / p.wheelR) * dt;
+    if (vxa < 0.3 && thr < 0.05 && (brk > 0.2 || Math.abs(this.slopeL) < 0.015)) { this.vx *= 0.9; if (brk > 0.2) this.vx = 0; }
+    // --- tyres: heat and wear (bike tyres work hardest leaned over and on the brakes)
+    const work = (Math.abs(FyF) + Math.abs(FxF) * 0.6) * v, workR = (Math.abs(FyR) + Math.abs(FxR) * 0.8) * v;
+    const cool = 0.006 * (1 + vxa / 80), hot = (t) => Math.max(0, t - 120) * 0.08;
+    this.tempF += (vxa * 0.004 + work * 1.25e-5 + (this.lockF ? 30 : 0) - (this.tempF - 25) * cool - hot(this.tempF)) * dt;
+    this.tempR += (vxa * 0.004 + workR * 1.1e-5 + (this.spin ? 25 : 0) + Math.abs(this.slideYaw) * 25 - (this.tempR - 25) * cool - hot(this.tempR)) * dt;
+    this.tempF = clamp(this.tempF, 10, 150); this.tempR = clamp(this.tempR, 10, 150);
+    this.wear = Math.min(1, this.wear + (work + workR) * 2.4e-9 * cp.wear * (this.wearMul || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt);
+    // --- walls: a bike touching a barrier at any real speed goes down
+    this.locate(false); this.impact = 0;
+    if (Math.abs(this.d) > Math.min(T.wallL[this.idx], T.wallR[this.idx]) - 1.2) {
+      const hc = Math.cos(this.h), hs = Math.sin(this.h); let best = null;
+      for (const [cx, cy] of BIKE_OUTLINE) {
+        const px = this.x + hc * cx - hs * cy, py = this.y + hs * cx + hc * cy, j = this.idx;
+        const dd = (px - T.px[j]) * T.nx[j] + (py - T.py[j]) * T.ny[j], pen = Math.abs(dd) - (dd >= 0 ? T.wallL : T.wallR)[j];
+        if (pen > 0 && (!best || pen > best.pen)) best = { pen, j, s2: dd >= 0 ? 1 : -1 };
+      }
+      if (best) {
+        const nx = T.nx[best.j] * best.s2, ny = T.ny[best.j] * best.s2, wx = this.vx * hc, wy = this.vx * hs, vn = wx * nx + wy * ny;
+        this.x -= nx * best.pen; this.y -= ny * best.pen; this.impact = Math.max(0, vn);
+        if (vn > 2.5 || vxa > 12) { this.impactPeak = Math.max(this.impactPeak || 0, vn); return this.crash('wall', vn); }
+        this.vx *= 0.8; this.locate(false);
+      }
+    }
+    let dS = this.s - this.lastS; if (dS < -T.length / 2) dS += T.length; else if (dS > T.length / 2) dS -= T.length;
+    this.dist += dS; this.lastS = this.s; this.throttle = thr; this.brake = brk;
+  }
+  // down: the rider and the bike slide apart, slowed by the surface (gravel stops them fast), then the rider gets up
+  crash(kind, vn = 0) {
+    const T = this.track, ch = Math.cos(this.h), sh = Math.sin(this.h), vw = [this.vx * ch - this.vy * sh, this.vx * sh + this.vy * ch];
+    const spd = Math.hypot(vw[0], vw[1]), side = Math.sign(this.lean) || 1, up = kind === 'highside' || kind === 'loop' || kind === 'over the bars';
+    // the rider goes the way the bike was heading (thrown higher and to the outside on a highside), the bike slides wider
+    const out = [-sh * -side, ch * -side], k = up ? 0.15 : 0.05;
+    this.down = { kind, t: 0, speed: spd, side, bike: { x: this.x, y: this.y, vx: vw[0] * 0.95 + out[0] * spd * 0.04, vy: vw[1] * 0.95 + out[1] * spd * 0.04, spin: (up ? 6 : 2.5) * side, roll: this.lean, yaw: this.h },
+      rider: { x: this.x, y: this.y, z: up ? 1.2 : 0.4, vx: vw[0] * 0.92 + out[0] * spd * k, vy: vw[1] * 0.92 + out[1] * spd * k, vz: up ? 3 + spd * 0.06 : 0.5, tumble: 0, stopT: 0 },
+      wrecked: spd > 52 || vn > 22 || (kind === 'wall' && vn > 14), heavy: vn > 22 || spd > 60 };
+    this.crashes++; this.vx = this.vy = this.r = 0; this.leanRate = this.pitchRate = 0; this.wheelie = this.stoppie = 0; this.slideYaw = 0; this.throttle = 0; this.brake = 0;
+    this.impact = Math.max(this.impact || 0, vn); if (vn > 30) this.bigHit = vn;
+    this.dmgNews = { part: 'crash', vn: Math.max(vn, spd * 0.4), kind };
+    if (this.damageMode !== 'off' && this.dmg) { const D = this.dmg, e = clamp(spd / 70 + vn / 30, 0.1, 1); D.fwL = D.fwR = Math.max(0, 1 - e * 0.8); D.rw = Math.max(0, 1 - e * 0.5); D.sus[0] = D.sus[1] = Math.max(0.2, 1 - e * 0.5); if (this.down.wrecked) D.pu = 0.3; }
+  }
+  crashStep(dt) {
+    const T = this.track, C = this.down; C.t += dt;
+    const near = (x, y) => { let bi = this.idx, bd = Infinity; for (let k = -40; k <= 40; k++) { const j = (this.idx + k + T.n) % T.n, dd = (T.px[j] - x) ** 2 + (T.py[j] - y) ** 2; if (dd < bd) { bd = dd; bi = j; } } return bi; };
+    const fric = (x, y, rider) => { const i = near(x, y), d = (x - T.px[i]) * T.nx[i] + (y - T.py[i]) * T.ny[i], off = Math.abs(d) > T.hw && !(T.kerb[i] && Math.abs(d) < T.hw + 1.4);
+      const grav = off && (d >= 0 ? T.gravelL : T.gravelR)[i]; return { mu: grav ? (rider ? 1.4 : 1.7) : off ? (T.spec.runoff === 'grass' ? 0.8 : 0.55) : rider ? 0.6 : 0.45, i, d }; };
+    for (const key of ['bike', 'rider']) {
+      const o = C[key], s = Math.hypot(o.vx, o.vy), f = fric(o.x, o.y, key === 'rider');
+      if (key === 'rider' && o.z > 0.05) { o.vz -= G * dt; o.z = Math.max(0, o.z + o.vz * dt); if (o.z === 0 && o.vz < -2) { o.vz = -o.vz * 0.25; } }
+      const dec = (key === 'rider' && o.z > 0.05 ? 0 : f.mu * G) * dt;
+      if (s > dec) { o.vx -= (o.vx / s) * dec; o.vy -= (o.vy / s) * dec; } else { o.vx = o.vy = 0; }
+      // the barrier (an air fence) stops them
+      const wl = (f.d >= 0 ? T.wallL : T.wallR)[f.i];
+      if (Math.abs(f.d) > wl - 0.4) { const sg = f.d >= 0 ? 1 : -1, nx = T.nx[f.i] * sg, ny = T.ny[f.i] * sg, vn = o.vx * nx + o.vy * ny; if (vn > 0) { o.vx -= vn * nx * 1.2; o.vy -= vn * ny * 1.2; o.vx *= 0.5; o.vy *= 0.5; } }
+      o.x += o.vx * dt; o.y += o.vy * dt;
+      if (key === 'bike') { o.yaw += o.spin * dt * Math.min(1, s / 20); o.spin *= Math.exp(-dt * 0.8); o.roll = Math.sign(o.roll || C.side) * Math.min(Math.PI / 2, Math.abs(o.roll) + dt * 3); }
+      else { o.tumble += s * dt * 0.9; if (s < 0.3 && o.z < 0.05) o.stopT += dt; }
+    }
+    // the race goes on around them: the bike's own position is where the bike lies
+    this.x = C.bike.x; this.y = C.bike.y; this.locate(false);
+    let dS = this.s - this.lastS; if (dS < -T.length / 2) dS += T.length; else if (dS > T.length / 2) dS -= T.length; this.dist += dS; this.lastS = this.s;
+    const still = Math.hypot(C.bike.vx, C.bike.vy) < 0.3 && C.rider.stopT > 0.8;
+    if (!still) return;
+    if (C.wrecked || !this.remount) { if (!this.dnf) this.dnf = 'Crashed'; return; }
+    // the rider runs back to the bike (about 4 m/s), picks it up, and rejoins at the edge of the track
+    if (C.runT === undefined) C.runT = 2.5 + Math.hypot(C.rider.x - C.bike.x, C.rider.y - C.bike.y) / 4 + (C.heavy ? 3 : 0);
+    if (C.t < C.runT + 1.6) { const k = clamp(dt * 4 / Math.max(0.5, C.runT), 0, 1); C.rider.x = lerp(C.rider.x, C.bike.x, k); C.rider.y = lerp(C.rider.y, C.bike.y, k); return; }
+    const i = this.idx, edge = Math.sign(this.d || 1) * Math.min(Math.abs(this.d), T.hw - 0.8), d0 = this.dist;
+    this.place(i, edge, 0); this.dist = d0; this.lastS = this.s; this.down = null; this.lean = 0; this.tuck = 0; this.gear = 1;
+    this.rejoinT = this.simT; // a short spell of yielding to traffic (the race and the AI read it)
+  }
+}
+// the bike's speed along a track's racing line: corners limited by lean and grip (no downforce to speak of), braking by
+// the stoppie and the front tyre, acceleration by the wheelie and the power, and the lean has to be changed in time:
+// in a chicane the bike can only flick from one side to the other so fast
+function bikeSpeedProfile(T, mu = BIKE_BASE.mu * 0.86, P = BIKE_BASE) {
+  const n = T.n, el = !!T.hasElev, kd = (0.5 * RHO * P.ClA) / P.m, kdrag = (0.5 * RHO * P.CdTuck) / P.m, kup = (0.5 * RHO * P.CdUp) / P.m;
+  const ayMax = G * Math.min(mu, Math.tan(P.maxLean) * 0.98), brakeG = G * Math.min(((P.a + (P.h - P.hBrake) * 0.7) / P.hBrake) * 0.95, mu * 0.95), accG = G * (P.b / P.h) * 0.96;
+  const cap = new Float64Array(n); // the corner limit: lean and grip (banking helps a little)
+  for (let i = 0; i < n; i++) { const k = Math.abs(T.lineK[i]), sb = el ? Math.sign(T.lineK[i]) * T.bankL[i] : 0; cap[i] = k < 1e-5 ? 110 : Math.min(110, Math.sqrt((ayMax + G * sb * 0.5) / k)); }
+  const passes = (v) => {
+    for (let rep = 0; rep < 2; rep++) for (let c = 0; c < n; c++) { // braking, backwards from each corner
+      const i = (n - 1 - c + n) % n, j = (i + 1) % n, vj = v[j];
+      // the lean starts a moment before the corner (the rider turns in ~0.3 s ahead), so that bend's curvature counts
+      let kk = Math.abs(T.lineK[i]); for (let w = 1, W2 = Math.round((vj * 0.3) / T.ds); w <= W2; w++) kk = Math.max(kk, Math.abs(T.lineK[(i + w) % n]));
+      const lat = vj * vj * kk, tot = mu * (G + kd * vj * vj);
+      const aB = P.a + (P.h - P.hBrake) * 0.7, rearLim = (aB * (G - lat / (mu * 0.9))) / P.hBrake; // the rear must keep load for its share of the corner
+      const avail = Math.min(Math.sqrt(Math.max(0, tot * tot - lat * lat)) * 0.9, brakeG, Math.max(0.5, rearLim * 0.92)) + kup * vj * vj + G * (el ? T.grade[i] : 0);
+      v[i] = Math.min(v[i], Math.sqrt(Math.max(0, vj * vj + 2 * Math.max(1, avail) * T.dsL[i])));
+    }
+    const vf = Float64Array.from(v);
+    for (let rep = 0; rep < 2; rep++) for (let i = 0; i < n; i++) { // accelerating out: wheelie, traction (leaned) and power
+      const j = (i + 1) % n, vi = Math.max(vf[i], 5), lat = vi * vi * Math.abs(T.lineK[i]), tot = mu * G * 0.55;
+      const trac = Math.max(0.3, Math.sqrt(Math.max(0, tot * tot - lat * lat)) * (1 - Math.min(0.6, lat / (mu * G))));
+      const acc = Math.min(trac + (lat < 0.5 ? accG : 0), accG, (P.Pmax * P.eta * 0.97) / (P.m * vi)) - kdrag * vi * vi - P.rr * G - G * (el ? T.grade[i] : 0);
+      vf[j] = Math.min(v[j], Math.sqrt(Math.max(0, vi * vi + 2 * acc * T.dsL[i])));
+    }
+    return vf;
+  };
+  // the flick: the lean can only change so fast. Measured over ~10 m, on the speeds the bike really does there; where it
+  // can't change in time, the speed that makes it possible becomes the limit, and the braking/acceleration are redone
+  const v = Float64Array.from(cap), W = Math.max(2, Math.round(10 / T.ds));
+  let vf = passes(v);
+  for (let it = 0; it < 3; it++) {
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      const j = (i + W) % n, need = (s) => { const li = Math.atan((s * s * T.lineK[i]) / G), lj = Math.atan((s * s * T.lineK[j]) / G); return (Math.abs(lj - li) * s) / (W * T.ds); };
+      const s0 = Math.min(vf[i], vf[j]), wmax = (s) => P.rollRate * clamp(1.25 - s / 110, 0.55, 1.1) * 0.85;
+      if (need(s0) <= wmax(s0)) continue;
+      let lo = 5, hi = s0; for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (need(mid) > wmax(mid)) hi = mid; else lo = mid; }
+      if (lo < v[i] - 0.05) { v[i] = lo; changed = true; } if (lo < v[j] - 0.05) { v[j] = lo; changed = true; }
+    }
+    if (!changed) break; vf = passes(v);
+  }
+  return { v, vf };
+}
+// the track as a bike race sees it: everything shared with the cars, but the bikes' own speed along the line
+function bikeTrack(T) {
+  if (T.bikeView) return T.bikeView;
+  const B = Object.create(T), sp = bikeSpeedProfile(T);
+  B.lineV = sp.v; B.lineVf = sp.vf; B.isBikeView = true;
+  return (T.bikeView = B);
+}
+
 const _refLaps = {};
 function referenceLap(T) {
   if (_refLaps[T.spec.id]) return _refLaps[T.spec.id];
@@ -1630,4 +1977,4 @@ function aiQualiTimes(T, field, aiPace, seed) {
     return { code: dr.code, time: (ref / (pace * aiPace * carF)) * (1 + (rng() - 0.5) * 0.008) };
   });
 }
-if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };
+if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, Bike, BIKE_BASE, BIKE_MAPS, bikeSpeedProfile, bikeTrack, clamp, lerp, mulberry32 };
