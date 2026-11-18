@@ -889,9 +889,9 @@ function buildWorld(T, themeKey, quality) {
     for (const [off, side] of [[T.wallL, 1], [T.wallR, -1]]) {
       const si = side > 0 ? 0 : 1, arm = armcoAt(si), inc = (i) => keepWall(side)(i) && arm(i);
       rails.push(wallRibbon(T, off, side, 0.42, 0.74, 4, inc), wallRibbon(T, off, side, 0.78, 1.1, 4, inc));
-      for (let i = 0; i < n; i++) { if (!inc(i)) continue; const o = (off[i] + 0.16) * side; q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); rposts.setMatrixAt(rk++, m4); }
+      for (let i = 0; i < n && rk < n + 8; i += 2) { if (!inc(i)) continue; const o = (off[i] + 0.16) * side; /* a post every 4 m (and never more than there is room for) */ q4.setFromAxisAngle(UP, Math.atan2(T.ty[i], T.tx[i])); p4.set(T.px[i] + T.nx[i] * o, roadZ(T, i, o), -(T.py[i] + T.ny[i] * o)); m4.compose(p4, q4, s1); rposts.setMatrixAt(rk++, m4); }
     }
-    rposts.count = rk; world.add(rposts);
+    rposts.count = Math.min(rk, n + 8); world.add(rposts);
     // all four rails as one piece (one draw call for the lap, not one per stretch)
     const rm = add(mergeGeometries(rails, false), railMat, { cs: quality >= 2 }); rm.userData.noBatch = true; rails.forEach((g) => g.dispose());
   }
@@ -1056,7 +1056,7 @@ function buildWorld(T, themeKey, quality) {
     }
   }
   // braking boards and corner grandstands
-  const boardTex = {};
+  const boardMat = {}; const boardTex = {};
   [100, 200, 300].forEach((d) => { boardTex[d] = canvasTex(128, 128, (g) => { g.fillStyle = '#f4f4f4'; g.fillRect(0, 0, 128, 128); g.fillStyle = '#111'; g.font = '800 70px "Saira Condensed", Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d), 64, 68); }, { clamp: true }); });
   T.brakeZones.forEach((apex, bzk) => {
     let entry = apex; const vmin = T.lineV[apex];
@@ -1064,7 +1064,7 @@ function buildWorld(T, themeKey, quality) {
     [100, 200, 300].forEach((d) => {
       const i = (entry + Math.round(-d / T.ds) + n * 2 + Math.round(60 / T.ds)) % n;
       const side = T.lineO[i] > 0 ? 1 : -1, off = (side > 0 ? T.wallL : T.wallR)[i] - 0.5;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshStandardMaterial({ map: boardTex[d], roughness: 0.6 }));
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), boardMat[d] || (boardMat[d] = new THREE.MeshStandardMaterial({ map: boardTex[d], roughness: 0.6 }))); // shared, so the boards merge into a few draws
       m.position.copy(W(T.px[i] + T.nx[i] * off * side, T.py[i] + T.ny[i] * off * side, 1.9 + roadZ(T, i, off * side))); m.rotation.y = Math.atan2(T.ty[i], T.tx[i]) - Math.PI / 2; world.add(m);
       const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), steel); pole.position.copy(m.position); pole.position.y = m.position.y - 1.2; world.add(pole);
     });
@@ -1114,7 +1114,7 @@ function buildWorld(T, themeKey, quality) {
   };
   // trees: full 3D near the circuit (the same number per preset as before); further out they are flat pictures of the
   // same trees that turn to face the camera (two triangles each), so every preset shows a proper treeline
-  const nTrees = Math.round(th.trees * [0.15, 0.6, 1, 1.5][quality]), nFar = Math.round(Math.min(th.trees * [0.25, 0.35, 0.45, 0.4][quality], [600, 900, 1200, 1500][quality])); // forests already have plenty of real trees
+  const nTrees = Math.round(th.trees * [0.15, 0.6, 1, 1.5][quality]), nFar = Math.round(Math.min(th.trees * [0.25, 0.35, 0.45, 0.4][quality], [400, 700, 1000, 1300][quality])); // forests already have plenty of real trees
   if (nTrees > 0) {
     const kinds = th.treeKind === 'mixed' ? ['broad', 'pine'] : [th.treeKind];
     const barkMat = new THREE.MeshStandardMaterial({ map: tx.bark, roughness: 1 });
@@ -1479,12 +1479,13 @@ function treeAssets(kind) {
   if (kind === 'pine') {
     // a proper cone: twelve tiers of drooping branch cards, wide at the bottom and narrowing to a spire
     tex = GFX.tex.needles; center = new THREE.Vector3(0, 10, 0); radii = new THREE.Vector3(3.6, 8, 3.6);
-    for (let t = 0; t < 12; t++) {
-      const y = 2.6 + t * 1.35, r = 3.9 * Math.pow(1 - t / 12.5, 1.1) + 0.3;
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * Math.PI * 2 + t * 0.4 + rng() * 0.3;
+    // (about as many cards as before: each see-through card costs fill time, and forests have thousands of trees)
+    for (let t = 0; t < 9; t++) {
+      const y = 2.8 + t * 1.8, r = 3.9 * Math.pow(1 - t / 9.5, 1.1) + 0.3;
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + t * 0.45 + rng() * 0.3;
         const p = new THREE.Vector3(Math.cos(a) * r * 0.5, y, Math.sin(a) * r * 0.5);
-        cards.push(card(r * 1.25, r * 0.85, p, new THREE.Euler(0.6 + rng() * 0.2, -a + Math.PI / 2, 0, 'YXZ')));
+        cards.push(card(r * 1.25, r * 0.9, p, new THREE.Euler(0.6 + rng() * 0.2, -a + Math.PI / 2, 0, 'YXZ')));
       }
     }
     cards.push(card(1.0, 2.4, new THREE.Vector3(0, 19.4, 0), new THREE.Euler(0, 0, 0)), card(1.0, 2.4, new THREE.Vector3(0, 19.4, 0), new THREE.Euler(0, Math.PI / 2, 0)));
@@ -1494,7 +1495,7 @@ function treeAssets(kind) {
     tex = GFX.tex.frond; trunkTex = GFX.tex.palmBark; keepNormals = true; center = new THREE.Vector3(0, 10, 0); radii = new THREE.Vector3(4, 1.5, 4);
     const top = 10.3;
     const frond = (yaw, len, rise, droop) => {
-      const g = new THREE.PlaneGeometry(len, 1.25, 10, 2).translate(len / 2, 0, 0), p = g.attributes.position, nr = g.attributes.normal;
+      const g = new THREE.PlaneGeometry(len, 1.25, 7, 2).translate(len / 2, 0, 0), p = g.attributes.position, nr = g.attributes.normal;
       for (let v = 0; v < p.count; v++) {
         const x = p.getX(v), u = x / len, side = p.getY(v); // side: -0.625..0.625 across the frond
         const y = rise * u * 2.2 - droop * u * u * len * 0.32 + Math.abs(side) * 0.28; // arch up then droop; V-fold
@@ -1511,9 +1512,9 @@ function treeAssets(kind) {
   } else {
     // broadleaf: leaf cards gathered in five or six clusters round the crown, so the outline is lumpy, not a ball
     const clusters = [];
-    for (let c = 0; c < 6; c++) { const u = rng() * 1.4 - 0.5, a = rng() * Math.PI * 2; clusters.push(new THREE.Vector3(Math.cos(a) * radii.x * 0.45, center.y + u * radii.y * 0.6, Math.sin(a) * radii.z * 0.45)); }
+    for (let c = 0; c < 5; c++) { const u = rng() * 1.4 - 0.5, a = rng() * Math.PI * 2; clusters.push(new THREE.Vector3(Math.cos(a) * radii.x * 0.45, center.y + u * radii.y * 0.6, Math.sin(a) * radii.z * 0.45)); }
     clusters.push(new THREE.Vector3(0, center.y + radii.y * 0.45, 0));
-    for (const cl of clusters) for (let k = 0; k < 7; k++) {
+    for (const cl of clusters) for (let k = 0; k < 6; k++) { // 36 cards, as before
       const p = cl.clone().add(new THREE.Vector3((rng() - 0.5) * 2.6, (rng() - 0.5) * 2.0, (rng() - 0.5) * 2.6));
       cards.push(card(2.8 + rng() * 1.1, 2.8 + rng() * 1.1, p, new THREE.Euler(rng() * 6.28, rng() * 6.28, rng() * 6.28)));
     }
