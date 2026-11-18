@@ -374,7 +374,8 @@ All phases are built. Phase 5's own check, on your PC and iPhone, is yours to do
 **The dark car was a bug, not just lighting.**
 - **The cause:** on Balanced and Beautiful, the car's paint gets its light from a reflection of its surroundings. That reflection was converted for the paint only once, before anything had been drawn into it. So the paint was lit by a black world for the whole race.
 - **Before:** your car measured 42–77 brightness (out of 255) from 8 directions on Balanced, against 64–111 on Smooth.
-- **After the fix:** 120–150 at Riviera and Parco from every direction, the same as Smooth. The darkest side is now 80–90% as bright as the brightest.
+- **After the fix (Parco):** 75–95 from every direction, against 42–77 before. The darkest side is now 79% as bright as the brightest, up from 54%.
+- **Riviera and Ardenne:** 83–92 and 86–116.
 
 ### Built
 
@@ -437,9 +438,27 @@ All phases are built. Phase 5's own check, on your PC and iPhone, is yours to do
 - `test/hills.js`: phase 4 (road, slopes, crests, banking, AI races).
 - `test/visualbase.js`: the baseline, the speed numbers and before/after screenshots.
 
-The existing simulation tests still pass (simtest, racecraft, carhit, pits, racetest). So do the podium and damage tests.
+The existing simulation tests still pass (simtest, racecraft, carhit, pits, racetest), and so does the damage test.
+
+The podium test has two checks that depend on frame rate. In the software renderer used here they time out on the old build as well (the champagne check fails on both). The car still gets to its pit box and the results still appear; it just takes longer than the test waits when frames are slow.
 
 ### Performance (software renderer, 22 cars, before → after)
 
-PERF_TABLE
+Measured in a software renderer (no graphics card), so frame times are only a rough guide (about ±5–10 % between runs). Draw calls, triangles and memory are exact.
+
+| Preset | Circuit | Draw calls | Triangles | Texture memory | Geometry memory | Frame time |
+|---|---|---|---|---|---|---|
+| Lite | Riviera | 526 → 527 | 1.49 M → 1.08 M | 232 → 232 MB | 39 → 39 MB | 2.45 → 2.12 s |
+| Lite | Ardenne | 544 → 548 | 1.70 M → 1.31 M | 236 → 237 MB | 42 → 43 MB | 2.28 → 2.23 s |
+| Smooth | Riviera | 604 → 605 | 2.10 M → 1.80 M | 231 → 233 MB | 41 → 41 MB | 3.15 → 3.29 s |
+| Smooth | Ardenne | 624 → 627 | 3.16 M → 2.88 M | 235 → 237 MB | 46 → 48 MB | 4.22 → 4.12 s |
+| Balanced | Riviera | 1254 → 1262 | 6.24 M → 5.91 M | 232 → 237 MB | 43 → 44 MB | 5.86 → 6.05 s |
+| Balanced | Ardenne | 1294 → 1300 | 10.38 M → 10.10 M | 236 → 242 MB | 49 → 55 MB | 8.98 → 9.39 s |
+
+- **Lite and Smooth:**
+  - Up to 4 more draw calls and 2 MB more memory (under 1 %). These come from the distant-tree pictures and, at Ardenne and Nordhang, the guardrail posts.
+  - 9–27 % fewer triangles, and no slower.
+- **Balanced:**
+  - 6–8 more draw calls and 5–6 MB more memory, within the plan's budget.
+  - About 3–5 % slower, roughly the measurement's noise. Part of it is the car-reflection fix, which now refreshes the reflection every 8 frames.
 
