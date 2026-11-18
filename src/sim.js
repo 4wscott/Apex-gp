@@ -841,28 +841,30 @@ class Car {
 // spring back), friction where they scrape, and a turn about the contact point (a nose into a sidepod swings both
 // cars). Damage lands where they touched.
 const CAR_BOX = { off: 0.25, hl: 2.9, hw: 1.02 }, CAR_E = 0.08, CAR_MU = 0.25;
+// a bike's footprint: front tyre to tail, handlebar to handlebar
+const BIKE_BOX = { off: 0, hl: 1.04, hw: 0.36 };
 function collideCars(cars) {
-  const { off, hl, hw } = CAR_BOX;
   for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
     const A = cars[i], B = cars[j];
     if (Math.abs(A.x - B.x) > 7 || Math.abs(A.y - B.y) > 7) continue;
+    const XA = A.isBike ? BIKE_BOX : CAR_BOX, XB = B.isBike ? BIKE_BOX : CAR_BOX;
     const au = [Math.cos(A.h), Math.sin(A.h)], av = [-au[1], au[0]], bu = [Math.cos(B.h), Math.sin(B.h)], bv = [-bu[1], bu[0]];
-    const ac = [A.x + au[0] * off, A.y + au[1] * off], bc = [B.x + bu[0] * off, B.y + bu[1] * off], d = [bc[0] - ac[0], bc[1] - ac[1]];
+    const ac = [A.x + au[0] * XA.off, A.y + au[1] * XA.off], bc = [B.x + bu[0] * XB.off, B.y + bu[1] * XB.off], d = [bc[0] - ac[0], bc[1] - ac[1]];
     // separating axes: each car's forward and side directions; the smallest overlap is the way out
     let pen = Infinity, n = null, fromA = true;
     for (const [ax, own] of [[au, 1], [av, 1], [bu, 0], [bv, 0]]) {
-      const ra = hl * Math.abs(au[0] * ax[0] + au[1] * ax[1]) + hw * Math.abs(av[0] * ax[0] + av[1] * ax[1]);
-      const rb = hl * Math.abs(bu[0] * ax[0] + bu[1] * ax[1]) + hw * Math.abs(bv[0] * ax[0] + bv[1] * ax[1]);
+      const ra = XA.hl * Math.abs(au[0] * ax[0] + au[1] * ax[1]) + XA.hw * Math.abs(av[0] * ax[0] + av[1] * ax[1]);
+      const rb = XB.hl * Math.abs(bu[0] * ax[0] + bu[1] * ax[1]) + XB.hw * Math.abs(bv[0] * ax[0] + bv[1] * ax[1]);
       const dp = d[0] * ax[0] + d[1] * ax[1], o = ra + rb - Math.abs(dp);
       if (o <= 0) { pen = -1; break; }
       if (o < pen) { pen = o; const sg = dp >= 0 ? 1 : -1; n = [ax[0] * sg, ax[1] * sg]; fromA = !!own; }
     }
     if (pen <= 0) continue;
     // the contact point: the corner of one car that is deepest inside the other
-    const corners = (c, u, v) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => [c[0] + u[0] * hl * sx + v[0] * hw * sy, c[1] + u[1] * hl * sx + v[1] * hw * sy]);
+    const corners = (c, u, v, X) => [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sy]) => [c[0] + u[0] * X.hl * sx + v[0] * X.hw * sy, c[1] + u[1] * X.hl * sx + v[1] * X.hw * sy]);
     let p;
-    if (fromA) { let bd = Infinity; for (const q of corners(bc, bu, bv)) { const k = q[0] * n[0] + q[1] * n[1]; if (k < bd) { bd = k; p = q; } } }
-    else { let bd = -Infinity; for (const q of corners(ac, au, av)) { const k = q[0] * n[0] + q[1] * n[1]; if (k > bd) { bd = k; p = q; } } }
+    if (fromA) { let bd = Infinity; for (const q of corners(bc, bu, bv, XB)) { const k = q[0] * n[0] + q[1] * n[1]; if (k < bd) { bd = k; p = q; } } }
+    else { let bd = -Infinity; for (const q of corners(ac, au, av, XA)) { const k = q[0] * n[0] + q[1] * n[1]; if (k > bd) { bd = k; p = q; } } }
     // push the two apart completely, shared by mass
     const mA = A.p.m, mB = B.p.m, wa = mB / (mA + mB), wb = mA / (mA + mB);
     A.x -= n[0] * pen * wa; A.y -= n[1] * pen * wa; B.x += n[0] * pen * wb; B.y += n[1] * pen * wb;
@@ -871,6 +873,9 @@ function collideCars(cars) {
     const vap = [va[0] - A.r * rA[1], va[1] + A.r * rA[0]], vbp = [vb[0] - B.r * rB[1], vb[1] + B.r * rB[0]];
     const rel = [vbp[0] - vap[0], vbp[1] - vap[1]], relN = rel[0] * n[0] + rel[1] * n[1];
     if (relN >= 0) continue; // already parting
+    // bikes: a firm touch puts a rider down (a light brush is a racing incident: pushed apart, nothing more)
+    const bikes = A.isBike || B.isBike;
+    if (bikes) { const hit = -relN, yu = A.isPlayer || B.isPlayer; if (!A.finished && !B.finished) for (const X of [A, B]) if (X.isBike && !X.down && hit > (yu ? 5.5 : 10)) X.crash('contact', hit * 0.6); if (A.down && B.down) continue; }
     const IA = A.p.Iz, IB = B.p.Iz, rnA = cr(rA, n), rnB = cr(rB, n);
     const jn = (-(1 + CAR_E) * relN) / (1 / mA + 1 / mB + (rnA * rnA) / IA + (rnB * rnB) / IB);
     const t = [-n[1], n[0]], relT = rel[0] * t[0] + rel[1] * t[1], rtA = cr(rA, t), rtB = cr(rB, t);
@@ -882,11 +887,11 @@ function collideCars(cars) {
     // from a harder hit), so the field doesn't pile up; any contact involving the player is the full thing
     const you = A.isPlayer || B.isPlayer;
     const hard = clamp((-relN - 4) / 8, 0.12, 1) * (you ? 1 : 0.35), dA = clamp(-cr(rA, J) / IA * hard, -1.8, 1.8), dB = clamp(cr(rB, J) / IB * hard, -1.8, 1.8);
-    A.r = clamp(A.r + dA, -4, 4); B.r = clamp(B.r + dB, -4, 4);
+    if (!A.isBike) A.r = clamp(A.r + dA, -4, 4); if (!B.isBike) B.r = clamp(B.r + dB, -4, 4); // a bike's turn is its lean, not a spin
     fromWorld(A, va); fromWorld(B, vb);
     A.impact = Math.max(A.impact, -relN); B.impact = Math.max(B.impact, -relN); A.impactPeak = Math.max(A.impactPeak || 0, -relN); B.impactPeak = Math.max(B.impactPeak || 0, -relN);
     // damage where they touched, scaled like a wall hit
-    if (-relN > (you ? 8 : 12)) {
+    if (!bikes && -relN > (you ? 8 : 12)) {
       const vn = 12 + (-relN - (you ? 8 : 12)) * 1.15, loc = (c, x, y) => [x * Math.cos(c.h) + y * Math.sin(c.h), -x * Math.sin(c.h) + y * Math.cos(c.h)];
       const [alx, aly] = loc(A, n[0], n[1]), [blx, bly] = loc(B, -n[0], -n[1]);
       const [acx, acy] = loc(A, rA[0], rA[1]), [bcx, bcy] = loc(B, rB[0], rB[1]);
@@ -928,14 +933,15 @@ class AIDriver {
     if (race && race.phase !== 'green') { inp.brake = 1; return inp; }
     if (race && race.greenT < this.react) { inp.brake = 1; return inp; }
     // ---- racecraft: who is ahead in my lane, who is alongside, who is attacking from behind ----
-    const lim = T.hw - 1.3, aggr = this.aggrNow(race), L = 5.8; // L: a car's length
+    // the sizes of racecraft: a car is 5.8 m long and needs ~2.3 m beside another; a bike 2.2 m and ~1.1 m
+    const bk = !!c.isBike, lim = T.hw - (bk ? 0.9 : 1.3), aggr = this.aggrNow(race), L = bk ? 2.4 : 5.8; // L: a car's length
     let blocked = null, gapAhead = Infinity, attacker = null, attackGap = Infinity; const side = [];
     const myO = T.lineO[c.idx] + this.lat;
     for (const o of cars) {
       if (o === c || o.parked || o.pit) continue;
       const ds = o.dist - c.dist;
-      if (Math.abs(ds) < L && Math.abs(o.d - c.d) < 4.5) side.push(o);                     // overlapping: alongside
-      else if (ds >= L && ds < 45) { if (Math.abs(o.d - myO) < 2.5 && ds < gapAhead) { gapAhead = ds; blocked = o; } }
+      if (Math.abs(ds) < L && Math.abs(o.d - c.d) < (bk ? 2.2 : 4.5)) side.push(o);                     // overlapping: alongside
+      else if (ds >= L && ds < (bk ? 70 : 45)) { if ((Math.abs(o.d - myO) < (bk ? 1.3 : 2.5) || (bk && Math.abs(o.d - c.d) < 1.1)) && ds < gapAhead) { gapAhead = ds; blocked = o; } } // a rider also watches the bike right in front
       else if (ds <= -L && ds > -25 && o.vx > c.vx - 1 && -ds < attackGap) { attackGap = -ds; attacker = o; }
     }
     // debris on the racing line: steer round it like a slow car
@@ -953,9 +959,9 @@ class AIDriver {
       // attack: closing on the car ahead, go for the inside of the next corner (or the other side if there's no room) and
       // stay committed to it while the move is on
       const closing = c.vx - blocked.vx > 0.4 || gapAhead < 14 || (blocked.dmgPace || 1) < 0.97;
-      if (closing) {
+      if (closing && !(bk && this.passCar !== blocked && Math.abs(T.lineK[c.idx]) > 1 / 300)) { // a rider commits to a pass on the straight, not halfway into the corner
         if (this.passCar !== blocked) { this.passCar = blocked; const ins = this.insideAhead(20, 160); this.passSide = ins || (c.d >= blocked.d ? 1 : -1); }
-        const gapW = 2.55 + 0.35 * (1 - aggr);
+        const gapW = bk ? 1.35 + 0.3 * (1 - aggr) : 2.55 + 0.35 * (1 - aggr);
         let tgt = blocked.d + this.passSide * gapW;
         if (Math.abs(tgt) > lim) { this.passSide = -this.passSide; tgt = blocked.d + this.passSide * gapW; }
         want = Math.abs(tgt) <= lim + 0.3 ? tgt : null; // no room either side: sit behind and wait
@@ -968,18 +974,21 @@ class AIDriver {
       const ins = this.insideAhead(30, 140);
       if (ins) { this.defMoved = true; this.defT = 2.5 + aggr * 2; this.defSide = ins; }
     }
-    if (this.defT > 0) { this.defT -= dt; if (!want) want = this.defSide * lim * (0.45 + 0.35 * aggr); }
+    if (this.defT > 0) { this.defT -= dt; if (!want) want = this.defSide * lim * (bk ? 0.3 + 0.2 * aggr : 0.45 + 0.35 * aggr); }
     if (lapped && !want) want = -Math.sign(T.lineO[c.idx] || 1) * lim * 0.6; // blue flag: off the racing line
+    if (bk && this.cool && !want) want = -Math.sign(T.lineO[c.idx] || 1) * lim * 0.85; // a rider on the slow-down lap keeps to the edge
+    if (bk && c.rejoinT !== undefined && c.simT - c.rejoinT < 8) want = -Math.sign(T.lineO[c.idx] || 1) * lim * 0.85; // just back on the bike: off the racing line while getting up to speed
     // alongside: never squeeze a car that is there; leave it a car's width (careful drivers a little more)
     let target = want !== null ? want : T.lineO[c.idx]; // otherwise the racing line
     let squeezed = false;
     for (const o of side) {
-      const sg = Math.sign(o.d - c.d) || 1, minSep = 2.25 + 0.35 * (1 - aggr), bound = o.d - sg * minSep;
+      const sg = Math.sign(o.d - c.d) || 1, minSep = bk ? 1.25 + 0.3 * (1 - aggr) : 2.25 + 0.35 * (1 - aggr), bound = o.d - sg * minSep;
       if (sg > 0 ? target > bound : target < bound) { target = bound; }
       if (Math.abs(bound) > lim + 0.8) squeezed = true;
     }
     this.latT = clamp(target, -lim, lim) - T.lineO[c.idx];
-    this.lat += clamp(this.latT - this.lat, -2.4 * dt, 2.4 * dt);
+    const latRate = bk && Math.abs(T.lineK[c.idx]) > 1 / 150 ? 0.7 : 2.4; // a rider picks a side before the corner, not in it
+    this.lat += clamp(this.latT - this.lat, -latRate * dt, latRate * dt);
     const absLat = clamp(T.lineO[c.idx] + this.lat, -lim, lim);
     this.lat = absLat - T.lineO[c.idx];
     this.squeezed = squeezed;
@@ -997,11 +1006,12 @@ class AIDriver {
     if (c.isBike) {
       // a rider: aim at a point ahead on the line it wants (pure pursuit) and lean for the arc that reaches it. The lean
       // takes a moment to build, and the point is far enough ahead to start the flick in time
-      const Ld = clamp(v * 0.5, 7, 45), j = (c.idx + Math.round(Ld / T.ds)) % n, off = clamp(T.lineO[j] + this.lat, -lim + 0.3, lim - 0.3); // a margin to the edge: the lean lags a little on the exits
+      const Ld = clamp(v * 0.55, 10, 48), j = (c.idx + Math.round(Ld / T.ds)) % n, off = clamp(T.lineO[j] + this.lat, -lim + 0.3, lim - 0.3); // a margin to the edge: the lean lags a little on the exits
       const dx = T.px[j] + T.nx[j] * off - c.x, dy = T.py[j] + T.ny[j] * off - c.y, al = angleDiff(Math.atan2(dy, dx), c.h);
       const kap2 = (2 * Math.sin(al)) / Math.max(3, Math.hypot(dx, dy));
       const lmax = c.leanLimit() * 0.96; // a rider feels the grip and leans no further than the tyres will take
-      inp.lean = clamp(Math.atan((v * v * kap2) / G), -lmax, lmax); inp.steer = clamp(Math.atan(c.p.L * kap2) / 0.6, -1, 1);
+      const lw = Math.atan((v * v * kap2) / G); this.leanShort = Math.abs(lw) - lmax; // wanting more lean than the grip: too fast for this line
+      inp.lean = clamp(lw, -lmax, lmax); inp.steer = clamp(Math.atan(c.p.L * kap2) / 0.6, -1, 1);
       this.bikeOff = Math.abs(T.lineO[c.idx] + this.lat - c.d); // off its line: slow down to get back on it
     }
 
@@ -1013,10 +1023,18 @@ class AIDriver {
     vT *= this.pace * (1 + this.noise) * (race ? race.aiPace : 1) * (this.cool ? 0.7 : 1);
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
     if (c.isBike && this.bikeOff > 1.2) vT *= 1 - Math.min(0.25, (this.bikeOff - 1.2) * 0.04);
+    if (bk && this.leanShort > 0.02) vT *= 1 - Math.min(0.2, this.leanShort * 1.5);
+    if (bk && Math.abs(this.lat) > 0.3) {
+      // off the line: each corner ahead must be taken on a tighter, slower arc, and a bike can't brake hard once it's leaned
+      // in, so the braking for it starts early enough (planned over the braking zone, not just the next moment)
+      const la = Math.abs(this.lat); let vb = Infinity;
+      for (let m = 0; m < Math.round(160 / T.ds); m += 3) { const j = (c.idx + m) % n, pen = 1 - Math.min(0.28, la * 0.045 * Math.min(1, Math.abs(T.lineK[j]) * 80)); if (pen > 0.999) continue; vb = Math.min(vb, Math.sqrt((T.lineV[j] * pen) ** 2 + 2 * 8.5 * m * T.ds)); }
+      vT = Math.min(vT, vb * this.pace);
+    }
     // following: brake early enough not to run into the car ahead (bumper gap, closing speed, the braking it has)
-    if (blocked && Math.abs(blocked.d - c.d) < 2.4) {
-      const closing = c.vx - blocked.vx, room = gapAhead - 6.2;
-      if (closing > 0 && room < (closing * closing) / (2 * 16) + 2) vT = Math.min(vT, blocked.vx + Math.max(0, room) * 0.6);
+    if (blocked && Math.abs(blocked.d - c.d) < (bk ? 1.2 : 2.4)) {
+      const closing = c.vx - blocked.vx, room = gapAhead - (bk ? 3.2 : 6.2), dec = bk ? 6.5 : 16; // a bike brakes at about half a car's rate
+      if (closing > 0 && room < (closing * closing) / (2 * dec) + 2) vT = Math.min(vT, blocked.vx + Math.max(0, room) * 0.6);
       if (room < 1.5) vT = Math.min(vT, blocked.vx - 1);
     }
     if (this.squeezed) vT *= 0.95; // no room alongside: lift and tuck in behind
@@ -1040,6 +1058,7 @@ class AIDriver {
     else inp.throttle = 0.35;
     // off-line correction: lift if sliding
     if (Math.abs(c.slipR) > 0.08) inp.throttle *= 0.3;
+    if (bk && this.leanShort > 0) inp.throttle *= 0.3; // can't make the line at full lean: no throttle until the bike is up
     if (v < 40) inp.throttle = Math.min(inp.throttle, 1 - 0.6 * Math.max(0, Math.abs(inp.steer) - 0.3));
     // active aero / overtake
     c.aeroReq = T.aeroZone[c.idx] === 1;
@@ -1057,7 +1076,7 @@ class AIDriver {
     for (const o of cars) {
       if (o === c) continue;
       const g = c.dist - o.dist;
-      if (g > -15 && g < 120 && Math.abs(o.d - T.lineO[c.idx]) < 4) return false;
+      if (g > -15 && g < 120 && Math.abs(o.d - T.lineO[c.idx]) < (c.isBike ? 2 : 4)) return false;
     }
     return true;
   }
@@ -1111,6 +1130,9 @@ const PIT_SPEED = 80 / 3.6;
 class Race {
   // mode: 'race' | 'trial' | 'practice' (open session: unlimited laps, optional traffic spread round the lap)
   constructor(track, opts) {
+    // a bike race sees the track through its own view (the bikes' speed along the line); everything else is shared
+    this.series = opts.series === 'bike' ? 'bike' : 'car'; const Veh = this.series === 'bike' ? Bike : Car;
+    if (this.series === 'bike') track = bikeTrack(track);
     this.track = track; this.mode = opts.mode; this.laps = opts.laps || 5;
     this.aiPace = opts.aiPace || 1; this.time = 0; this.rivalCode = opts.rival || null; this.greenT = 0; this.phase = 'grid'; this.lightsT = 0; this.lightsOn = 0;
     this.lightsOutAt = opts.lightsOutAt ?? 3 + 5 * 1 + 0.4 + Math.random() * 1.6; // 5 lights 1 s apart, then a random hold
@@ -1120,7 +1142,7 @@ class Race {
     const T = track;
     // grid: player starts at chosen slot; AI order by skill with a little shuffle
     const entries = [];
-    TEAMS.forEach((tm) => tm.drivers.forEach((dr) => entries.push({ tm, dr })));
+    (this.series === "bike" ? BIKE_TEAMS : TEAMS).forEach((tm) => tm.drivers.forEach((dr) => entries.push({ tm, dr }))); // the bike race: the bike championship's grid
     const outCode = opts.replaceCode || opts.driver.code;
     let field = entries.filter((e) => !(e.tm.id === opts.team.id && e.dr.code === outCode));
     field.sort((a, b) => b.dr.skill * b.tm.perf.a - a.dr.skill * a.tm.perf.a + (rng() - 0.5) * 0.02);
@@ -1141,13 +1163,14 @@ class Race {
     }
     grid.forEach((e, k) => {
       const comp = e.player ? (opts.compound || 'M') : ['S', 'M', 'M', 'H'][(rng() * 4) | 0];
-      const car = new Car(T, e.tm, e.dr, { player: !!e.player, compound: comp, upgrades: e.player ? opts.upgrades : null, assist: e.player ? opts.assist : { tc: 2, abs: true, autoGear: true }, damage: this.online ? 'visual' : opts.damage });
+      const car = new Veh(T, e.tm, e.dr, { player: !!e.player, compound: comp, remount: opts.remount, upgrades: e.player ? opts.upgrades : null, assist: e.player ? opts.assist : { tc: 2, abs: true, autoGear: true }, damage: this.online ? 'visual' : opts.damage });
       // practice: the player leaves the pit straight on a flying start, traffic is spread round the lap
       const prac = this.mode === 'practice', ahead = prac && !e.player ? (T.length * (k + 1)) / (grid.length + 1) : 0;
-      const back = this.mode === 'trial' || prac ? 160 - ahead : 12 + k * 8;
+      const bk = this.series === 'bike', back = this.mode === 'trial' || prac ? 160 - ahead : bk ? 12 + Math.floor(k / 3) * 9 + (k % 3) * 1.2 : 12 + k * 8; // bikes: three to a row
       const i0 = Math.round((((T.length - back) % T.length) + T.length) % T.length / T.ds) % T.n;
-      car.place(i0, this.mode === 'trial' || prac ? T.lineO[i0] : (k % 2 === 0 ? 1 : -1) * Math.min(2.8, T.hw - 1.5), prac && !e.player ? T.lineV[i0] * 0.8 : 0);
+      car.place(i0, this.mode === 'trial' || prac ? T.lineO[i0] : bk ? [1, 0, -1][k % 3] * Math.min(3.2, T.hw - 1.5) : (k % 2 === 0 ? 1 : -1) * Math.min(2.8, T.hw - 1.5), prac && !e.player ? T.lineV[i0] * 0.8 : 0);
       car.dist = car.s - T.length; car.lastS = car.s;
+      if (car.isBike) car.trafficClear = (b) => this.cars.every((o) => o === b || o.down || o.pit || o.finished || (() => { const g = b.dist - o.dist; return g < -5 || g > 250; })());
       car.gridPos = k + 1; car.lap = 0; car.lapStart = 0; car.lapTimes = []; car.bestLap = Infinity; car.cpTimes = [];
       car.sector = 0; car.sectorStart = 0; car.sectorTimes = [NaN, NaN, NaN]; car.lastSectors = [NaN, NaN, NaN];
       car.trackLimits = 0; car.offTrack = false; car.lapValid = true; car.penalty = 0; car.finished = false; car.finishTime = 0;
@@ -1319,6 +1342,7 @@ class Race {
   requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
   lapsLeft(c) { return this.laps - Math.max(0, c.lap - 1); }
   aiPitDecision(c) {
+    if (c.isBike) return; // no tyre stops in a bike race (flag-to-flag bike swaps: phase 4)
     if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished || c.dnf) return;
     if (c.dmg.punct.some(Boolean)) { c.pitReq = COMPOUNDS[c.compound].wet ? c.compound : c.compound === 'H' ? 'M' : 'H'; return; } // limp back for new tyres
     const left = this.lapsLeft(c);
@@ -1453,7 +1477,7 @@ class Race {
       c.step(dt, inputs[i]);
       if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; c.penalty += 5; this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }
     });
-    collideCars(this.cars.filter((c) => !c.pit && !c.parked));
+    collideCars(this.cars.filter((c) => !c.pit && !c.parked && !c.down));
     this.damageStep();
     this.raceControl(dt);
     this.weatherStep(dt);
@@ -1595,6 +1619,7 @@ class Race {
   }
   // team radio: one report per part as it gets worse (a scrape says nothing; a broken part is called once, worse again called again)
   damageReport(c) {
+    if (c.isBike) return; // a bike's crash says it all (the bike's damage is in its handling)
     const D = c.dmg, said = (c.dmgSaid = c.dmgSaid || {}), race = this.mode === 'race', corner = ['front left', 'front right', 'rear left', 'rear right'];
     const out = [];
     const tell = (key, h, msg) => { const lvl = h < 0.35 ? 2 : h < 0.8 ? 1 : 0; if (lvl > (said[key] || 0)) { said[key] = lvl; out.push(msg(lvl)); } };
@@ -1632,7 +1657,7 @@ class Race {
 //   survives, the rider runs back, picks it up and rejoins.
 const BIKE_BASE = {
   m: 232, Iz: 45, L: 1.46, a: 0.74, b: 0.72, h: 0.62, hBrake: 0.56, // a/b: centre of gravity to front/rear axle; hBrake: the rider slides back and down under braking
-  ClA: 0.08, aeroBal: 0.6, CdTuck: 0.3, CdUp: 0.48, mu: 1.56, muR: 1.0,
+  ClA: 0.08, aeroBal: 0.6, CdTuck: 0.3, CdUp: 0.48, mu: 1.5, muR: 1.0,
   Pmax: 220e3, eta: 0.92, brakeMax: 3600, brakeBias: 0.86, maxLean: 1.0, maxSteer: 0.5, // maxLean: bike and rider together (the bike itself shows ~6 degrees more, the rider hangs off)
   rr: 0.015, wheelR: 0.3, rollRate: 3.0, rollAcc: 24,
   gears: [135, 178, 220, 262, 310, 362], redline: 18000, idle: 4200,
@@ -1661,13 +1686,18 @@ class Bike extends Car {
     super.reset();
     this.lean = 0; this.leanRate = 0; this.pitch = 0; this.pitchRate = 0; this.wheelie = 0; this.stoppie = 0;
     this.slideYaw = 0; this.slideRate = 0; this.slidePeak = 0; this.slideT = 0; this.overLean = 0; this.lockT = 0;
-    this.tuck = 1; this.fuel = 1; this.down = null; this.crashes = 0; this.ersMode = 1; this.gear = 1; this.rpm = BIKE_BASE.idle;
+    this.tuck = 1; this.fuel = 1; this.down = null; this.tempF = this.tempR = 86; // off the tyre warmers this.crashes = 0; this.ersMode = 1; this.gear = 1; this.rpm = BIKE_BASE.idle;
   }
   shift(dir) {
     const g = this.gear + dir, n = this.p.gears.length;
     if (g < 1 || g > n || this.shiftTimer > 0) return;
     if (dir < 0 && this.vx * 3.6 > this.p.gears[g - 1] * 1.02) return;
     this.gear = g; this.shiftTimer = 0.03; this.justShifted = dir; // a seamless quick-shifter: barely a gap in the drive
+  }
+  // placed somewhere (the grid, a reset, a rejoin): upright and settled
+  place(i, lateral, speed = 0) {
+    super.place(i, lateral, speed);
+    this.lean = this.leanRate = this.wheelie = this.stoppie = this.pitchRate = this.slideYaw = this.slideRate = this.slidePeak = 0; this.frontSlideT = 0; this.axT = 0; this.overLean = 0;
   }
   // how far the bike can lean here: the grip the tyres have now (lean assist keeps a margin under it)
   leanLimit() { return Math.min(this.p.maxLean, Math.atan(this.gripNow || this.p.mu)); }
@@ -1701,7 +1731,7 @@ class Bike extends Car {
     this.kerbHit = bump;
     // --- rider inputs
     const vxa = Math.abs(this.vx), v = Math.max(vxa, 0.5);
-    let thr = clamp(inp.throttle, 0, 1), brk = clamp(inp.brake, 0, 1), brkR = clamp(inp.rearBrake || 0, 0, 1);
+    let thr = clamp(inp.throttle, 0, 1), brk = clamp(inp.brake, 0, 1), brkR = clamp(inp.rearBrake ?? (inp.overtake ? 1 : 0), 0, 1); // the rear brake: its own input, or the overtake button held on a bike
     if (this.assist.brakeAssist && vxa > 15) {
       let need = 0; const D = 11; // about 1.1 g: well inside what the bike can do
       for (let k = 2; k < 90; k += 3) { const j = (this.idx + k) % T.n, allow = Math.sqrt(T.lineV[j] * T.lineV[j] * 1.04 + 2 * D * k * T.ds); if (vxa > allow) need = Math.max(need, clamp((vxa - allow) / 6, 0.3, 1)); }
@@ -1733,7 +1763,7 @@ class Bike extends Car {
     // --- aero: the rider tucks on the straights, sits up under braking
     const tuckT = brk > 0.15 || vxa < 20 ? 0 : clamp(1 - Math.abs(this.lean) * 1.6, 0, 1) * (thr > 0.5 ? 1 : 0.6);
     this.tuck += clamp(tuckT - this.tuck, -3 * dt, 2 * dt);
-    const q = 0.5 * RHO * this.vx * this.vx, drag = q * lerp(p.CdUp, p.CdTuck, this.tuck) * (1 - this.tow * 0.38);
+    const q = 0.5 * RHO * this.vx * this.vx, drag = q * lerp(p.CdUp, p.CdTuck, this.tuck) * (1 - this.tow * 0.38 * (0.3 + 0.7 * this.tuck)); // the tow works on a tucked rider; sitting up on the brakes, it hardly helps
     const Df = q * p.ClA * (1 - this.dirty * 0.1), DfF = Df * p.aeroBal, DfR = Df * (1 - p.aeroBal);
     // --- loads: weight transfer with the tall bike (and the rider moving back under braking)
     // (the transfer comes from the tyres' own forces: drag acts about as high as the centre of gravity, so it moves no load)
@@ -1743,7 +1773,7 @@ class Bike extends Car {
     FzF = Math.max(FzF, 0); FzR = Math.max(FzR, 0);
     if (this.wheelie > 0.01) FzF = 0; if (this.stoppie > 0.01) FzR = 0;
     const cp = COMPOUNDS[this.compound]; this.gripWet = wetGrip(this.compound, wet);
-    const gripT = (t) => (0.8 + 0.2 * Math.exp(-(((t - cp.temp) / 26) ** 2))) * cp.grip; // a cold bike tyre has much less grip than a hot one
+    const gripT = (t) => (0.8 + 0.2 * Math.exp(-(((t - cp.temp + 8) / 26) ** 2))) * cp.grip; // a cold bike tyre has much less grip than a hot one (bike rubber works a little cooler)
     const wearF = 1 - 0.1 * this.wear - 0.5 * Math.max(0, this.wear - 0.65) ** 2 * 4;
     const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF;
     const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR;
@@ -1766,7 +1796,8 @@ class Bike extends Car {
       const muR = FzR > 1 ? capR / FzR : p.mu, needR = Math.abs(FyRreq) / Math.max(0.3, muR * 0.9) + 60;
       const stopCap = Math.max(300, Math.min(p.m * G * (aEff / hEff) * 0.97, (p.m * G * aEff * Lk + DfR * p.L - needR * p.L) / hEff));
       if (-FxF - FxR > stopCap) FxF = -Math.max(0, stopCap + Math.min(0, FxR));
-      if (-FxF > capF * 0.95) FxF = -capF * 0.95;
+      // and the front keeps the grip its share of the corner needs (lean-sensitive ABS)
+      const roomF = Math.sqrt(Math.max(0, (capF * 0.95) ** 2 - (Math.abs(FyFreq) * 1.05) ** 2)); if (-FxF > roomF) FxF = -roomF;
       // engine-brake control and rear ABS: the rear's braking (engine and brake) takes only what its share of the corner leaves
       if (FxR < 0) { const room = Math.sqrt(Math.max(0, (capR * 0.93) ** 2 - (Math.abs(FyRreq) * 1.05) ** 2)); if (-FxR > room) FxR = -room; }
     }
@@ -1834,10 +1865,10 @@ class Bike extends Car {
     // --- tyres: heat and wear (bike tyres work hardest leaned over and on the brakes)
     const work = (Math.abs(FyF) + Math.abs(FxF) * 0.6) * v, workR = (Math.abs(FyR) + Math.abs(FxR) * 0.8) * v;
     const cool = 0.006 * (1 + vxa / 80), hot = (t) => Math.max(0, t - 120) * 0.08;
-    this.tempF += (vxa * 0.004 + work * 1.25e-5 + (this.lockF ? 30 : 0) - (this.tempF - 25) * cool - hot(this.tempF)) * dt;
+    this.tempF += (vxa * 0.004 + work * 1.75e-5 + (this.lockF ? 30 : 0) - (this.tempF - 25) * cool - hot(this.tempF)) * dt;
     this.tempR += (vxa * 0.004 + workR * 1.1e-5 + (this.spin ? 25 : 0) + Math.abs(this.slideYaw) * 25 - (this.tempR - 25) * cool - hot(this.tempR)) * dt;
     this.tempF = clamp(this.tempF, 10, 150); this.tempR = clamp(this.tempR, 10, 150);
-    this.wear = Math.min(1, this.wear + (work + workR) * 2.4e-9 * cp.wear * (this.wearMul || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt);
+    this.wear = Math.min(1, this.wear + (work + workR) * 4.6e-10 * cp.wear * (this.wearMul || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt);
     // --- walls: a bike touching a barrier at any real speed goes down
     this.locate(false); this.impact = 0;
     if (Math.abs(this.d) > Math.min(T.wallL[this.idx], T.wallR[this.idx]) - 1.2) {
@@ -1897,6 +1928,7 @@ class Bike extends Car {
     // the rider runs back to the bike (about 4 m/s), picks it up, and rejoins at the edge of the track
     if (C.runT === undefined) C.runT = 2.5 + Math.hypot(C.rider.x - C.bike.x, C.rider.y - C.bike.y) / 4 + (C.heavy ? 3 : 0);
     if (C.t < C.runT + 1.6) { const k = clamp(dt * 4 / Math.max(0.5, C.runT), 0, 1); C.rider.x = lerp(C.rider.x, C.bike.x, k); C.rider.y = lerp(C.rider.y, C.bike.y, k); return; }
+    if (this.trafficClear && !this.trafficClear(this)) return; // wait for a gap in the traffic before rejoining
     const i = this.idx, edge = Math.sign(this.d || 1) * Math.min(Math.abs(this.d), T.hw - 0.8), d0 = this.dist;
     this.place(i, edge, 0); this.dist = d0; this.lastS = this.s; this.down = null; this.lean = 0; this.tuck = 0; this.gear = 1;
     this.rejoinT = this.simT; // a short spell of yielding to traffic (the race and the AI read it)
@@ -1917,7 +1949,7 @@ function bikeSpeedProfile(T, mu = BIKE_BASE.mu * 0.86, P = BIKE_BASE) {
       let kk = Math.abs(T.lineK[i]); for (let w = 1, W2 = Math.round((vj * 0.3) / T.ds); w <= W2; w++) kk = Math.max(kk, Math.abs(T.lineK[(i + w) % n]));
       const lat = vj * vj * kk, tot = mu * (G + kd * vj * vj);
       const aB = P.a + (P.h - P.hBrake) * 0.7, rearLim = (aB * (G - lat / (mu * 0.9))) / P.hBrake; // the rear must keep load for its share of the corner
-      const avail = Math.min(Math.sqrt(Math.max(0, tot * tot - lat * lat)) * 0.9, brakeG, Math.max(0.5, rearLim * 0.92)) + kup * vj * vj + G * (el ? T.grade[i] : 0);
+      const avail = Math.min(Math.sqrt(Math.max(0, tot * tot - lat * lat)) * 0.9, brakeG, Math.max(0.5, rearLim * 0.92)) + kup * 0.75 * vj * vj + G * (el ? T.grade[i] : 0);
       v[i] = Math.min(v[i], Math.sqrt(Math.max(0, vj * vj + 2 * Math.max(1, avail) * T.dsL[i])));
     }
     const vf = Float64Array.from(v);
@@ -1947,10 +1979,20 @@ function bikeSpeedProfile(T, mu = BIKE_BASE.mu * 0.86, P = BIKE_BASE) {
   return { v, vf };
 }
 // the track as a bike race sees it: everything shared with the cars, but the bikes' own speed along the line
+// and its air fences: wherever a wall comes close to the track, inflatable cushions stand 0.9 m deep in front of it
+// (as at every bike race), so the bikes' wall is the cushions' face
 function bikeTrack(T) {
   if (T.bikeView) return T.bikeView;
-  const B = Object.create(T), sp = bikeSpeedProfile(T);
+  const B = Object.create(T), sp = bikeSpeedProfile(T), n = T.n, D = 0.9;
   B.lineV = sp.v; B.lineVf = sp.vf; B.isBikeView = true;
+  for (const [key, air] of [['wallL', 'airL'], ['wallR', 'airR']]) {
+    const W = T[key], A = new Float32Array(n), out = Float32Array.from(W);
+    for (let i = 0; i < n; i++) if (W[i] - T.hw < 5.5) A[i] = 1;
+    // taper in and out over ~20 m so a cushion run starts and ends cleanly
+    const sm = Float32Array.from(A); for (let rep = 0; rep < 10; rep++) for (let i = 0; i < n; i++) sm[i] = Math.max(A[i], (sm[(i - 1 + n) % n] + sm[(i + 1) % n]) * 0.5 * 0.97);
+    for (let i = 0; i < n; i++) { A[i] = sm[i] > 0.05 ? Math.min(1, sm[i]) : 0; out[i] = Math.max(Math.min(W[i], T.hw + 0.25), W[i] - D * A[i]); } // thinner where the wall is right at the edge
+    B[key] = out; B[air] = A;
+  }
   return (T.bikeView = B);
 }
 
@@ -1977,4 +2019,4 @@ function aiQualiTimes(T, field, aiPace, seed) {
     return { code: dr.code, time: (ref / (pace * aiPace * carF)) * (1 + (rng() - 0.5) * 0.008) };
   });
 }
-if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, Bike, BIKE_BASE, BIKE_MAPS, bikeSpeedProfile, bikeTrack, clamp, lerp, mulberry32 };
+if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, BIKE_TEAMS, Bike, BIKE_BASE, BIKE_MAPS, bikeSpeedProfile, bikeTrack, clamp, lerp, mulberry32 };

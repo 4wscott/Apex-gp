@@ -13,7 +13,7 @@ if (require.main === module) fs.mkdirSync(OUT, { recursive: true });
 
 async function open(br, settings, view) {
   const page = await br.newPage(view || { viewport: { width: 1280, height: 720 } });
-  page.errs = []; page.on('pageerror', (e) => page.errs.push(e.message));
+  page.errs = []; page.on('pageerror', (e) => page.errs.push(e.message + (process.env.STACK ? ' @ ' + (e.stack || '').split('\n').slice(1, 4).join(' < ') : '')));
   await page.route('https://cdn.jsdelivr.net/npm/three@0.160.0/**', (r) => { const u = new URL(r.request().url()); r.fulfill({ body: fs.readFileSync(SP + 't160/package/' + u.pathname.replace('/npm/three@0.160.0/', ''), 'utf8'), contentType: 'application/javascript' }); });
   await page.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ body: '', contentType: 'text/css' }));
   await page.route('**/iframe_api', (r) => r.fulfill({ body: '', contentType: 'text/javascript' }));

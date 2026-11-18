@@ -245,3 +245,67 @@ Same routine as the graphics plan:
 
 1. **The two bike models** from Sketchfab (download them and add them to the repo, or give me an API key through the credential form).
 2. **Approval** of the rider model contact sheet, and of the team names and liveries, when I show them to you.
+
+---
+
+## Status (18 November 2026)
+
+### Built
+
+- **Phase 0, assets:**
+  - **The bike model:** "Ducati Lenovo Team – MotoGP26" (CC BY), with every logo removed and the paddock stand gone. It comes at three detail levels: close (84k triangles), mid distance (20k) and far (4k, one draw call, colours stored in the vertices).
+  - **Paint:** a livery mask for team colours. Contact sheet: `docs/bike-contact-sheet.png`.
+  - **The GP17 model was dropped:** it was exported from SketchUp with wireframe edge lines and looked poor. The mid and far versions are made from the MotoGP26 instead, so every bike on the grid matches.
+  - **The rider** is the game's existing rigged rider model ("motoman") in team leathers with the race helmet, so nothing new to download.
+  - **Engine sound:** no free racing-bike recording could be reached, so the V4 engine sound is synthesised (`assets/make_bike_engine.py`): a big-bang firing order, header resonances and cycle-to-cycle variation. A real recording can replace it later.
+- **Phase 1, physics** (`Bike` in `src/sim.js`):
+  - The rider leans and the bike rolls toward the lean at a limited rate.
+  - Weight transfer from the tyres' own forces gives wheelies and stoppies.
+  - The friction circle is applied at each tyre.
+  - Cornering ABS: the brakes leave each tyre the grip its share of the corner needs.
+  - Lean-sensitive traction control and anti-wheelie.
+  - Lowside, highside, front tuck and contact crashes, then remounting.
+  - Engine maps and a fuel use model.
+  - The bikes' own speed profile: lean and grip, the stoppie and the rear's limit under braking, the wheelie on the way out, and the flick rate in chicanes.
+- **Phase 2, on screen** (`src/bikegfx.js`):
+  - **Bike:** lean, wheelie, stoppie and slide pivots; spinning wheels; detail levels by distance.
+  - **Rider pose (IK):** hips slide to the inside, tucked or sitting up, hands on the grips, feet on the pegs, the inside knee out, the head turned into the corner.
+  - **Crashes:** the rider and the bike tumble separately.
+  - **Cameras:** a helmet camera with an adjustable lean (level, half or full), a tail camera, and a lower chase camera.
+  - **Track:** air fences at every close wall (built into the bikes' wall line), sparks from a sliding fallen bike, bike tyre marks and spray.
+- **Phase 3, controls and screen:**
+  - **Inputs:** steering is the lean on every input.
+  - **Assists:** lean assist (on by default), anti-wheelie, combined or separate rear brake (F / X button), and "Get back on" or "Crash ends race".
+  - **Bars:** the bias keys change traction control on a bike.
+  - **Dash:** the engine map, lean and the most this lap, the anti-wheelie light and a fuel bar.
+  - **Buttons:** bike labels on the touch and PC buttons.
+- **Phase 4, AI and race:**
+  - **Rider-sized racecraft:** gaps, following distances and pass commitment on straights. Off-line speeds are planned over the whole braking zone. Riders take back the throttle when they can't make the line, and keep to the edge on the cool-down lap and after a remount.
+  - **Race rules:** three to a row on the grid, no tyre stops, and a remounting rider rejoins only when the track behind is clear.
+- **Phase 5 (started):**
+  - The menu's **Cars / Bikes** switch.
+  - A fictional bike championship (six makers, eleven teams, 22 invented riders).
+  - The bike grid in the team picker, the showroom and the team cards.
+  - Separate time-trial and practice records, and a bike ghost that leans.
+- **Also fixed:** the car time-trial ghost played back three times too fast. Its samples were recorded every 0.15 s but played as if 0.05 s apart; old saved ghosts still play correctly.
+
+### Tests
+
+- **`test/bikephys.js`, all pass:**
+  - The wheelie lifts at about 1.25 g, the stoppie at about 1.53 g, and a flick takes 0.72 s.
+  - Every circuit laps 20–33% slower than the F1 car.
+  - Top speed reaches 343 km/h.
+  - The crash cases go down; traction control keeps the bike up.
+  - Remount, and "Crash ends race".
+- **`test/bikerace.js`:** 22 bikes on all 12 circuits, 3 laps, pass. That's 4 crashes in 36 race laps, about two in a full race.
+- **`test/bikevis.js`:** the browser checks: the bike race on screen, the dash, lean, cameras, crash and remount, and a car race afterwards.
+- **F1 simulation:** `test/simtest.js` gives identical results before and after.
+
+### Still to do
+
+- **Phase 4:**
+  - **Weekend format:** the sprint race and a qualifying format for bikes.
+  - **Penalties:** track limits and the Long Lap penalty.
+  - **Flag to flag:** swapping bikes when it rains.
+- **Phase 5:** the bike career and championship screens, the bike podium, team liveries with race numbers, and in-game credits.
+- **Phase 6:** online bike races, the final sweep and your device check.

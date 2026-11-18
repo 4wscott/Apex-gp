@@ -48,7 +48,7 @@ for (const id of ids) {
   ok(!b.down && ratio > 1.19 && ratio < 1.37, `${id}: bike lap ${((ratio - 1) * 100).toFixed(0)}% slower than the F1 car (target 20-35%; real gaps are 25-35%)`);
   ok(le < 0.03, `${id}: cornering matches the lean (g * tan lean) within 3%`);
 }
-ok(vmax * 3.6 > 330 && vmax * 3.6 < 366, `top speed ${(vmax * 3.6).toFixed(0)} km/h on the longest straight (target 340-365)`);
+if (!process.argv[2]) ok(vmax * 3.6 > 330 && vmax * 3.6 < 366, `top speed ${(vmax * 3.6).toFixed(0)} km/h on the longest straight (target 340-365)`);
 // --- crashes
 const T1 = T0;
 const tryCrash = (opts, setup, inp, secs = 2.5) => { const b = mk(T1, opts); b.place(st.i, 0, setup.v / 3.6); Object.assign(b, setup.state || {}); if (setup.env) b.env = setup.env; for (let t = 0; t < secs && !b.down; t += dt) { b.step(dt, inp); b.x = T1.px[st.i]; b.y = T1.py[st.i]; b.h = Math.atan2(T1.ty[st.i], T1.tx[st.i]); } return b.down ? b.down.kind : null; };

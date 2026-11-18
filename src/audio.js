@@ -17,7 +17,7 @@ class AudioEngine {
     this.other = this.makeEngine(0.6);
     // real engine recordings: decode, then attach to both engine voices
     if (typeof ENGINE_LOOPS !== 'undefined') Promise.all(ENGINE_LOOPS.map((l) => fetch(l.data).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => ({ rpm: l.rpm, buf }))))
-      .then((loops) => { this.loops = loops; [this.player, this.other].forEach((e) => this.attachLoops(e)); }).catch(() => {});
+      .then((loops) => { this.carLoops = loops; if (this.series === 'bike') return; this.loops = loops; [this.player, this.other].forEach((e) => this.attachLoops(e)); }).catch(() => {});
     const mkNoise = (type, f, q) => {
       const src = ctx.createBufferSource(); src.buffer = nb; src.loop = true;
       const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
@@ -61,8 +61,20 @@ class AudioEngine {
     if (pan) { g.connect(pan); pan.connect(this.out); } else g.connect(this.out);
     return { g, lp, oscs, whine, wg, pan, level, cut: 0, rbp, rg, synth, low, high };
   }
+  // the bike series: its own engine (a V4 with the big-bang firing order), swapped in for the F1 loops
+  setSeries(series) {
+    if (!this.ctx || this.series === series) return; this.series = series;
+    const swap = (loops) => { [this.player, this.other].forEach((e) => { if (e.samples) e.samples.forEach((sm) => { try { sm.src.stop(); } catch (x) { /* already stopped */ } sm.g.disconnect(); }); e.samples = null; }); this.loops = loops; [this.player, this.other].forEach((e) => this.attachLoops(e)); };
+    if (series === 'bike') {
+      if (this.bikeLoops) { swap(this.bikeLoops); return; }
+      if (typeof BIKE_ENGINE_LOOPS === 'undefined') return;
+      const ctx = this.ctx; this.carLoops = this.carLoops || this.loops;
+      Promise.all(BIKE_ENGINE_LOOPS.map((l) => fetch(l.data).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no))).then((buf) => ({ rpm: l.rpm, buf }))))
+        .then((loops) => { this.bikeLoops = loops; if (this.series === 'bike') swap(loops); }).catch(() => {});
+    } else if (this.carLoops) swap(this.carLoops);
+  }
   attachLoops(e) {
-    const ctx = this.ctx;
+    const ctx = this.ctx; if (!this.loops) return;
     e.samples = this.loops.map((l) => {
       const src = ctx.createBufferSource(); src.buffer = l.buf; src.loop = true;
       const g = ctx.createGain(); g.gain.value = 0; src.connect(g); g.connect(e.lp); src.start(ctx.currentTime + Math.random() * 0.05);
@@ -72,7 +84,7 @@ class AudioEngine {
   }
   setEngine(e, rpm, thr, gain, panV = 0) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime, f = (rpm / 60) * 3; // 6 cylinders: 3 firing pulses per rev
+    const t = this.ctx.currentTime, f = (rpm / 60) * (this.series === 'bike' ? 2 : 3); // 6 cylinders: 3 firing pulses per rev (a bike's 4: 2)
     e.oscs.forEach(({ o, mul }) => o.frequency.setTargetAtTime(f * mul, t, 0.015));
     e.lp.frequency.setTargetAtTime(600 + thr * 3400 + rpm * 0.12, t, 0.03);
     const cut = e.cut > 0 ? 0.25 : 1;
@@ -401,7 +413,9 @@ class Input {
         <button type="button" id="t-thr" aria-label="Throttle">Throttle</button>
       </div>
       <div class="t-top">
-        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('reset', 'Reset')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('pit', 'PIT')}
+        ${btn('pause', 'II', 'aria-label="Pause"')}${btn('reset', 'Reset')}${btn('camera', 'Cam')}${btn('lookBack', 'Back')}${o.series === 'bike'
+          ? `${btn('ers', 'Map', 'aria-label="Engine map"')}${btn('overtake', 'Rear', 'aria-label="Rear brake (hold)"')}${btn('biasR', 'TC−', 'aria-label="Traction control down"')}${btn('biasF', 'TC+', 'aria-label="Traction control up"')}`
+          : `${btn('ers', 'ERS')}${btn('overtake', 'OT')}${o.aeroAuto ? '' : btn('aero', 'Aero')}${btn('biasR', 'BB−')}${btn('biasF', 'BB+')}${btn('pit', 'PIT')}`}
       </div>`;
     const sens = o.touchSens || 1, buzz = (ms) => { if (o.haptics && navigator.vibrate) try { navigator.vibrate(ms); } catch (e) { /* not supported */ } };
     this.buzz = buzz;
