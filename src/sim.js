@@ -1130,15 +1130,10 @@ class Race {
     this.lightsOutAt = opts.lightsOutAt ?? 3 + 5 * 1 + 0.4 + Math.random() * 1.6; // 5 lights 1 s apart, then a random hold
     this.cars = []; this.ais = []; this.events = []; this.finishOrder = []; this.quali = !!opts.quali;
     this.sectorLen = track.length / 3; this.bestLap = Infinity; this.bestSectors = [Infinity, Infinity, Infinity];
-    const rng = mulberry32(hashStr(track.spec.id) ^ 0x5eed);
     const T = track;
     // grid: player starts at chosen slot; AI order by skill with a little shuffle
-    const entries = [];
-    TEAMS.forEach((tm) => tm.drivers.forEach((dr) => entries.push({ tm, dr })));
-    const outCode = opts.replaceCode || opts.driver.code;
-    let field = entries.filter((e) => !(e.tm.id === opts.team.id && e.dr.code === outCode));
-    field.sort((a, b) => b.dr.skill * b.tm.perf.a - a.dr.skill * a.tm.perf.a + (rng() - 0.5) * 0.02);
-    field = field.slice(0, this.mode === 'trial' ? 0 : opts.opponents);
+    const { field: f0, rng } = raceField(track, opts);
+    let field = this.mode === 'trial' ? [] : f0;
     const playerEntry = { tm: opts.team, dr: opts.driver, player: true };
     // online: other human players, driven by network updates
     if (opts.remotes) field = opts.remotes.map((r) => ({ tm: r.team, dr: r.driver, remote: r.key }));
@@ -1631,6 +1626,16 @@ class Race {
   }
 }
 
+// the AI drivers in a race (the best N by skill and car, a little shuffle), without the player's seat. Shared with the
+// race weekend, so qualifying classifies exactly the field that will race
+function raceField(track, opts) {
+  const rng = mulberry32(hashStr(track.spec.id) ^ 0x5eed), entries = [];
+  TEAMS.forEach((tm) => tm.drivers.forEach((dr) => entries.push({ tm, dr })));
+  const outCode = opts.replaceCode || opts.driver.code;
+  const field = entries.filter((e) => !(e.tm.id === opts.team.id && e.dr.code === outCode));
+  field.sort((a, b) => b.dr.skill * b.tm.perf.a - a.dr.skill * a.tm.perf.a + (rng() - 0.5) * 0.02);
+  return { field: field.slice(0, opts.opponents ?? 21), rng };
+}
 // one flying lap by a reference AI at pace 1.0, used to derive qualifying times
 const _refLaps = {};
 function referenceLap(T) {
@@ -1655,4 +1660,4 @@ function aiQualiTimes(T, field, aiPace, seed) {
     return { code: dr.code, time: (ref / (pace * aiPace * carF)) * (1 + (rng() - 0.5) * 0.008) };
   });
 }
-if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };
+if (typeof module !== 'undefined') module.exports = { wetGrip, pitLane, referenceLap, aiQualiTimes, raceField, COMPOUNDS, Race, TEAMS, TRACKS, THEMES, buildTrack, Car, AIDriver, collideCars, trackDistance, CAR_BASE, ERS_MODES, SOC_MAX, angleDiff, clamp, lerp, mulberry32 };

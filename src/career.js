@@ -233,9 +233,9 @@ const Career = {
         <div class="next-race"><canvas width="240" height="150" id="cr-map"></canvas><div><b class="c-name">${T.spec.name}</b><br><span class="c-meta">${T.spec.country} · ${(T.length / 1000).toFixed(3)} km · ${d.laps} laps</span><br><span class="c-style">${T.spec.style}</span></div></div>
         <p class="hint forecast">Forecast: ${{ dry: '☀ Dry', mixed: '🌦 Rain expected during the race', wet: '🌧 Wet race' }[this.forecast()]}</p>
         ${this.isSprint() ? `<p class="sprint-tag">SPRINT WEEKEND · a ${Math.max(2, Math.round(d.laps / 3))}-lap sprint (points 8 to 1) before the Grand Prix</p>` : ''}
-        ${this.isSprint() && d.sprintDone !== d.round ? `<div class="actions"><button type="button" class="btn primary" id="cr-sprint">Sprint race</button></div>`
-        : `${this.isSprint() && d.lastSprint ? `<p class="hint">Sprint: P${d.lastSprint.pos}, ${d.lastSprint.pts} pts. Now the Grand Prix.</p>` : ''}<div class="actions"><button type="button" class="btn primary" id="cr-quali">Qualifying</button><button type="button" class="btn" id="cr-skip">Skip to race</button></div>`}
-        <p class="hint">Qualifying: two timed laps, your best counts. Skip and you start from the back half of the grid.</p></div>`}
+        ${(() => { const w = Weekend.load(), nx = w && w.sessions[w.idx];
+          return `<div class="actions"><button type="button" class="btn primary" id="cr-weekend">${w ? `Continue the weekend: ${WK_NAMES[nx]}` : 'Start the weekend'}</button>${w ? '' : '<button type="button" class="btn" id="cr-skip">Skip to the race</button>'}</div>
+          <p class="hint">${(w ? w.sessions : (this.isSprint() ? ['P', 'SQ', 'S', 'Q1', 'Q2', 'Q3', 'R'] : ['P', 'Q1', 'Q2', 'Q3', 'R'])).map((k) => WK_NAMES[k]).join(' → ')}. Practice and each part of qualifying can be simulated. From qualifying on the setup is in parc fermé. Skip straight to the race and you start from the back half of the grid.</p>`; })()}</div>`}
       <div class="group livery-ed"><h2>My car</h2>
         <div class="row"><label>Colours</label><div class="ctl lv-cols"><input type="color" id="lv-c1" aria-label="Main colour"><input type="color" id="lv-c2" aria-label="Second colour"><input type="color" id="lv-c3" aria-label="Accent colour"></div></div>
         ${this.cosRow('Pattern', 'lv-pattern', 'pattern', [['classic', 'Classic'], ['reversed', 'Reversed'], ['accent', 'Accent-led'], ['mono', 'Monochrome'], ['inverted', 'Inverted'], ['stealth', 'Stealth']])}
@@ -256,8 +256,7 @@ const Career = {
     $$('[data-up]', root).forEach((b) => (b.onclick = () => this.upgrade(b.dataset.up)));
     if ($('#cr-next')) $('#cr-next').onclick = () => this.nextSeason();
     $$('[data-offer]', root).forEach((b) => (b.onclick = () => this.acceptOffer(+b.dataset.offer)));
-    if ($('#cr-quali')) $('#cr-quali').onclick = () => this.startQuali();
-    if ($('#cr-sprint')) $('#cr-sprint').onclick = () => this.startSprint();
+    if ($('#cr-weekend')) $('#cr-weekend').onclick = () => { if (Weekend.load()) Weekend.hub(Weekend.w.done[Weekend.w.done.length - 1]); else Weekend.begin(); };
     // livery editor
     { const t = this.team(), L = d.livery || { c1: t.c1, c2: t.c2, c3: t.c3, pattern: 'classic', finish: t.matte ? 'matte' : 'gloss' };
       ['c1', 'c2', 'c3'].forEach((k) => { const el = $('#lv-' + k); el.value = L[k]; el.oninput = () => this.setLivery({ [k]: el.value }); });

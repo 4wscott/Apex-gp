@@ -115,6 +115,6 @@ Sprint Qualifying → Sprint → Qualifying → Race).
 
 - [x] Phase 1: driving feel and force feedback (19 Nov: steering torque, load transfer, Logitech WebHID force feedback (untested on real hardware), continuous and trigger rumble, self-centring keys, shake; tests: test/ffb.js, test/smoke.js)
 - [x] Phase 2: car setup depth (19 Nov: 19 items in 7 groups changing the physics, presets, saved per circuit, balance meter, engineer advice on the radio and in the setup screen; tests: test/setupphys.js, test/setupui.js)
-- [ ] Phase 3: full race weekends with practice and parc fermé
+- [x] Phase 3: full race weekends with practice and parc fermé (19 Nov: Practice (timed, field on track) → Q1/Q2/Q3 knockout → Race for Grand Prix (Weekend setting: race only / qualifying + race / full) and every career round (sprint rounds: Practice → Sprint Shootout → Sprint → Q1-Q3 → Race), weekend hub, simulate any session, parc fermé with pit lane start; test: test/weekend.js)
 - [ ] Phase 4: smarter AI racecraft and strategy
 - [ ] Phase 5: TV-style broadcast cameras and replays

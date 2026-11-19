@@ -140,6 +140,9 @@ const Setup = {
   set(change) {
     const id = this.trackNow(), su = Object.assign(this.get(id), change);
     if (App.session && !App.setupAllowed()) { Hud.flash(App.setupLockText()); this.sync(); return; }
+    // parc fermé: ask first; going ahead means a pit lane start
+    const pf = Weekend.pfBlocks(change);
+    if (pf) { this.pfPending = change; $('#su-pf-text').textContent = pf; $('#su-pf').hidden = false; this.sync(); return; }
     this.save(id, su); this.sync();
     if (App.session) { this.apply(App.session.race.player, su); Hud.flash('Car setup changed'); }
   },
@@ -152,7 +155,7 @@ const Setup = {
     $('#su-bal-slow').style.left = pct(b.slow); $('#su-bal-fast').style.left = pct(b.fast);
     $('#su-effect').textContent = this.summary(su);
     $('#su-track').textContent = spec ? `Setup for ${spec.name}` : 'Setup';
-    const lock = App.session && !App.setupAllowed(); $('#su-lock').hidden = !lock; if (lock) $('#su-lock').textContent = App.setupLockText();
+    const lock = App.session && !App.setupAllowed(), note = lock ? App.setupLockText() : Weekend.pfNote(); $('#su-lock').hidden = !note; $('#su-lock').textContent = note;
     const P = App.session && App.session.race.player, adv = P && this.advise(P);
     $('#su-eng').hidden = !adv; if (adv) { $('#su-eng-text').textContent = 'Engineer: ' + adv.text; $('#su-eng-apply').hidden = !adv.change; this.pending = adv.change; }
   },
@@ -160,6 +163,8 @@ const Setup = {
     this.build();
     $('#su-reset').onclick = () => this.set(Object.assign({}, SETUP_STD));
     $$('[data-preset]').forEach((b) => (b.onclick = () => this.preset(b.dataset.preset)));
+    $('#su-pf-ok').onclick = () => { $('#su-pf').hidden = true; Weekend.breakPF(); if (this.pfPending) this.set(this.pfPending); this.pfPending = null; };
+    $('#su-pf-no').onclick = () => { $('#su-pf').hidden = true; this.pfPending = null; this.sync(); };
     $('#su-eng-apply').onclick = () => { if (this.pending) { this.set(this.pending); Hud.flash('Engineer\'s change applied'); } };
   },
 };

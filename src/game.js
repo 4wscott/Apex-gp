@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', triggerRumble: true, wheelFfb: 0.7, wheelDamp: 0.3, wheelInvert: false, setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', pracLen: 10, triggerRumble: true, wheelFfb: 0.7, wheelDamp: 0.3, wheelInvert: false, setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -526,7 +526,7 @@ const App = {
       this.buildScene(T, cfg && cfg.tod);
       this.previewCar = null; this.fireworks = null;
       const team = cfg ? cfg.team : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
-      const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
+      const opp = mode === 'trial' ? 0 : mode === 'practice' ? (cfg && cfg.wkSession ? cfg.opponents : settings.traffic) : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
       const race = new Race(T, {
         mode, weather: cfg ? cfg.weather || 'dry' : settings.weather, laps: cfg ? cfg.laps : settings.laps, opponents: opp, team, driver, gridSlot, aiPace: settings.aiPace, compound: settings.compound,
@@ -544,7 +544,8 @@ const App = {
       this.setupCockpit(race.player);
       this.setupRealism(race.player);
       if (mode === 'trial' && !(cfg && cfg.quali)) this.setupGhost(T, team);
-      $('#p-finishq').hidden = !(cfg && cfg.quali);
+      $('#p-finishq').hidden = !(cfg && (cfg.quali || cfg.wkSession === 'P')); $('#p-finishq').textContent = cfg && cfg.wkSession ? 'End session' : 'Finish qualifying';
+      Weekend.startNote(race);
       this.buildRacingLine(T);
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
       this.pf = null; this.resScale = this.resScale || 1;
@@ -629,6 +630,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    delete $('#results').dataset.wk;
     FFB.release(); // the wheel gets its own centring back
     MouseWheel.show(false);
     store.set('running', null);
@@ -701,6 +703,8 @@ const App = {
     if (this.paused) FFB.idle();
     if (!this.paused) {
       this.applyPlayerControls(inp, P, race);
+      if (this.cfg && this.cfg.pitStart && race.mode === 'race' && (race.phase !== 'green' || race.greenT < 4)) { inp.throttle = 0; inp.brake = 1; } // pit lane start: held until the field has gone
+      Weekend.tick(S, race);
       const h = 1 / 360; S.acc += dt; let steps = 0;
       while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
       if (steps >= 40) S.acc = 0;
@@ -1028,7 +1032,7 @@ const App = {
           if (!pb || (pb.layout || 1) !== race.track.layout || e.time < pb.time) { store.set(k, { time: e.time, layout: race.track.layout }); $('#h-pb-wrap').hidden = false; $('#h-pb').textContent = fmtTime(e.time); if (pb) Hud.flash('New practice best'); }
         }
         S.ghostRec = []; S.ghostT = 0;
-        if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) (this.cfg && this.cfg.gp ? Weekend : Career).finishQuali(race); }, 1800); }
+        if (race.quali && race.player.lapTimes.length >= 2 && !S.qualiDone) { S.qualiDone = true; setTimeout(() => { if (this.session === S) { if (this.cfg && this.cfg.wkSession) Weekend.endSession(race); else Career.finishQuali(race); } }, 1800); }
       } else if (e.type === 'finish' && e.car === race.player) { Hud.banner(`Chequered flag: P${e.pos}`, 'go'); this.audio.cheer(e.pos <= 3 ? 1.4 : 1); if (race.mode === 'race' && !this.fireworks) this.fireworks = new Fireworks(this.worldRoot, race.track, GFX.mainStand); }
     }
     race.events.length = 0;
@@ -1572,7 +1576,7 @@ const Hud = {
     $('#h-time').classList.toggle('invalid', race.mode !== 'race' && !P.lapValid && P.lap >= 1);
     $('#h-delta').textContent = this.delta === null ? '' : (this.delta < 0 ? '-' : '+') + Math.abs(this.delta).toFixed(2);
     $('#h-delta').className = this.delta === null ? '' : this.delta < 0 ? 'good' : 'bad';
-    $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : race.quali ? 'Qualifying' : race.mode === 'practice' ? 'Practice' : 'Time trial';
+    $('#h-pos').textContent = race.mode === 'race' ? `P${race.standings().indexOf(P) + 1}` : Weekend.hudLabel(race) || (race.quali ? 'Qualifying' : race.mode === 'practice' ? 'Practice' : 'Time trial');
     // sectors in progress
     const secs = $$('.sec');
     secs.forEach((el, i) => {
@@ -1923,39 +1927,6 @@ function crashCheck() {
   setTimeout(() => { const t = $('#pad-toast'); if (!t) return; t.textContent = 'The game closed unexpectedly last time. If it keeps happening, try Settings → Graphics → Smooth.'; t.hidden = false; setTimeout(() => (t.hidden = true), 7000); }, 1500);
 }
 
-// ---- Grand Prix weekend: a two-lap qualifying run, then the race from the grid it sets -----------
-const Weekend = {
-  base() { const team = TEAMS.find((t) => t.id === settings.team); return { team, driver: team.drivers.find((d) => d.code === settings.driver) || team.drivers[0], track: settings.track, weather: settings.weather, gp: true }; },
-  start() { App.start(Object.assign(this.base(), { mode: 'trial', quali: true })); },
-  finishQuali(race) {
-    const best = race.player.bestLap, me = race.player.driver, all = [];
-    TEAMS.forEach((tm) => tm.drivers.forEach((dr) => { if (!(tm.id === race.player.team.id && dr.code === me.code)) all.push({ tm, dr }); }));
-    const grid = aiQualiTimes(race.track, all, settings.aiPace, (Math.random() * 1e9) | 0).map((t, i) => ({ ...t, tm: all[i].tm, dr: all[i].dr }));
-    grid.push({ code: me.code, time: isFinite(best) ? best : Infinity, me: true, tm: race.player.team, dr: me });
-    grid.sort((a, b) => a.time - b.time);
-    // the race takes the opponents count from the menu: keep the fastest of them, the player always included
-    const keep = grid.filter((g) => g.me || grid.filter((x) => !x.me).indexOf(g) < settings.opponents);
-    const body = $('#res-body'); body.innerHTML = '';
-    const pole = keep[0].time;
-    keep.forEach((g, i) => {
-      const tr = document.createElement('tr'); if (g.me) tr.className = 'me';
-      tr.innerHTML = `<td>${i + 1}</td><td><span class="swatch" style="background:${g.tm.c1}"></span>${g.dr.name}</td><td>${g.tm.name}</td><td class="num">${isFinite(g.time) ? fmtTime(g.time) : 'No time'}</td><td class="num">${i && isFinite(g.time) ? fmtGap(g.time - pole) : ''}</td><td></td><td></td>`;
-      body.appendChild(tr);
-    });
-    $('#res-head').innerHTML = '<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Best lap</th><th>Gap</th><th></th><th></th></tr>';
-    const pos = keep.findIndex((g) => g.me) + 1;
-    $('#res-title').textContent = `Qualifying: you start P${pos}`;
-    $('#r-again').textContent = 'Start the race'; $('#r-menu').textContent = 'Main menu'; $('#r-high').hidden = true;
-    this.pendingGrid = keep.map((g) => g.dr.code);
-    Radio.say(pos === 1 ? 'Pole position! Brilliant lap.' : `P${pos} on the grid. Good work, now the race.`, 2);
-    $('#results').hidden = false; App.audio.silence();
-  },
-  startRace() {
-    App.quit();
-    setTimeout(() => App.start(Object.assign(this.base(), { mode: 'race', laps: settings.laps, opponents: settings.opponents, gridOrder: this.pendingGrid })), 50);
-  },
-};
-
 // ---- menu -----------------------------------------------------------------------
 const Menu = {
   // side panels over the showroom: circuits | teams | opts | career | online | settings (null closes)
@@ -1965,11 +1936,12 @@ const Menu = {
     document.body.classList.toggle('race-settings', on);
     $('#menu').hidden = !on; $('#pause').hidden = on || !App.paused;
     if (on) this.drawer('settings'); else delete $('#menu').dataset.drawer;
+    if (!on && Weekend.reopen) Weekend.backToHub();
   },
   drawer(d) {
     const m = $('#menu');
     if (!d && App.session) { this.raceSettings(false); return; }
-    if (!d) { delete m.dataset.drawer; return; }
+    if (!d) { delete m.dataset.drawer; if (Weekend.reopen) Weekend.backToHub(); return; }
     m.dataset.drawer = d;
     $('#drawer-title').textContent = { circuits: 'Circuit', teams: 'Team and driver', opts: 'Race settings', career: 'Career', online: 'Online race', settings: 'Settings' }[d];
     if (d === 'opts') $('#race-opts').open = true;
@@ -2095,7 +2067,7 @@ const Menu = {
     $$('.pick .arr').forEach((b) => (b.onclick = () => this.cycle(b.closest('.pick').id === 'pick-circuit' ? 'circuit' : 'team', +b.dataset.d)));
     $('#open-opts').onclick = () => this.drawer('opts');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
-    $('#start').onclick = () => { if (settings.touchSteer === 'tilt' && (IS_TOUCH || settings.touch === 'on')) Tilt.ask(); (settings.mode === 'race' && settings.weekend === 'quali' ? Weekend.start() : App.start()); };
+    $('#start').onclick = () => { if (settings.touchSteer === 'tilt' && (IS_TOUCH || settings.touch === 'on')) Tilt.ask(); (settings.mode === 'race' && settings.weekend !== 'race' ? Weekend.begin() : App.start()); };
     Setup.init();
     // drag the empty showroom to spin the car
     const menu = $('#menu');
@@ -2142,14 +2114,17 @@ const Menu = {
     $('#p-quit').onclick = () => App.quit();
     $('#r-again').onclick = () => {
       if (App.cfg && App.cfg.online) { if (Net.host) Net.startRace(); return; }
-      if (App.cfg && App.cfg.quali && App.cfg.gp) { Weekend.startRace(); return; }
+      if ($('#results').dataset.wk) { Weekend.drive(); return; } // the weekend hub: the next session
+      if (App.cfg && App.cfg.wkSession === 'S' && Weekend.w) { const w = Weekend.w; w.done.push('S'); w.idx++; Weekend.save(); Weekend.hub('S'); return; } // after the sprint: on with the weekend
       if (App.cfg && App.cfg.quali) { const g = Career.pendingGrid; App.quit(); setTimeout(() => Career.startRace(g), 50); return; }
       if (App.cfg && App.cfg.career) { $('#r-menu').hidden = false; App.quit(); return; } // (sprints are recorded when the results show)
       App.restart();
     };
-    $('#r-menu').onclick = () => App.quit();
+    $('#r-menu').onclick = () => { const wk = $('#results').dataset.wk; delete $('#results').dataset.wk; $('#results').hidden = true; if (wk && Weekend.w && Weekend.w.kind !== 'career') Weekend.clear(); if (App.session) App.quit(); else { $('#menu').hidden = false; Career.render(); } };
     $('#podium-ui').addEventListener('pointerdown', (e) => { e.preventDefault(); Podium.end(); }); // tap or click skips the ceremony
-    $('#p-finishq').onclick = () => { $('#pause').hidden = true; App.paused = false; App.session.qualiDone = true; (App.cfg && App.cfg.gp ? Weekend : Career).finishQuali(App.session.race); };
+    $('#p-finishq').onclick = () => { $('#pause').hidden = true; App.paused = false; App.session.qualiDone = true; if (App.cfg && App.cfg.wkSession) Weekend.endSession(App.session.race); else Career.finishQuali(App.session.race); };
+    $('#r-skip').onclick = () => Weekend.skip();
+    $('#r-setup').onclick = () => Weekend.openSetup();
     Career.init();
     this.buildBinds();
     this.sync();
@@ -2248,9 +2223,10 @@ const Menu = {
     $('[data-set="grid"]').closest('.row').hidden = online || prac; $('#laps').closest('.row').hidden = prac; $('#traffic-row').hidden = !prac;
     const cmp = { S: 'Soft', M: 'Medium', H: 'Hard', I: 'Inters', W: 'Wets' }[settings.compound] || 'Medium', wx = { dry: 'Dry', mixed: 'Changing weather', wet: 'Wet' }[settings.weather];
     $('#opts-sum').textContent = settings.mode === 'race' ? `${settings.laps} laps · ${settings.opponents} rivals · ${wx} · ${cmp} tyres` : prac ? `${settings.traffic ? settings.traffic + ' cars on track' : 'Track to yourself'} · ${wx} · ${cmp} tyres` : online ? `${settings.laps} laps · ${wx} · ${cmp} tyres` : `${cmp} tyres`;
-    const wk = settings.mode === 'race' && settings.weekend === 'quali';
+    const wk = settings.mode === 'race' && settings.weekend !== 'race';
     $('#weekend-row').hidden = settings.mode !== 'race'; if (settings.mode === 'race') $('[data-set="grid"]').closest('.row').hidden = wk;
-    if (wk) $('#opts-sum').textContent = 'Qualifying + ' + $('#opts-sum').textContent;
+    $('#praclen-row').hidden = !(settings.mode === 'race' && settings.weekend === 'full');
+    if (wk) $('#opts-sum').textContent = (settings.weekend === 'full' ? 'Full weekend · ' : 'Qualifying + ') + $('#opts-sum').textContent;
     Setup.sync();
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
     $('#pc-name').textContent = spec.name; $('#pc-meta').textContent = spec.country;
@@ -2329,5 +2305,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.FFB = FFB; window.Setup = Setup; window.SETUP_STD = SETUP_STD; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
+window.App = App; window.FFB = FFB; window.Setup = Setup; window.Weekend = Weekend; window.SETUP_STD = SETUP_STD; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
