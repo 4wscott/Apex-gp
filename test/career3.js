@@ -54,7 +54,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   const ed = await ev(() => ({ locked: document.querySelectorAll('#career .livery-ed [data-lock]').length, chrome: !!document.querySelector('#lv-finish [data-v="chrome"]:not([disabled])') }));
   ok(ed.locked === 0 && ed.chrome, 'livery editor: unlocked styles are selectable');
   await ev(() => { document.querySelector('#lv-finish [data-v="chrome"]').click(); document.querySelector('#lv-helmet [data-v="chequer"]').click(); document.querySelector('#lv-number [data-v="gold"]').click(); });
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(500); await ev(() => Career.refreshCar()); // repaint now (the editor waits for the pickers to settle)
   const lv = await ev(() => ({ lv: Career.livery(), metal: App.previewCar && App.previewCar.modelBody ? App.previewCar.modelBody.material.metalness : App.previewCar && App.previewCar.paint && App.previewCar.paint.metalness }));
   console.log(JSON.stringify(lv));
   ok(lv.lv.finish === 'chrome' && lv.lv.helmet === 'chequer' && lv.lv.numStyle === 'gold' && lv.metal > 0.8, 'chrome finish, chequered helmet and gold numbers on the showroom car');

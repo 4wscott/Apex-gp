@@ -7,7 +7,7 @@ const { open } = require('./visualbase.js');
 // the shared page setup (local build, three.js from the scratchpad, saved settings for this version)
 const page=await open(br,{quality:0,mode:'race',track:'parco',opponents:3,laps:2},{viewport:{width:1280,height:720}});const errs=page.errs;
 // start like a user: click the Start button
-await page.evaluate(()=>setTimeout(()=>document.querySelector('#start').click(),0));await page.waitForTimeout(3000);
+await page.evaluate(()=>setTimeout(()=>document.querySelector('#start').click(),0));await page.waitForFunction(()=>window.App&&App.session&&App.session.race,null,{timeout:240000});await page.waitForTimeout(1000);
 const st=()=>page.evaluate(()=>{const P=App.session&&App.session.race.player;return P?{phase:App.session.race.phase,kmh:Math.round(P.vx*3.6),steer:+P.delta.toFixed(3),thr:+P.throttle.toFixed(2),brk:+P.brake.toFixed(2),device:App.input.lastDevice}:null;});
 await page.evaluate(()=>{App.session.race.lightsT=99;});
 // wait for lights out
