@@ -1995,7 +1995,49 @@ function loadModels() {
   const plain = (g) => { g.scene.traverse((o) => { if (!o.geometry) return; for (const [k, a] of Object.entries(o.geometry.attributes)) if (a.isInterleavedBufferAttribute) o.geometry.setAttribute(k, a.clone()); }); return g; };
   const get = (k) => fetch(MODEL_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no))).then(plain);
   return Promise.all([get('helmet'), get('driver'), MODEL_DATA.car ? get('car') : null, MODEL_DATA.carhq ? get('carhq') : null, MODEL_DATA.crew ? get('crew') : null]).then(([h, d, c, hq, cr]) => { GFX.models = { helmet: prepHelmet(h.scene), driver: prepDriver(d.scene), car: c ? prepCar(c.scene) : null, carhq: hq ? prepCar(hq.scene) : null, crew: cr ? prepDriver(cr.scene) : null }; })
+    .then(() => (typeof CAR27_DATA === 'undefined' || !GFX.models ? null : Promise.all(['hq', 'game'].map((k) => fetch(CAR27_DATA[k]).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, no) => L.parse(b, '', ok, no))).then(plain))).then(([hq, gm]) => { GFX.models.car27 = { hq: prepCar27(hq.scene), game: prepCar27(gm.scene) }; })))
     .catch((e) => console.warn('driver models unavailable', e));
+}
+// the 2027 car: one geometry per finish (paint, carbon, metal, glass, light), dequantized and baked into the car frame
+function prepCar27(root) {
+  root.updateMatrixWorld(true); const out = {};
+  root.traverse((o) => {
+    if (!o.isMesh) return; const g = new THREE.BufferGeometry(), a = o.geometry.attributes.position, f = new Float32Array(a.count * 3);
+    for (let i = 0; i < a.count; i++) { f[i * 3] = a.getX(i); f[i * 3 + 1] = a.getY(i); f[i * 3 + 2] = a.getZ(i); }
+    g.setAttribute('position', new THREE.BufferAttribute(f, 3)); g.setIndex(o.geometry.index.clone()); g.applyMatrix4(o.matrixWorld);
+    g.computeVertexNormals(); g.computeBoundingBox(); g.computeBoundingSphere();
+    out[o.material.name] = g;
+  });
+  return out;
+}
+// the 2027 car's paint: the team's colour and design (liveryDesign), the race number on the nose and a sponsor on each
+// sidepod, worked out from the position on the body (the model has no usable texture layout)
+function car27Decals(team, num) {
+  const mk = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.userData.keep = true; return t; };
+  const ink = lum(team.c1) > 0.5 ? '#111317' : '#ffffff', sp = GFX.tex.sponsors[hashStr(team.id) % GFX.tex.sponsors.length];
+  const numT = mk(256, 128, (g, w, h) => { g.font = '900 104px "Saira Condensed", Arial Black, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = team.numStyle === 'gold' ? '#ffcf3a' : ink; g.fillText(String(num), w / 2, h / 2 + 6); });
+  const spT = mk(512, 128, (g, w, h) => { g.font = '800 74px "Saira Condensed", Arial Black, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = ink; g.fillText(sp[0], w / 2, h / 2 + 4); });
+  return { numT, spT };
+}
+function car27Paint(team, num, baseId, geo, FIN) {
+  const mat = new THREE.MeshPhysicalMaterial(Object.assign({ color: team.c1, roughness: team.matte ? 0.5 : 0.3, metalness: 0.05, clearcoat: team.matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN || {}));
+  liveryDesign(mat, team, baseId, geo);
+  const D = car27Decals(team, num), prev = mat.onBeforeCompile, k0 = mat.customProgramCacheKey();
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(mat, sh, r);
+    sh.uniforms.uNumT = { value: D.numT }; sh.uniforms.uSpT = { value: D.spT };
+    if (!/varying vec3 vLp;/.test(sh.vertexShader)) sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLp;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvLp = position;');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vLn;').replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\nvLn = objectNormal;');
+    if (!/varying vec3 vLp;/.test(sh.fragmentShader)) sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vLp;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vLn; uniform sampler2D uNumT, uSpT;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+      { vec3 n = normalize(vLn); vec2 uv = vec2(-1.0); float which = 0.0;
+        if (n.y > 0.55 && vLp.x > 1.72 && vLp.x < 2.32 && abs(vLp.z) < 0.15) { uv = vec2((0.15 - vLp.z) / 0.3, (2.32 - vLp.x) / 0.6); which = 1.0; } // read from in front of the car
+        else if (abs(n.z) > 0.55 && vLp.x > -0.95 && vLp.x < 0.25 && vLp.y > 0.26 && vLp.y < 0.56) { uv = vec2(n.z > 0.0 ? (vLp.x + 0.95) / 1.2 : (0.25 - vLp.x) / 1.2, (vLp.y - 0.26) / 0.3); which = 2.0; }
+        if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) { vec4 t = which > 1.5 ? texture2D(uSpT, uv) : texture2D(uNumT, uv); diffuseColor.rgb = mix(diffuseColor.rgb, t.rgb, t.a); } }`);
+  };
+  mat.customProgramCacheKey = () => k0 + '-car27';
+  return mat;
 }
 // helmet parts baked into car space: front faces +x, about 0.31 m long, centred on the head pivot
 function prepHelmet(root) {
@@ -2158,7 +2200,7 @@ function makeAvatar(team, body) {
   return { root: pivot, ik, hands, bones };
 }
 function liveryTexture(team, num, hi) {
-  if (GFX.models && GFX.models.car) return memoTex('blank', () => canvasTex(4, 4, (g) => { g.fillStyle = '#888'; g.fillRect(0, 0, 4, 4); })); // hidden body: no livery needed
+  if (GFX.models && (GFX.models.car || GFX.models.car27)) return memoTex('blank', () => canvasTex(4, 4, (g) => { g.fillStyle = '#888'; g.fillRect(0, 0, 4, 4); })); // hidden body: no livery needed
   return memoTex('lv' + team.id + num + (hi ? 'h' : ''), () => liveryTexture0(team, num, hi));
 }
 function liveryTexture0(team, num, hi) {
@@ -2345,7 +2387,7 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   const FIN = { chrome: { roughness: 0.12, metalness: 0.92, clearcoat: 1 }, gold: { roughness: 0.2, metalness: 0.88, clearcoat: 1 }, carbon: { roughness: 0.42, metalness: 0.2, clearcoat: 0.6 } }[team.finish] || null;
   // with the detailed car model loaded, the built-in body's wings, end plates, shoulders and arms are made hidden below:
   // they get one shared plain material instead of painted pictures nobody sees (less memory, a quicker race start)
-  const modelCar = !!(GFX.models && GFX.models.car), hidden = (GFX.hiddenMat = GFX.hiddenMat || new THREE.MeshBasicMaterial({ color: 0x222222 }));
+  const modelCar = !!(GFX.models && (GFX.models.car || GFX.models.car27)), hidden = (GFX.hiddenMat = GFX.hiddenMat || new THREE.MeshBasicMaterial({ color: 0x222222 }));
   const paint = new THREE.MeshPhysicalMaterial(Object.assign({ map: liveryTexture(team, num, hero), normalMap: modelCar ? null : panelNormalMap(), normalScale: new THREE.Vector2(0.6, 0.6), roughness: matte ? 0.55 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.9, clearcoatRoughness: 0.06 }, FIN));
   const accent = new THREE.MeshPhysicalMaterial({ color: team.c2, roughness: matte ? 0.5 : 0.34, metalness: 0.05, clearcoat: matte ? 0.1 : 0.8 });
   let fwEndR = null;
@@ -2420,7 +2462,18 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
   });
   // imported 2026 car body replaces the code-built bodywork (wheels, driver, wheel and mirrors stay)
   let modelBody = null;
-  if (M && M.car) {
+  if (M && M.car27) {
+    const keep = new Set([hans, shoulders, ...mirrors]);
+    body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
+    fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;
+    const C = M.car27, near = !(PHONE_GFX && !hero), L0 = near ? C.hq : C.game;
+    const mats = { paint: car27Paint(team, num, team0.id, C.hq.paint, FIN), carbon: GFX.mats.carbon, metal: new THREE.MeshStandardMaterial({ color: 0x8d949b, metalness: 0.8, roughness: 0.35 }), glass: GFX.mats.visor,
+      light: new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 0.6 }), light2: new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0xffffff, emissiveIntensity: 0.3 }) };
+    const parts = [];
+    for (const k of Object.keys(C.hq)) { if (!mats[k]) continue; const mm = new THREE.Mesh(L0[k] || C.hq[k], mats[k]); mm.castShadow = mm.receiveShadow = k !== 'glass' && k !== 'light' && k !== 'light2'; mm.userData.lod = [C.hq[k], C.game[k] || C.hq[k]]; body.add(mm); parts.push(mm); }
+    modelBody = parts.find((p) => p.material === mats.paint) || parts[0]; modelBody.userData.parts = parts;
+    mirrors.forEach((m, k) => { m.position.set(0.55, 0.74, (k === 0 ? 1 : -1) * 0.5); m.scale.set(1, 1.2, 1.3); });
+  } else if (M && M.car) {
     const keep = new Set([hans, shoulders, ...mirrors]);
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });
     fw.forEach((p) => (p.visible = false)); flapPivot.visible = false;

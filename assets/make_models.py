@@ -100,10 +100,10 @@ def packed(name, glb):
     subprocess.run(['node', 'compress_people.mjs', a, b], cwd='tools', check=True, capture_output=True)
     return open(b, 'rb').read()
 helmet, driver, crew = packed('helmet', helmet), packed('driver', driver), packed('crew', crew)
-car = open('assets/models_src/car2026_game.glb', 'rb').read()  # made by tools/prep_car.mjs (distant cars)
-carhq = open('assets/models_src/car2026_hq.glb', 'rb').read()  # tools/prep_car.mjs 0.6 0.02 hq (nearby cars)
-js = ('// Driver, helmet and car models (Sketchfab, CC BY 4.0): "race driver" by asset_for_games, "Racing helmet" by mizucorp4,\n// "My take on the 2026 f1 regulations" by MaG80.\n'
+# the race car is now the 2027 model (assets/car27.js, tools/prep_car2027.mjs); the 2026 car is kept only as source
+
+js = ('// Driver and helmet models (Sketchfab, CC BY 4.0): "race driver" by asset_for_games, "Racing helmet" by mizucorp4.\n'
       '// Built by assets/make_models.py from assets/models_src/.\n'
-      'const MODEL_DATA = ' + json.dumps({k: 'data:model/gltf-binary;base64,' + base64.b64encode(v).decode() for k, v in (('helmet', helmet), ('driver', driver), ('crew', crew), ('car', car), ('carhq', carhq))}) + ';\n')
+      'const MODEL_DATA = ' + json.dumps({k: 'data:model/gltf-binary;base64,' + base64.b64encode(v).decode() for k, v in (('helmet', helmet), ('driver', driver), ('crew', crew))}) + ';\n')
 open('assets/models.js', 'w').write(js)
-print('helmet KB', len(helmet) // 1024, 'driver KB', len(driver) // 1024, 'car KB', len(car) // 1024, 'models.js KB', len(js) // 1024)
+print('helmet KB', len(helmet) // 1024, 'driver KB', len(driver) // 1024, 'models.js KB', len(js) // 1024)

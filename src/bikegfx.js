@@ -60,7 +60,7 @@ function bikePaint(mat, team, lod, num = 0) {
         { vec2 nuv = vec2(-1.0); float paint = clamp(bkL.r + bkL.g, 0.0, 1.0);
           if (abs(vBkN.y) > 0.5 && vBkP.x > -0.12 && vBkP.x < 0.26 && vBkP.z > 0.84 && vBkP.z < 1.04) nuv = vec2(vBkN.y > 0.0 ? (0.26 - vBkP.x) / 0.38 : (vBkP.x + 0.12) / 0.38, (vBkP.z - 0.84) / 0.2);
           else if (vBkN.x > 0.3 && vBkP.x > 1.22 && abs(vBkP.y) < 0.15 && vBkP.z > 0.6 && vBkP.z < 0.95) nuv = vec2((vBkP.y + 0.15) / 0.3, (vBkP.z - 0.6) / 0.35);
-          if (nuv.x >= 0.0 && nuv.x <= 1.0 && nuv.y >= 0.0 && nuv.y <= 1.0) { vec4 nt = texture2D(bkNum, vec2(nuv.x, 1.0 - nuv.y)); diffuseColor.rgb = mix(diffuseColor.rgb, nt.rgb, nt.a * paint); } }`;
+          if (nuv.x >= 0.0 && nuv.x <= 1.0 && nuv.y >= 0.0 && nuv.y <= 1.0) { vec4 nt = texture2D(bkNum, nuv); diffuseColor.rgb = mix(diffuseColor.rgb, nt.rgb, nt.a * paint); } }`;
       sh.vertexShader = sh.vertexShader; sh.fragmentShader = 'uniform vec3 bkC1, bkC2; uniform sampler2D bkMask, bkNum; varying vec3 vBkP; varying vec3 vBkN;\n' + sh.fragmentShader.replace('#include <map_fragment>', frag);
     }
   };

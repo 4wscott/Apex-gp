@@ -560,7 +560,10 @@ const App = {
       if (mode === 'trial' && !(cfg && cfg.quali)) this.setupGhost(T, team);
       $('#p-finishq').hidden = !(cfg && cfg.quali);
       this.buildRacingLine(T);
+      // every bike detail level is compiled now (they're hidden until a bike comes close, and a first-time compile would stutter)
+      const bks = race.cars.filter((c) => c.mesh && c.mesh.isBike).map((c) => c.mesh); bks.forEach((m) => { for (const k in m.lods) m.lods[k].root.visible = true; });
       try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* older drivers: compile lazily */ }
+      bks.forEach((m) => { const k = m.lod; m.lod = null; bikeLOD(m, k); });
       this.pf = null; this.resScale = this.resScale || 1;
       store.set('running', { at: Date.now(), q: settings.quality, track: T.spec.id, mode });
       Replay.reset(race); applySetup(race.player); Radio.reset(); this.sc = null; this.debris = null; this.fparts = null;
@@ -1094,7 +1097,7 @@ const App = {
       // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
       const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
       if (m.avatar) m.avatar.root.visible = c === P || far < lod;
-      if (m.modelBody && m.modelBody.userData.lod) m.modelBody.geometry = m.modelBody.userData.lod[c === P || far < (settings.quality <= 1 ? 18 : 45) ? 0 : 1]; // the detailed body only close up (closer still on Low and Medium)
+      if (m.modelBody && m.modelBody.userData.lod) { const li = c === P || far < (settings.quality <= 1 ? 18 : 45) ? 0 : 1; for (const pm of m.modelBody.userData.parts || [m.modelBody]) pm.geometry = pm.userData.lod[li]; } // the detailed body only close up (closer still on Low and Medium)
       if (c === P || far < Math.min(150, lod)) updateArms(m);
       // active aero: flaps open in X-mode
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));
@@ -1300,7 +1303,8 @@ function carDetailLOD(m) {
   if (!m.modelBody) return; // the code-built body is made of many parts that all matter
   const G = GFX.geo, keep = new Set([G.tyreF, G.tyreR, G.rimF, G.rimR, G.blob]);
   m.detail = []; m.shadowed = [];
-  m.grp.traverse((o) => { if (!(o.isMesh || o.isPoints)) return; if (o.castShadow) m.shadowed.push(o); if (o === m.modelBody || keep.has(o.geometry)) return; m.detail.push(o); });
+  const body27 = new Set(m.modelBody.userData.parts || []);
+  m.grp.traverse((o) => { if (!(o.isMesh || o.isPoints)) return; if (o.castShadow) m.shadowed.push(o); if (o === m.modelBody || body27.has(o) || keep.has(o.geometry)) return; m.detail.push(o); });
 }
 const _v = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion(), _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _t = new THREE.Vector3(), _pole = new THREE.Vector3();

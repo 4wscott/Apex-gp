@@ -228,3 +228,10 @@ They are recoloured per team, trimmed and resized for the game.
   fictional liveries; simplified into three detail levels)
 
 `bikeengine.js` is synthesised by `assets/make_bike_engine.py` (no recording is used, so no licence applies).
+
+## Race car model (2027)
+
+`car27.js` is built by `tools/prep_car2027.mjs` from this Sketchfab download, CC BY 4.0:
+- "2027 Formula 1 Car" by abuhossain844 — https://sketchfab.com/3d-models/900b2d93db1b4fd7bfce436067e25287
+  (untextured CAD model, no branding; wheels removed for the game's own, simplified into two detail levels, painted in
+  the game's own fictional liveries)
