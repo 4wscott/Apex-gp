@@ -2178,37 +2178,6 @@ function suitFromModel(img, team, part = '') {
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.userData.keep = true;
   return (GFX.suitCache[team.id + part] = tex);
 }
-// the menu's driver, standing beside the car in the team's race suit with the helmet on: weight on one leg, one hand on
-// the hip and the other relaxed. Faces +z of the returned group; the feet are at its origin
-function makeShowDriver(team, num) {
-  if (!GFX.models || !GFX.models.crew) return null;
-  const av = SkeletonUtils.clone(GFX.models.crew), holder = new THREE.Group(); holder.add(av);
-  const bones = {}; av.traverse((o) => { if (o.isBone) bones[o.name.replace(/_\d+$/, '')] = o; });
-  av.traverse((o) => {
-    if (!o.isSkinnedMesh) return; o.frustumCulled = false; o.castShadow = o.receiveShadow = true;
-    const n = o.material.name;
-    if (n === 'Wolf3D_Outfit_Top' || n === 'Wolf3D_Outfit_Bottom') o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team, n), roughness: 0.75 });
-    else if (n === 'Wolf3D_Headwear') o.visible = false; // the race helmet goes on instead
-    else o.material = new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.7 }); // gloves, boots
-  });
-  const H = GFX.models.helmet, head = new THREE.Group();
-  if (H) {
-    const dr = team.drivers.find((d) => d.num === num) || team.drivers[0];
-    head.add(new THREE.Mesh(H.shell, new THREE.MeshPhysicalMaterial({ map: driverHelmetTexture(team, dr), roughness: 0.2, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04 })));
-    if (H.visor) head.add(new THREE.Mesh(H.visor, GFX.mats.visor));
-    head.traverse((o) => { if (o.isMesh) { o.castShadow = true; if (o.material.clearcoat >= 0.5) carPaintLook(o.material); } });
-  }
-  holder.updateMatrixWorld(true);
-  if (bones.Head) { const s = new THREE.Vector3(); bones.Head.getWorldScale(s); head.scale.setScalar(0.9 / s.x); head.position.set(0, 0.075 / s.y, 0.035 / s.z); head.rotation.y = -Math.PI / 2; bones.Head.add(head); }
-  const p = { holder, av, bones, rest: {}, hip0: bones.Hips.position.clone() };
-  for (const k in bones) p.rest[k] = bones[k].quaternion.clone();
-  const fwd = new THREE.Vector3(0, 0, 1), out = (x) => new THREE.Vector3(x, -0.3, 0.15).normalize();
-  PitCrew.pose(p, { drop: 0.015, feet: [[0.15, 0.08, 0.03], [-0.09, 0.08, -0.02]], knees: [fwd.clone().add(new THREE.Vector3(0.4, 0, 0)), fwd], hands: [[0.19, 1.02, -0.03], [-0.25, 0.84, 0.02]] });
-  PitCrew.ik(p, 'LeftArm', 'LeftForeArm', 'LeftHand', holder.localToWorld(new THREE.Vector3(0.17, 1.02, -0.02)), out(1)); // the hand on the hip: elbow out
-  PitCrew.ik(p, 'RightArm', 'RightForeArm', 'RightHand', holder.localToWorld(new THREE.Vector3(-0.24, 0.84, 0.03)), out(-0.4));
-  if (bones.Head) bones.Head.rotateX(-0.06);
-  return holder;
-}
 // seated driver from the rigged model: reclined in the tub, hands reaching for the wheel (see updateArms)
 function makeAvatar(team, body) {
   const av = SkeletonUtils.clone(GFX.models.driver), pivot = new THREE.Group(), seat = new THREE.Group();

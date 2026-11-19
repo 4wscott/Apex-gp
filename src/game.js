@@ -469,7 +469,6 @@ const App = {
     const T = this.getTrack(trackId);
     this.buildScene(T);
     if (this.previewCar) this.worldRoot.remove(this.previewCar.grp);
-    if (this.showDriver) { this.worldRoot.remove(this.showDriver); this.showDriver = null; }
     // in career the showroom shows your career car
     const car = settings.mode === 'career' && Career.data;
     const team = car ? Career.team() : TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
@@ -481,12 +480,6 @@ const App = {
     const i = (Math.round((st && Math.abs(off) > st.L * 0.35 ? off : -3) / T.ds) + T.n) % T.n;
     poseOnRoad(this.previewCar.grp, T, T.px[i], T.py[i], Math.atan2(T.ty[i], T.tx[i]), i);
     this.previewSpot = i;
-    // the driver stands beside the car in the team's race suit and helmet; the cockpit is left empty
-    const sd = makeShowDriver(team, car ? Career.data.num : dr.num);
-    if (sd) {
-      this.showDriver = sd; this.worldRoot.add(sd);
-      const pc = this.previewCar; if (pc.avatar) pc.avatar.root.visible = false; pc.helmet.visible = pc.visor.visible = false; if (pc.sw) pc.sw.wrists.forEach((w) => (w.visible = false));
-    }
     // no fireworks in the menu: the showroom camera looks away from the grandstand they burst over
     if (this.fireworks) this.fireworks.dispose(); this.fireworks = null;
     this.previewT = 0; this.previewTrack = T; this.previewYaw = this.previewCar.grp.rotation.y; this.previewSpin = this.previewSpin || 0;
@@ -531,7 +524,7 @@ const App = {
     $('#loading').hidden = false; $('#menu').hidden = true; document.activeElement?.blur?.(); // menu focus must not hold on to keys in the car
     setTimeout(() => {
       this.buildScene(T, cfg && cfg.tod);
-      this.previewCar = null; this.fireworks = null; this.showDriver = null;
+      this.previewCar = null; this.fireworks = null;
       const team = cfg ? cfg.team : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
       const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
@@ -769,23 +762,15 @@ const App = {
     drawBigScreen(null, dt);
     if (window.DEBUG_CAM) { const d = window.DEBUG_CAM; this.camera.position.set(c.x + d[0], d[1], c.z + d[2]); this.camera.lookAt(c.x + (d[3] || 0), d[4] ?? 0.5, c.z + (d[5] || 0)); }
     else {
-      // the subject: the car's turning circle (it spins on the spot) plus the driver standing to one side of it. The camera
-      // backs off just far enough to fit that across the screen (or up it, on a tall screen), from a little above, so the
-      // car fills the view
-      const rad = 2.75, gap = 0.55, wid = 2 * rad + gap + 0.5, ht = 1.95;
+      // the subject: the car's turning circle (it spins on the spot), with its driver in the cockpit. The camera backs off
+      // just far enough to fit that across the screen (or up it, on a tall screen), from a little above, so the car fills the view
+      const rad = 2.75, wid = 2 * rad + 0.3, ht = 1.3;
       const tv = Math.tan(vf * Math.PI / 360), th = tv * asp, fill = 0.84, band = innerHeight < 500 ? 0.56 : 0.64; // band: the height left between the menu bars
       const D = Math.max(wid / (2 * th * fill), ht / (2 * tv * band)), elev = 0.17;
       // from the grandstand side of the track, a little ahead of the car, looking across at the pit wall and the garages (no crowd)
       const ang = 0.5, dx = T.nx[i] * Math.cos(ang) + T.tx[i] * Math.sin(ang), dy = T.ny[i] * Math.cos(ang) + T.ty[i] * Math.sin(ang);
       const d = new THREE.Vector3(dx, 0, -dy).normalize(); // track y is world -z
-      const right = new THREE.Vector3(d.z, 0, -d.x); // screen right, seen from the camera (d points from the car to the camera)
-      // the driver to the left of the car, just outside its turning circle, turned a little toward the camera
-      const mid = new THREE.Vector3(c.x, 0, c.z).addScaledVector(right, -(gap + 0.5) / 2);
-      if (this.showDriver) {
-        const s = this.showDriver.position.set(c.x, c.y, c.z).addScaledVector(right, -(rad + gap)).addScaledVector(d, rad * 0.35);
-        const to = this.camera.position.clone().sub(s); this.showDriver.rotation.set(0, Math.atan2(to.x, to.z) - 0.35, 0);
-      }
-      const look = mid.clone(); look.y = c.y + 0.66;
+      const look = new THREE.Vector3(c.x, c.y + 0.45, c.z);
       const p = look.clone().addScaledVector(d, D * Math.cos(elev)); p.y += D * Math.sin(elev);
       this.camera.position.copy(p); this.camera.lookAt(look);
     }

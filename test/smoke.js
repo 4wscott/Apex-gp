@@ -5,8 +5,8 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
 (async () => {
   const br = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await open(br, { quality: 1, mode: 'race', track: 'silver', camera: 'chase', opponents: 5, weather: 'dry', tod: 'noon', laps: 2 }, { viewport: { width: 960, height: 540 } });
-  const m = await page.evaluate(() => ({ preview: !!App.previewCar, driver: !!App.showDriver, teams: document.querySelectorAll('#teams .team').length, series: !!document.querySelector('#topbar .series') }));
-  ok(m.preview && m.driver, 'menu: the showroom car and its driver');
+  const m = await page.evaluate(() => ({ preview: !!App.previewCar, driver: !!(App.previewCar.avatar && App.previewCar.avatar.root.visible && App.previewCar.helmet.visible), teams: document.querySelectorAll('#teams .team').length, series: !!document.querySelector('#topbar .series') }));
+  ok(m.preview && m.driver, 'menu: the showroom car with its driver in the cockpit');
   ok(m.teams > 0 && !m.series, `menu: ${m.teams} teams, no Cars / Bikes switch`);
   for (const mode of ['race', 'trial']) {
     await start(page, { mode, track: 'silver' });
