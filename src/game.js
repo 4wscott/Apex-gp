@@ -118,6 +118,8 @@ const App = {
       const ao = new GTAOPass(this.scene, this.camera, innerWidth, innerHeight);
       ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 2, scale: 1, samples: q >= 3 ? 16 : 10 });
       ao.blendIntensity = 0.85; comp.addPass(ao); this.ao = ao;
+      // the AO pass draws the scene again for its depth and normals: leave out what it can't visibly shade (the crowd)
+      const ov = ao.overrideVisibility.bind(ao); ao.overrideVisibility = () => { ov(); ao.scene.traverse((o) => { if (o.userData.noAO && o.visible) { ao._visibilityCache.set(o, true); o.visible = false; } }); };
     }
     // guard: any NaN/inf pixel would otherwise be smeared across the screen by bloom
     comp.addPass(new ShaderPass({
@@ -1100,7 +1102,8 @@ const App = {
       // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
       const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
       if (m.avatar) m.avatar.root.visible = c === P || far < lod;
-      if (m.modelBody && m.modelBody.userData.lod) { const li = c === P || far < (settings.quality <= 1 ? 18 : 45) ? 0 : 1; for (const pm of m.modelBody.userData.parts || [m.modelBody]) pm.geometry = pm.userData.lod[li]; } // the detailed body only close up (closer still on Low and Medium)
+      // the 173k-triangle body only for your own car (and the car a replay follows): the 25k body looks the same from the cockpit or chase
+      if (m.modelBody && m.modelBody.userData.lod) { const li = c === P || c === this.rpFocus ? 0 : 1; for (const pm of m.modelBody.userData.parts || [m.modelBody]) pm.geometry = pm.userData.lod[li]; } // the detailed body only close up (closer still on Low and Medium)
       if (c === P || far < Math.min(150, lod)) updateArms(m);
       // active aero: flaps open in X-mode
       const fl = c.aeroX ? 1 : 0; m.aeroT = lerp(m.aeroT || 0, fl, Math.min(1, dt * 8));

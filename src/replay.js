@@ -76,7 +76,7 @@ const Replay = {
     if (!this.on) return;
     const S = App.session, race = S.race;
     race.cars.forEach((c, i) => this.FIELDS.forEach((f, k) => (c[f] = this.saved[i][k])));
-    S.camMode = this.savedCam; this.on = false;
+    S.camMode = this.savedCam; this.on = false; App.rpFocus = null;
     $('#replay').hidden = true; document.body.classList.remove('replaying');
     if (this.from === 'results' || this.from === 'highlights') $('#results').hidden = false; else App.togglePause(true);
   },
@@ -203,6 +203,7 @@ const Replay = {
     let mode = this.camMode;
     if (mode === 'director') mode = this.direct(live ? race.time : this.t, live);
     const c = race.cars[this.focus] || race.player;
+    App.rpFocus = c; // the car on screen gets the detailed body
     const base = new THREE.Vector3(c.x, 0.7 + c.mesh.grp.position.y, -c.y), fwd = new THREE.Vector3(Math.cos(c.h), 0, -Math.sin(c.h));
     const s = ((c.s ?? 0) + T.length) % T.length;
     cam.up.set(0, 1, 0); cam.near = 0.1;
@@ -245,6 +246,7 @@ const Replay = {
   tvOn: false,
   setTV(on) {
     const S = App.session; if (!S) return;
+    if (!on) App.rpFocus = null;
     this.tvOn = on; S.tvAI = on ? new AIDriver(S.race.player, 0.98, 7) : null;
     this.camMode = 'director'; this.shot = null; this.dirT = 99; this.focus = S.race.cars.indexOf(S.race.player);
     document.body.classList.toggle('tv-live', on); $('#replay').hidden = !on; $('#rp-tag').textContent = 'LIVE';

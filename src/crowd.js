@@ -97,6 +97,7 @@ const Crowd = {
     const seats = [];
     for (let r = 0; r < rows; r++) for (let k = 0; k < perRow; k++) if (rng() > empty) seats.push([r, -len / 2 + (k + 0.5) * spacing + (rng() - 0.5) * 0.08]);
     const N = seats.length, fans = new THREE.InstancedMesh(this.fanGeo(), this.material(), N);
+    fans.userData.noAO = true; // contact shadows on 10 000 tiny fans can't be seen: the AO pass skips them (about 2M triangles a frame)
     const aFan = new Float32Array(N * 4), aSkin = new Float32Array(N * 4), aShirt = new Float32Array(N * 3);
     const skins = ['#f1c9a5', '#e0b089', '#c68e63', '#a8724e', '#8d5a3b', '#5b3a29'].map((c) => new THREE.Color(c));
     const extra = ['#ffffff', '#202124', '#1e88e5', '#e53935', '#fdd835', '#43a047', '#8e24aa', '#90caf9'].map((c) => new THREE.Color(c));
@@ -120,6 +121,7 @@ const Crowd = {
     fans.frustumCulled = false; stand.add(fans);
     if (flagSeats.length) {
       const fl = new THREE.InstancedMesh(this.flagGeo(), this.flagMaterial(), flagSeats.length), fA = new Float32Array(flagSeats.length * 4), col = new THREE.Color();
+      fl.userData.noAO = true;
       flagSeats.forEach(([pos, sc, i, tc], k) => {
         // pole held in the raised right hand: fan-local (+0.27 sideways, 1.05 up) -> stand-local (facing +x, so sideways is -z)
         m4.compose(new THREE.Vector3(pos.x + 0.05, pos.y + 1.0 * sc, pos.z - 0.32 * sc), q, s.set(sc, sc, sc)); fl.setMatrixAt(k, m4);
