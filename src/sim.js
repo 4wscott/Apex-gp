@@ -416,7 +416,9 @@ const ERS_MODES = [
   { name: 'ATTACK', deploy: 350e3, harvestCoast: 0 },
 ];
 const SOC_MAX = 4e6;
-const ROLL_F0 = 0.47; // the standard setup's front roll stiffness share: the car's balance as the speed profile assumes it
+const ROLL_F0 = 0.47;
+// the squared share of an axle's load moved to its outside tyre (0 .. 1)
+function ltShare(share, Fz, dLT) { const x = Math.min(1, (share * dLT) / (Fz / 2)); return x * x; } // the standard setup's front roll stiffness share: the car's balance as the speed profile assumes it
 // grip of a compound on a track with water level w (0 dry .. 1 standing water), relative to its dry grip
 function wetGrip(key, w) {
   if (key === 'I') return 1 - 0.26 * Math.abs(w - 0.45) / 0.55 - (w < 0.15 ? 0.06 : 0);
@@ -677,8 +679,8 @@ class Car {
     // gives less grip per kilo as its load rises, so the axle carrying more of the transfer loses grip. The split between
     // front and rear (roll stiffness) sets the balance; the standard split is the car the speed profile was made for
     this.ayR = lerp(this.ayR || 0, this.ay || 0, Math.min(1, dt / p.rollTau));
-    const dLT = (p.m * Math.abs(this.ayR) * p.h) / p.tw, rr2 = (sh, Fz) => Math.min(1, (sh * dLT) / (Fz / 2)) ** 2;
-    const ltF = 1 - p.kLT * (rr2(p.rollF, FzF) - rr2(ROLL_F0, FzF)), ltR = 1 - p.kLT * (rr2(1 - p.rollF, FzR) - rr2(1 - ROLL_F0, FzR));
+    let ltF = 1, ltR = 1;
+    if (p.rollF !== ROLL_F0) { const dLT = (p.m * Math.abs(this.ayR) * p.h) / p.tw; ltF = 1 - p.kLT * (ltShare(p.rollF, FzF, dLT) - ltShare(ROLL_F0, FzF, dLT)); ltR = 1 - p.kLT * (ltShare(1 - p.rollF, FzR, dLT) - ltShare(1 - ROLL_F0, FzR, dLT)); } // the standard split: no change, no work
     const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF * axF * ltF;
     const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR * axR * ltR;
 
@@ -743,7 +745,8 @@ class Car {
     // steering torque (the force feedback signal): the front tyres' aligning torque, their lateral force times a trail
     // that collapses as the slip nears the tyre's peak (so the wheel goes light when the front washes out), plus the
     // caster's mechanical trail. N m at the kingpins; + turns the wheel to the left
-    const aPkF = Math.tan(Math.PI / (2 * p.CF)) / p.BF, aPkR = Math.tan(Math.PI / (2 * p.CR)) / p.BR;
+    if (p._aPk !== p.BF + p.CF * 7 + p.BR * 31 + p.CR * 131) { p._aPk = p.BF + p.CF * 7 + p.BR * 31 + p.CR * 131; p._aPkF = Math.tan(Math.PI / (2 * p.CF)) / p.BF; p._aPkR = Math.tan(Math.PI / (2 * p.CR)) / p.BR; } // the slip at each tyre's peak (changes only with the setup)
+    const aPkF = p._aPkF, aPkR = p._aPkR;
     this.frontSat = Math.abs(aF) / aPkF; this.rearSat = Math.abs(aR) / aPkR;
     this.steerTq = -FyF * (0.045 * Math.max(-0.15, 1 - this.frontSat * 0.95) + 0.018);
 
@@ -1388,7 +1391,7 @@ class Race {
   // your race engineer: the plan, Safety Car stops, undercuts, tyre life and the crossover to rain tyres, on the radio
   engineer(P) {
     if (this.mode !== 'race' || this.quali || P.finished || P.dnf || !P.plan) return;
-    const E = (this.eng = this.eng || {}), say = (k, text) => { if (E[k]) return; E[k] = true; this.emit('radio', { car: P, text }); };
+    const E = (this.eng = this.eng || {}), say = this.engSay || (this.engSay = (k, text) => { if (this.eng[k]) return; this.eng[k] = true; this.emit('radio', { car: this.player, text }); });
     if (this.phase === 'green' && this.greenT > 4 && !E.plan) {
       const alt = this.planStrategy(Object.assign({}, P, { stratAggr: 1 - (P.stratAggr || 0.5) }), 1);
       say('plan', `Plan A: ${this.planText(P.plan)}.` + (this.planText(alt) !== this.planText(P.plan) ? ` Plan B: ${this.planText(alt)}.` : ''));
@@ -1663,10 +1666,13 @@ class Race {
     if (!(c.lapValid || this.mode === 'race')) return;
     if (t < this.bestSectors[i]) this.bestSectors[i] = t;
   }
+  // the running order, worked out once per step (strategy and the engineer ask for it many times a step); callers only
+  // read it. A replay rewrites the cars' positions, so it clears _stT each frame
   standings() {
+    if (this._stT === this.time && this._stN === this.finishOrder.length && this._st) return this._st;
     const fin = this.finishOrder.slice();
     const rest = this.cars.filter((c) => !c.finished).sort((a, b) => (a.dnf ? 1 : 0) - (b.dnf ? 1 : 0) || b.dist - a.dist);
-    return fin.concat(rest);
+    this._stT = this.time; this._stN = this.finishOrder.length; return (this._st = fin.concat(rest));
   }
   gapBetween(a, b) {
     // time b lost to a at b's most recent checkpoint

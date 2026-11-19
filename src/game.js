@@ -661,6 +661,8 @@ const App = {
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
     $('#p-pad').innerHTML = Pads.summary(); $('#p-pad').hidden = !$('#p-pad').innerHTML;
     { const t = this.session.race.strategyText(this.session.race.player); $('#p-strat').textContent = t; $('#p-strat').hidden = !t; }
+    // Watch on TV: offline races only, and in a career only once you are out of it (the AI must not race, or qualify, for you)
+    { const r = this.session.race, P = r.player, career = this.cfg && this.cfg.career; $('#p-tv').hidden = r.mode !== 'race' || r.quali || this.session.online || (career && !P.dnf && !P.finished); $('#p-tv').textContent = Replay.tvOn ? 'Back to driving' : 'Watch on TV'; }
     { const P = this.session.race.player, log = P.lapLog || [], el = $('#p-laps');
       el.hidden = !(this.paused && this.session.race.mode !== 'race' && log.length);
       if (!el.hidden) {
@@ -689,6 +691,7 @@ const App = {
     const race = S.race, P = race.player;
     const portrait = this.touchOn && innerHeight > innerWidth;
     $('#rotate').hidden = !portrait;
+    if (Podium.on || Replay.on) FFB.idle(); // the wheel lets go (these paths return before the race's own update)
     if (Podium.on) { // after the flag: parc fermé and the podium (the ceremony drives the camera)
       this.input.poll(dt, P.vx, settings);
       try { Podium.frame(dt); } catch (err) { reportError(err); Podium.end(); }
@@ -711,7 +714,8 @@ const App = {
       while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, Replay.tvOn && S.tvAI ? S.tvAI.control(h, race.cars, race) : inp); S.acc -= h; steps++; } // watching on TV: the AI drives your car
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
-      if (Replay.on) FFB.idle(); else { FFB.update(dt, P, race, inp); Setup.telemetry(P, dt); }
+      if (Replay.on || Replay.tvOn || !$('#results').hidden) FFB.idle(); else FFB.update(dt, P, race, inp);
+      if (!Replay.tvOn) Setup.telemetry(P, dt); // the engineer reads your driving, not the AI's
       Replay.sample(race);
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
@@ -781,7 +785,7 @@ const App = {
       // from the grandstand side of the track, a little ahead of the car, looking across at the pit wall and the garages (no crowd)
       // never outside the barrier (a catch fence in front of the lens): where the track is too narrow for the distance, the
       // camera swings round to look along the track instead (cached until the spot or the screen changes)
-      const key = i + ':' + D.toFixed(2);
+      const key = T.spec.id + ':' + i + ':' + D.toFixed(2);
       if (this.menuCamKey !== key) {
         this.menuCamKey = key; let best = null;
         for (let ang = 0.5; ang <= 1.45 && !best; ang += 0.08) for (const sgn of [1, -1]) {

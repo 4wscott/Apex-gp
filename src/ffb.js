@@ -39,24 +39,31 @@ const FFB = {
       this.ui();
     } catch (e) { this.ui('The wheel could not be opened: ' + (e.message || e)); }
   },
-  send(bytes) {
-    if (!this.dev || this.busy) return false;
-    this.busy = true;
-    this.dev.sendReport(this.rid, new Uint8Array(bytes)).catch(() => {}).finally(() => { this.busy = false; });
-    return true;
+  // every command goes through one queue: the browser takes one report at a time, and a release must never be lost
+  // behind a force update. Force updates only keep the newest (a frame's force replaces one still waiting)
+  q: [], sending: false,
+  send(bytes, keep) {
+    if (!this.dev) return false;
+    if (!keep) this.q = this.q.filter((x) => x.keep); // an older force not yet sent is out of date
+    this.q.push({ bytes, keep: !!keep }); this.pump(); return true;
+  },
+  pump() {
+    if (this.sending || !this.q.length || !this.dev) return;
+    const { bytes } = this.q.shift(), d = this.dev; this.sending = true;
+    d.sendReport(this.rid, new Uint8Array(bytes)).catch(() => {}).finally(() => { this.sending = false; this.pump(); });
   },
   // a constant force: -1 .. 1, + turns the wheel to the left
   force(f) {
     const inv = settings.wheelInvert ? -1 : 1, b = Math.round(clamp(128 - f * inv * 127, 1, 255));
     if (b === this.lastByte) return;
-    if (this.released) { if (!this.send([0xf5, 0, 0, 0, 0, 0, 0])) return; this.released = false; return; } // the wheel's own centring spring off
+    if (this.released) { if (!this.send([0xf5, 0, 0, 0, 0, 0, 0], true)) return; this.released = false; } // the wheel's own centring spring off
     if (this.send([0x11, 0x08, b, 0x80, 0, 0, 0])) this.lastByte = b;
   },
   // back to the wheel's own behaviour (menus, pause, replays, leaving the page)
   release() {
     if (!this.dev || this.released) return;
-    const d = this.dev, rid = this.rid;
-    d.sendReport(rid, new Uint8Array([0x13, 0, 0, 0, 0, 0, 0])).then(() => d.sendReport(rid, new Uint8Array([0xfe, 0x0d, 0x03, 0x03, 0x80, 0, 0]))).then(() => d.sendReport(rid, new Uint8Array([0x14, 0, 0, 0, 0, 0, 0]))).catch(() => {});
+    this.q = []; // nothing still waiting matters now: stop the force, then the wheel's own centring spring back on
+    this.send([0x13, 0, 0, 0, 0, 0, 0], true); this.send([0xfe, 0x0d, 0x03, 0x03, 0x80, 0, 0], true); this.send([0x14, 0, 0, 0, 0, 0, 0], true);
     this.released = true; this.lastByte = -1;
   },
   // a one-off controller pulse (impacts, kerbs, lock-ups...): mixed with the continuous feel below

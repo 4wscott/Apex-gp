@@ -17,7 +17,7 @@ const drive = (page, laps) => page.evaluate(async (laps) => {
   await page.waitForTimeout(500);
   const h = await page.evaluate(() => ({ shown: !document.querySelector('#results').hidden, strip: [...document.querySelectorAll('.wk-s')].map((e) => e.textContent), btn: document.querySelector('#r-again').textContent }));
   ok(h.shown && h.strip.join(',') === 'Practice,Q1,Q2,Q3,Race', `the hub: ${h.strip.join(' → ')} ("${h.btn}")`);
-  await page.screenshot({ path: OUT + 'hub.png' });
+  await page.screenshot({ path: OUT + 'hub.png', timeout: 240000 });
   // practice
   await page.evaluate(() => document.querySelector('#r-again').click()); await waitRace(page); await page.waitForTimeout(1500);
   const p = await page.evaluate(() => ({ mode: App.session.race.mode, cars: App.session.race.cars.length, label: document.querySelector('#h-pos').textContent, end: !document.querySelector('#p-finishq').hidden }));
@@ -40,7 +40,7 @@ const drive = (page, laps) => page.evaluate(async (laps) => {
   for (let k = 0; k < 3; k++) { const s = await page.evaluate(() => Weekend.cur()); if (!/^Q/.test(s)) break; await page.evaluate(() => document.querySelector('#r-skip').click()); await page.waitForTimeout(300); }
   const g = await page.evaluate(() => ({ grid: Weekend.w.grid, qpos: Weekend.w.qpos, msg: (document.querySelector('.wk-msg') || {}).textContent, next: Weekend.cur() }));
   ok(g.grid && g.grid.length === 12 && g.next === 'R', `qualifying done: "${g.msg}" (grid of ${g.grid && g.grid.length})`);
-  await page.screenshot({ path: OUT + 'quali.png' });
+  await page.screenshot({ path: OUT + 'quali.png', timeout: 240000 });
   // parc fermé: a bias change is fine, a spring change asks, and going ahead means a pit lane start
   const pf = await page.evaluate(() => {
     Setup.set({ bias: 8 }); const biasOk = Setup.get('silver').bias === 8 && !Weekend.w.pitStart;

@@ -115,11 +115,12 @@ const Replay = {
       const p = a + i * REC_F, q = b + i * REC_F, L = (j) => d[p + j] + (d[q + j] - d[p + j]) * k;
       c.x = L(0); c.y = L(1); c.h = d[p + 2] + angleDiff(d[q + 2], d[p + 2]) * k;
       c.vx = L(3); c.vy = L(4); c.delta = L(5); c.axS = L(6); c.ay = L(7); c.brake = L(8); c.aeroX = d[p + 9] > 0.5;
-      const fl = d[p + 10]; c.lockF = !!(fl & 1); c.lockR = !!(fl & 2); c.spin = !!(fl & 4); c.kerbHit = fl & 8 ? 1 : 0;
+      const fl = d[p + 10]; c.lockF = !!(fl & 1); c.lockR = !!(fl & 2); c.spin = !!(fl & 4); c.kerbHit = fl & 8 ? 1 : 0; c.rpPit = !!(fl & 16);
       c.surface = SURF[d[p + 11]] || 'tarmac'; c.slipR = 0; c.harvesting = false; c.dist = L(12);
       c.wheelAng = (c.wheelAng || 0) + (this.playing ? c.vx * dt * this.speed / 0.36 : 0);
       c.locate(Math.abs(this.t - (this.lastT ?? -9)) > 1); // station along the lap, for the TV camera choice
     });
+    race._stT = -1; // the order from the recorded positions, not the live race's
     this.lastT = this.t; this.ui();
   },
   // TV cameras: fixed points round the lap, a little outside the walls, that pan and zoom to follow
@@ -206,7 +207,7 @@ const Replay = {
     const s = ((c.s ?? 0) + T.length) % T.length;
     cam.up.set(0, 1, 0); cam.near = 0.1;
     const onCar = (x, y, z, look, fov) => { c.mesh.body.updateMatrixWorld(); const eye = new THREE.Vector3(x, y, z).applyMatrix4(c.mesh.body.matrixWorld); cam.position.copy(eye); cam.lookAt(new THREE.Vector3(...look).applyMatrix4(c.mesh.body.matrixWorld)); cam.fov = fov; };
-    if (c.pit && mode !== 'onboard' && mode !== 'tcam') mode = 'pit';
+    if ((live ? c.pit : c.rpPit) && mode !== 'onboard' && mode !== 'tcam') mode = 'pit'; // in a replay: the recorded pit state
     if (mode === 'tv') {
       // the camera just ahead of the car; switch as the car passes it
       const best = this.nextAt(this.tvCams(T), s, T.length);
@@ -229,8 +230,8 @@ const Replay = {
     else if (mode === 'wing') onCar(2.4, 0.3, 0.22, [14, 0.22, 0.1], 72);
     else if (mode === 'rear') onCar(-0.75, 1.3, 0, [-14, 0.5, 0], 58);
     else if (mode === 'pit') {
-      const P = race.pit, k = P ? P.idx(Math.max(0, (c.pit && c.pit.s) || 0)) : c.idx;
-      cam.position.set(T.px[k] - T.nx[k] * (T.wallR[k] - 0.5) + T.tx[k] * 25, 1.6, -(T.py[k] - T.ny[k] * (T.wallR[k] - 0.5) + T.ty[k] * 25)); cam.lookAt(base); cam.fov = 40;
+      const k = (c.idx + Math.round(25 / T.ds)) % T.n; // on the pit wall, a little ahead of the car
+      cam.position.set(T.px[k] - T.nx[k] * (T.wallR[k] - 0.5), 1.6, -(T.py[k] - T.ny[k] * (T.wallR[k] - 0.5))); cam.lookAt(base); cam.fov = 40;
     } else {
       cam.position.copy(base).addScaledVector(fwd, -7.5).add(new THREE.Vector3(0, 2.3, 0)); cam.lookAt(base.clone().addScaledVector(fwd, 3).add(new THREE.Vector3(0, 0.3, 0))); cam.fov = 58;
     }

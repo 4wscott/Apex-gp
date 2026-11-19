@@ -18,8 +18,8 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
     let maxTq = 0;
     for (let f = 0; f < 25 * 60; f++) {
       for (let k = 0; k < 6; k++) { const c = ai.control(1 / 360, race.cars, race); race.step(1 / 360, c); }
-      maxTq = Math.max(maxTq, Math.abs(P.steerTq || 0)); FFB.busy = false;
-      FFB.update(1 / 60, P, race, ai.control(1 / 360, race.cars, race));
+      maxTq = Math.max(maxTq, Math.abs(P.steerTq || 0));
+      FFB.update(1 / 60, P, race, ai.control(1 / 360, race.cars, race)); await new Promise((r) => setTimeout(r, 0)); // a frame: the wheel's command queue gets to send
     }
     FFB.release(); await new Promise((r) => setTimeout(r, 100)); App.paused = false;
     const forces = hid.filter((d) => d[0] === 0x11).map((d) => d[2]);

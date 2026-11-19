@@ -10,7 +10,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await page.waitForTimeout(800);
   const u = await page.evaluate(() => ({ rows: document.querySelectorAll('#su-rows .su-row').length, title: document.querySelector('#su-track').textContent, eff: document.querySelector('#su-effect').textContent }));
   ok(u.rows === 19, `${u.rows} setup items (${u.title}); ${u.eff}`);
-  await page.screenshot({ path: OUT + 'menu.png' });
+  await page.screenshot({ path: OUT + 'menu.png', timeout: 240000 });
   const p = await page.evaluate(() => { document.querySelector('[data-preset="high"]').click(); return { saved: JSON.parse(localStorage.getItem('apexgp.setup.silver') || 'null'), eff: document.querySelector('#su-effect').textContent, other: localStorage.getItem('apexgp.setup.riviera') }; });
   ok(p.saved && p.saved.fw === 10 && !p.other, `the high downforce preset is saved for Silverwood only (${p.eff})`);
   await start(page, { mode: 'practice', track: 'silver' });

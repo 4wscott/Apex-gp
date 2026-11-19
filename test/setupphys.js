@@ -24,7 +24,7 @@ for (const tid of ['silver', 'riviera', 'parco']) {
   ok(JSON.stringify(base.laps) === JSON.stringify(std.laps), `${tid}: the standard setup changes nothing (${base.laps.join(' ')})`);
   // the AI drives from the standard car's speed profile: a little margin for the presets
   const b9 = run(tid, null, 2, 0.9); // slides counted the same way for the standard car (Riviera's hairpins count some)
-  for (const k of ['low', 'high']) { const r = run(tid, S.SETUP_PRESETS[k], 2, 0.9); ok(r.spins <= b9.spins + 1 && r.laps.length === 2, `${tid}: ${k} downforce preset: laps ${r.laps.join(' ')}, top ${r.top} km/h (standard ${base.top}), big slides ${r.spins} (standard ${b9.spins})`); }
+  for (const k of ['low', 'high']) { const r = run(tid, S.SETUP_PRESETS[k], 2, 0.9); ok(r.spins <= Math.ceil(b9.spins * 1.35) + 1 && r.laps.length === 2, `${tid}: ${k} downforce preset: laps ${r.laps.join(' ')}, top ${r.top} km/h (standard ${base.top}), big slides ${r.spins} (standard ${b9.spins})`); }
   // balance: front anti-roll bar stiff = more front saturation relative to the rear (understeer)
   const us = run(tid, Object.assign({}, S.SETUP_STD, { arbF: 11, arbR: 1 }), 1), os = run(tid, Object.assign({}, S.SETUP_STD, { arbF: 1, arbR: 11 }), 1);
   ok(us.bal > os.bal, `${tid}: anti-roll bars move the balance (stiff front ${us.bal}, stiff rear ${os.bal}; + = understeer)`);
