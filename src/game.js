@@ -983,7 +983,7 @@ const App = {
   // on-screen touch controls for the current settings (rebuilt straight away when a touch setting changes mid-session)
   setupTouch(first) {
     this.touchOn = settings.touch === 'on' || (settings.touch === 'auto' && IS_TOUCH);
-    $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); if (this.session) MouseWheel.show(!this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? 'std' : settings.touchLayout || 'split';
+    $('#touch').hidden = !this.touchOn; document.body.classList.toggle('touch', this.touchOn); if (this.session) MouseWheel.show(!this.touchOn); document.body.dataset.tl = settings.touchSteer === 'buttons' ? ({ split: 'asplit', std: 'std', swap: 'aswap' }[settings.touchLayout || 'split'] || 'asplit') : settings.touchLayout || 'split';
     if (!this.touchOn) { $('#touch').innerHTML = ''; this.input.tiltMode = false; return; }
     this.input.buildTouch($('#touch'), settings); this.input.lastDevice = 'touch';
     if (first) { const el = document.documentElement; if (el.requestFullscreen) el.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {}); }

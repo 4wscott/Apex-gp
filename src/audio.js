@@ -376,8 +376,8 @@ class Input {
     const st = this.touch; st.steer = 0; st.thr = 0; st.brk = 0; st.btn = {};
     const big = { S: 0.8, M: 1, L: 1.25 }[o.touchSize] || 1;
     root.style.setProperty('--tb', big);
-    // arrows sit under the left thumb, so both pedals go to the right (brake left of throttle)
-    root.className = 'tside-' + (o.touchSteer === 'buttons' ? 'std' : o.touchLayout || 'split'); this.tiltMode = false;
+    // arrows: by default ◀ and the brake under the left thumb, the throttle and ▶ under the right (or both pedals on one side)
+    root.className = 'tside-' + (o.touchSteer === 'buttons' ? ({ split: 'asplit', std: 'std', swap: 'aswap' }[o.touchLayout || 'split'] || 'asplit') : o.touchLayout || 'split'); this.tiltMode = false;
     this.touchArrows = o.touchSteer === 'buttons';
     const btn = (act, label, extra = '') => `<button type="button" data-act="${act}" ${extra}>${label}</button>`;
     root.innerHTML = `
