@@ -8,12 +8,12 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', pracLen: 10, triggerRumble: true, wheelFfb: 0.7, wheelDamp: 0.3, wheelInvert: false, setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', pracLen: 10, ao: true, triggerRumble: true, wheelFfb: 0.7, wheelDamp: 0.3, wheelInvert: false, setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
 // touch devices start with fewer rivals and the chase camera; saved choices still win
-if (IS_TOUCH) Object.assign(DEFAULTS, { quality: 2, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60 });
+if (IS_TOUCH) Object.assign(DEFAULTS, { quality: 2, opponents: IS_PHONE ? 11 : 15, camera: 'chase', mirrors: false, fov: 60, ao: false }); // phones and tablets: no contact-shadow pass (it draws the whole scene twice)
 const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 // v2: arrow buttons became the default phone steering
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
@@ -114,7 +114,8 @@ const App = {
     const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: q >= 2 ? 4 : 2 });
     const comp = new EffectComposer(r, rt);
     comp.addPass(new RenderPass(this.scene, this.camera));
-    if (q >= 2) {
+    this.ao = null;
+    if (q >= 2 && settings.ao !== false) {
       const ao = new GTAOPass(this.scene, this.camera, innerWidth, innerHeight);
       ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 2, scale: 1, samples: q >= 3 ? 16 : 10 });
       ao.blendIntensity = 0.85; comp.addPass(ao); this.ao = ao;
@@ -1009,6 +1010,7 @@ const App = {
     if (['touch', 'touchSteer', 'touchLayout', 'touchSize', 'analogPedals', 'autoGear', 'aeroAuto'].includes(key)) this.setupTouch(false);
     else if (key === 'quality') { GFX.maxAniso = Math.min(this.renderer.capabilities.getMaxAnisotropy(), [2, 4, 16, 16][settings.quality] || 16); this.setupComposer(); this.resize(); this.setupRealism(P); this.setupMirrors(P); this.loadHQ(); if (settings.quality === 0) liteMaterials(this.worldRoot); }
     else if (key === 'mirrors') this.setupMirrors(P);
+    else if (key === 'ao') { this.setupComposer(); this.resize(); }
     else if (key === 'mouseSteer') MouseWheel.show(!this.touchOn);
     else if (key === 'damage') { if (!S.online) S.race.cars.forEach((c) => (c.damageMode = settings.damage)); Hud.flash({ off: 'Damage off', visual: 'Damage: visual only', real: 'Damage: realistic' }[settings.damage]); }
     else if (key === 'tod') Hud.flash('Time of day changes at the next session');
@@ -1134,7 +1136,7 @@ const App = {
       // from further out the car stops casting a shadow. Detail goes on a camera layer that isn't drawn, so nothing
       // that sets visibility each frame fights it
       if (m.detail) {
-        const d0 = c === P ? 0 : dx0(c, P), fd = [20, 30, 40, 40][settings.quality] || 40, far = m.isFar ? d0 > fd * 0.8 : d0 > fd, noSh = m.noShadow ? d0 > 60 : d0 > 75; // detail drops sooner on Low and Medium
+        const d0 = c === P ? 0 : dx0(c, P), fd = (IS_TOUCH ? [12, 15, 18, 22] : [20, 30, 40, 40])[settings.quality] || 40, far = m.isFar ? d0 > fd * 0.8 : d0 > fd, noSh = m.noShadow ? d0 > 60 : d0 > 75; // detail drops sooner on Low and Medium
         if (far !== !!m.isFar) { m.isFar = far; for (const o of m.detail) o.layers.set(far ? 1 : 0); }
         if (noSh !== !!m.noShadow) { m.noShadow = noSh; for (const o of m.shadowed) o.castShadow = !noSh; }
       }
@@ -2085,6 +2087,7 @@ const Menu = {
         if (App.session) { App.applyLive(key); return; }
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
+        if (key === 'ao') { App.setupComposer(); App.resize(); }
         if (key === 'tod') App.preview(settings.track);
         if (key === 'camera' && App.session) App.session.camMode = v;
       });

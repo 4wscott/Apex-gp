@@ -7,7 +7,7 @@ const Crowd = {
   spots: [], list: [],
   meshes() { return this.list; }, // every stand's fans and flags (the mirrors leave them out)
   fanGeo() {
-    const lite = settings.quality <= 1;
+    const lite = settings.quality <= 1 || (PHONE_GFX && settings.quality <= 2); // phones and tablets: the simpler fan up to High (each is a few pixels there)
     if (this.geo && this.geoLite === lite) return this.geo;
     this.geoLite = lite;
     if (lite) return (this.geo = this.fanGeoLite());
