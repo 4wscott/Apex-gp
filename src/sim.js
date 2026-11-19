@@ -933,6 +933,14 @@ class AIDriver {
     // personality: how hard this driver attacks and defends, and how much room they leave (0 careful .. 1 aggressive)
     this.aggr = 0.2 + this.rng() * 0.65;
     this.passCar = null; this.passSide = 0; this.defT = 0; this.defMoved = false; this.errT = 0; this.errK = 1; this.inBZ = false;
+    // composure: how a driver copes with a car right behind (0 cracks, 1 ice cold)
+    this.composure = 0.15 + this.rng() * 0.8; this.slideT = 0; this.yieldT = 0;
+  }
+  // metres to the next braking zone along the racing line (or far)
+  brakeAhead(maxM) {
+    const c = this.car, T = c.track, v0 = T.lineV[c.idx];
+    for (let m = 6; m < maxM; m += 6) if (T.lineV[(c.idx + Math.round(m / T.ds)) % T.n] < v0 * 0.86) return m;
+    return maxM;
   }
   // a rival fights harder when the player is close
   aggrNow(race) {
@@ -984,6 +992,9 @@ class AIDriver {
         let tgt = blocked.d + this.passSide * gapW;
         if (Math.abs(tgt) > lim) { this.passSide = -this.passSide; tgt = blocked.d + this.passSide * gapW; }
         want = Math.abs(tgt) <= lim + 0.3 ? tgt : null; // no room either side: sit behind and wait
+        // on a straight, stay in the slipstream and only pull out late, before the braking zone (or when right on its gearbox)
+        const bzA = this.brakeAhead(240);
+        if (want !== null && bzA > 150 + aggr * 30 && gapAhead > 9 && Math.abs(T.lineK[c.idx]) < 1 / 600) want = blocked.d;
       }
     } else this.passCar = null;
     // defend: a car close behind before a braking zone; one move to cover the inside, then hold it to the corner
@@ -1021,7 +1032,7 @@ class AIDriver {
     inp.steer = clamp(delta / c.p.maxSteer, -1, 1);
 
     // speed target from the profile, with traffic and per-corner variation
-    this.noiseT -= dt; if (this.noiseT < 0) { this.noiseT = 2 + this.rng() * 3; this.noise = (this.rng() - 0.5) * 0.02; }
+    this.noiseT -= dt; if (this.noiseT < 0) { this.noiseT = 2 + this.rng() * 3; this.noise = (this.rng() - 0.5) * 0.012; }
     const look = Math.round((v * 0.25) / T.ds) + 2;
     let vT = Infinity;
     for (let m = 0; m <= look; m += 2) vT = Math.min(vT, T.lineV[(c.idx + m) % n]);
@@ -1034,15 +1045,31 @@ class AIDriver {
       if (room < 1.5) vT = Math.min(vT, blocked.vx - 1);
     }
     if (this.squeezed) vT *= 0.95; // no room alongside: lift and tuck in behind
+    // side by side into a corner: the car on the inside has the corner; the outside car that is not ahead backs out
+    // (a car ahead on the outside keeps it and the inside car gives it room)
+    this.yieldT -= dt;
+    if (side.length && race && race.phase === 'green') {
+      const bzS = this.brakeAhead(120), ins = bzS < 110 ? this.insideAhead(5, 130) : 0;
+      if (ins) for (const o of side) {
+        const myInside = Math.sign(c.d - o.d) === ins, ahead = c.dist - o.dist;
+        if ((!myInside && ahead < L * 0.45) || (myInside && ahead < -L * 0.6)) { this.yieldT = 0.9; break; }
+      }
+    }
+    if (this.yieldT > 0) vT *= 0.92;
     // mistakes: at a braking zone, sometimes too fast in (running wide or worse): likelier for lower-rated drivers,
     // on worn tyres, and with a car right behind
     const bz = T.lineV[(c.idx + look * 2) % n] < T.lineV[c.idx] * 0.8;
     if (bz && !this.inBZ) {
       this.inBZ = true;
-      const pressure = attacker && attackGap < 12 ? 1 : 0, p = (0.008 + Math.max(0, 1 - this.skill) * 0.5 + (c.wear || 0) * 0.05 + pressure * 0.025) * 0.6;
+      const pressure = attacker && attackGap < 12 ? 1 : 0, p = (0.008 + Math.max(0, 1 - this.skill) * 0.5 + (c.wear || 0) * 0.05 + pressure * 0.04 * (1.25 - this.composure)) * 0.6;
       if (race && race.phase === 'green' && !race.sc && this.rng() < p) { this.errT = 1.4 + this.rng() * 1.0; this.errK = 1.03 + this.rng() * 0.04; }
     } else if (!bz) this.inBZ = false;
     if (this.errT > 0) { this.errT -= dt; vT *= this.errK; }
+    // on a corner exit, now and then too much throttle too early: a slide that costs a little time
+    if (!bz && Math.abs(T.lineK[c.idx]) > 1 / 120 && race && race.phase === 'green' && this.slideT <= 0 && this.rng() < dt * (0.004 + (attacker && attackGap < 10 ? 0.01 * (1.2 - this.composure) : 0) + (c.wear || 0) * 0.006)) this.slideT = 0.5 + this.rng() * 0.6;
+    if (this.slideT > 0) { this.slideT -= dt; vT *= 0.96; }
+    // strategy: saving tyres (a little slower), pushing (attacking or defending in the closing laps)
+    if (c.tyreSave) vT *= 1 - 0.01 * c.tyreSave;
     vT *= Math.pow(c.gripWet ?? 1, 0.7); // slower where the grip is lower (rain)
     vT *= c.dmgPace ?? 1; // and with a damaged car
     if (race && race.vsc) vT = Math.min(vT, race.vscCap(c));
@@ -1177,7 +1204,9 @@ class Race {
     this.wearMul = this.mode === 'race' && !this.quali ? clamp(58 / this.laps, 1, 12) : 1;
     this.twoCompounds = this.mode === 'race' && !this.quali && this.laps >= 8; // F1 rule: use two different dry compounds
     const prng = mulberry32(hashStr(T.spec.id) ^ this.laps * 977);
-    this.cars.forEach((c) => { c.wearMul = this.wearMul; c.pitReq = null; c.pit = null; c.stops = 0; c.planLap = Math.round(this.laps * (0.3 + prng() * 0.35)); });
+    this.cars.forEach((c) => { c.wearMul = this.wearMul; c.pitReq = null; c.pit = null; c.stops = 0; c.planLap = Math.round(this.laps * (0.3 + prng() * 0.35)); c.wetBias = (prng() - 0.5) * 0.12; c.stratAggr = prng(); });
+    this.stratLog = []; this.trackWearK = 0.0095; // tyre wear per lap for a Medium at wear rate 1 (refined from the cars' own tyres)
+    if (this.mode === 'race' && !this.quali) this.cars.forEach((c) => (c.plan = this.planStrategy(c, 1)));
     this.pit = pitLane(T);
   }
   compoundRule(c) {
@@ -1327,20 +1356,108 @@ class Race {
   // player asks to pit (or changes the tyre choice / cancels); returns the requested compound or null
   requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
   lapsLeft(c) { return this.laps - Math.max(0, c.lap - 1); }
+  // ---- strategy -------------------------------------------------------------------------------------------------
+  // laps a set of tyres lasts (to ~62 % wear, where the grip starts falling away)
+  tyreLife(comp, wearPerLap) { return 0.62 / (wearPerLap ?? this.trackWearK * COMPOUNDS[comp].wear * this.wearMul); }
+  // a race plan from lap `from` on the tyres fitted now: the stints and their compounds. One stop when it works
+  // (the softest second tyre that reaches the flag), two when it doesn't; short races without the two-compound rule
+  // only stop when the tyres won't last
+  planStrategy(c, from, wplNow) {
+    const left = this.laps - from + 1, cur = c.compound; if (COMPOUNDS[cur].wet) return { stints: [{ comp: cur, to: this.laps }], i: 0, n: 0 };
+    const life = (k) => this.tyreLife(k), lifeNow = wplNow ? (0.62 - c.wear) / wplNow : life(cur) * (1 - c.wear / 0.62);
+    const need = this.twoCompounds && !c.stops ? 1 : 0;
+    if (!need && lifeNow >= left * 0.98 - 1.5) return { stints: [{ comp: cur, to: this.laps }], i: 0, n: 0 }; // no rule to meet: worn tyres to the flag beat a stop
+    const order = c.stratAggr > 0.5 ? ['S', 'M', 'H'] : ['M', 'S', 'H'];
+    // one stop: the first stint as long as the tyres allow (a little margin), then a different compound to the flag
+    // one stop: the stints split by how long each tyre lasts (the first no longer than these tyres allow), then a
+    // different compound to the flag
+    const maxS1 = Math.max(1, Math.min(Math.floor(lifeNow * 0.94), left - 2));
+    for (const k of order) {
+      if (need && k === cur) continue; const lk = life(k) * 0.96, l1 = Math.max(1, lifeNow);
+      let s1 = Math.round(left * l1 / (l1 + lk) + (c.stratAggr - 0.5) * 2); s1 = clamp(s1, Math.max(1, left - Math.floor(lk)), maxS1);
+      if (left - s1 <= lk && s1 >= 1) return { stints: [{ comp: cur, to: from + s1 - 1 }, { comp: k, to: this.laps }], i: 0, n: 1 };
+    }
+    const s1 = maxS1;
+    // two stops: split what is left after the first stint
+    const rest = left - s1, a = Math.ceil(rest / 2);
+    const k2 = order.find((k) => k !== cur && life(k) >= a) || 'H', k3 = order.find((k) => life(k) >= rest - a) || 'H';
+    return { stints: [{ comp: cur, to: from + s1 - 1 }, { comp: k2, to: from + s1 + a - 1 }, { comp: k3, to: this.laps }], i: 0, n: 2 };
+  }
+  planText(plan) { const st = plan.stints; return st.length === 1 ? `no stop on the ${COMPOUNDS[st[0].comp].name}s` : `${st.length - 1} stop${st.length > 2 ? 's' : ''}: ${st.map((x) => COMPOUNDS[x.comp].name).join(' → ')}, box around lap ${st[0].to + 1}`; }
+  stratPit(c, comp, why) { c.pitReq = comp; this.stratLog.push({ code: c.driver.code, lap: c.lap, comp, why }); }
+  // your race engineer: the plan, Safety Car stops, undercuts, tyre life and the crossover to rain tyres, on the radio
+  engineer(P) {
+    if (this.mode !== 'race' || this.quali || P.finished || P.dnf || !P.plan) return;
+    const E = (this.eng = this.eng || {}), say = (k, text) => { if (E[k]) return; E[k] = true; this.emit('radio', { car: P, text }); };
+    if (this.phase === 'green' && this.greenT > 4 && !E.plan) {
+      const alt = this.planStrategy(Object.assign({}, P, { stratAggr: 1 - (P.stratAggr || 0.5) }), 1);
+      say('plan', `Plan A: ${this.planText(P.plan)}.` + (this.planText(alt) !== this.planText(P.plan) ? ` Plan B: ${this.planText(alt)}.` : ''));
+    }
+    if (P.pit || this.phase !== 'green') return;
+    const left = this.lapsLeft(P), w = this.env.wet, onWet = COMPOUNDS[P.compound].wet;
+    if (!onWet && w > 0.36 && left > 1) say('inters' + Math.round(this.time / 300), 'It is wet enough for intermediates now. Box, box.');
+    if (onWet && w < 0.2 && left > 2) say('slicks' + Math.round(this.time / 300), 'The track is drying. Slicks this lap.');
+    // once a lap: tyre life and the stop window
+    if (P.lap !== E.lap && P.lap >= 2) {
+      E.lap = P.lap; const lapsOn = Math.max(1, P.lap - (P.stintStart || 1)), wpl = P.wear / lapsOn, proj = wpl > 0 ? (0.62 - P.wear) / wpl : 99;
+      if (P.plan.stints.length > 1) { const st = P.plan.stints[0], can = P.lap + Math.floor(proj * 0.97) - 1; if (can < st.to) st.to = Math.max(P.lap, can); }
+      E.proj = proj;
+      const due = P.plan.stints.length > 1 ? P.plan.stints[0].to + 1 - P.lap : 99;
+      if (due === 1 && !onWet) say('box' + P.stops, `Box at the end of this lap for ${COMPOUNDS[P.plan.stints[1].comp].name}s.`);
+      else if (proj < 3 && left > proj + 1 && !onWet) say('tyres' + P.stops, `The tyres are going. About ${Math.max(1, Math.round(proj))} laps left in them.`);
+    }
+    const due = P.plan.stints.length > 1 ? P.plan.stints[0].to + 1 - P.lap : 99;
+    if ((this.sc || this.vsc) && left > 2 && (due <= Math.max(3, this.laps * 0.3) || P.wear > 0.4)) say('sc' + (this.rc ? (this.rc.scCount || 0) + (this.rc.vscCount || 0) * 10 : 0), `${this.sc ? 'Safety car' : 'Virtual safety car'}: box this lap, it is a cheap stop.`);
+    const st = this.standings(), i = st.indexOf(P), ahead = st[i - 1], behind = st[i + 1];
+    if (behind && behind.pit && behind.pit.phase === 'in' && this.gapBetween(P, behind) < 2.5 && due <= 5) say('cover' + behind.driver.code + P.stops, `${behind.driver.abbr || behind.driver.code} has boxed for the undercut. Box this lap to cover.`);
+    if (ahead && ahead.pit && ahead.pit.phase === 'in' && this.gapBetween(ahead, P) < 3) say('over' + ahead.driver.code + P.stops, `${ahead.driver.abbr || ahead.driver.code} has boxed. Push now, overcut.`);
+  }
+  // the strategy line on the pause screen
+  strategyText(P) {
+    if (this.mode !== 'race' || this.quali || !P.plan) return '';
+    const lapsOn = Math.max(1, P.lap - (P.stintStart || 1)), wpl = P.wear / lapsOn, proj = P.lap >= 2 && wpl > 0 ? Math.max(0, (0.62 - P.wear) / wpl) : this.tyreLife(P.compound) * (1 - P.wear / 0.62);
+    return `Strategy: ${this.planText(P.plan)} · ${COMPOUNDS[P.compound].name}s ${Math.round((1 - P.wear) * 100)}%, about ${Math.round(proj)} laps left in them`;
+  }
   aiPitDecision(c) {
     if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished || c.dnf) return;
+    // once a lap: how fast these tyres are wearing, the plan updated from it, and whether to save them
+    if (c.plan && c.lap !== c.planSeen && c.lap >= 2) {
+      c.planSeen = c.lap; const lapsOn = Math.max(1, c.lap - (c.stintStart || 1)), wpl = c.wear / lapsOn;
+      const proj = wpl > 0 ? (0.62 - c.wear) / wpl : 99, st = c.plan.stints[0];
+      if (lapsOn >= 1 && c.wear > 0.02 && !COMPOUNDS[c.compound].wet) {
+        this.trackWearK = lerp(this.trackWearK, wpl / (COMPOUNDS[c.compound].wear * this.wearMul), 0.08);
+        // the stop stays where it was planned: earlier if these tyres won't make it, a few laps later if they are holding up
+        if (c.plan.stints.length > 1) { const can = c.lap + Math.floor(proj * 0.97) - 1; if (can < st.to) st.to = Math.max(c.lap, can); else if (can > st.to + 4 && (c.ext || 0) < 3 && this.tyreLife(c.plan.stints[1].comp) * 0.96 >= this.laps - st.to - 1) { st.to++; c.ext = (c.ext || 0) + 1; } }
+        else if (this.laps - c.lap + 1 > proj * 1.02) c.plan = this.planStrategy(c, c.lap, wpl); // the tyres won't reach the flag after all
+      }
+      const need = st.to - c.lap + 1;
+      c.tyreSave = c.plan.stints.length > 1 || proj >= need ? (proj < need + 1 && need > 2 ? 0.5 : 0) : clamp((need - proj) / Math.max(1, need) * 3, 0, 1);
+    }
     if (c.dmg.punct.some(Boolean)) { c.pitReq = COMPOUNDS[c.compound].wet ? c.compound : c.compound === 'H' ? 'M' : 'H'; return; } // limp back for new tyres
     const left = this.lapsLeft(c);
     if (left < 2) return;
-    const mustStop = this.twoCompounds && !c.stops && (c.lap > c.planLap || left <= 2);
+    const mustStop = this.twoCompounds && !c.stops && (left <= 2 || (!c.plan && c.lap > c.planLap)); // the plan stops first; this is the safety net
     const w = this.env.wet, onWet = COMPOUNDS[c.compound].wet;
-    if (!onWet && w > 0.36 && left >= 1) { c.pitReq = w > 0.78 ? 'W' : 'I'; return; }
-    if (onWet && w < 0.22 && left >= 1) { c.pitReq = left <= Math.max(2, this.laps * 0.35) ? 'S' : 'M'; return; }
+    const wb = c.wetBias || 0; // some gamble early, some late
+    if (!onWet && w > 0.36 + wb && left >= 1) { this.stratPit(c, w > 0.78 ? 'W' : 'I', 'rain'); return; }
+    if (onWet && w < 0.22 + wb && left >= 1) { this.stratPit(c, left <= Math.max(2, this.laps * 0.35) ? 'S' : 'M', 'drying'); return; }
     if (c.compound === 'W' && w < 0.6 && left > 2) { c.pitReq = 'I'; return; }
     if (c.compound === 'I' && w > 0.86 && left > 2) { c.pitReq = 'W'; return; }
     if (onWet) return;
     if (c.wingHealth < 0.6 && left > 1) { c.pitReq = c.compound === 'H' ? 'M' : 'H'; return; }
-    if (mustStop || c.wear > 0.6 || (c.wear > 0.5 && left > 3)) c.pitReq = left <= Math.max(2, this.laps * 0.35) ? 'S' : c.compound === 'H' ? 'M' : 'H';
+    const plan = c.plan, next = plan && plan.stints[1], due = plan && plan.stints.length > 1 ? plan.stints[0].to + 1 - c.lap : 99;
+    const nextComp = next ? next.comp : (left <= Math.max(2, this.laps * 0.35) ? 'S' : c.compound === 'H' ? 'M' : 'H');
+    // a Safety Car or VSC: a stop costs far less now. Take it if one is due within a few laps (or the tyres are past their best)
+    if ((this.sc || this.vsc) && c.lap >= 2 && left > 2 && (due <= Math.max(3, this.laps * 0.3) || c.wear > 0.4) && this.tyreLife(nextComp) * 1.05 >= left - 1) { this.stratPit(c, nextComp, this.sc ? 'safety car' : 'VSC'); return; }
+    if (this.phase === 'green' && c.lap >= 2 && due <= 5 && due > 0) {
+      const st = this.standings(), i = st.indexOf(c), ahead = st[i - 1], behind = st[i + 1];
+      // cover: the car right behind has just stopped (the undercut): stop now too
+      if (due <= 4 && behind && behind.pit && behind.pit.phase === 'in' && this.gapBetween(c, behind) < 2.0 && !c.coverT) { c.coverT = c.lap; this.stratPit(c, nextComp, 'cover the undercut'); return; }
+      // undercut: stuck behind for two laps, close: stop early for the fresh tyres
+      if (ahead && !ahead.pit) { const g = this.gapBetween(ahead, c); c.stuck = g < 1.3 ? (c.stuckLap === c.lap ? c.stuck : (c.stuck || 0) + 1) : 0; c.stuckLap = c.lap; if (c.stuck >= 3 && due <= 3 + c.stratAggr * 2) { this.stratPit(c, nextComp, 'undercut'); return; } }
+    }
+    if (plan && plan.stints.length > 1 && due <= 0) { this.stratPit(c, nextComp, 'plan'); return; }
+    if (mustStop || c.wear > 0.66 || (c.wear > 0.55 && left > 3 && (!plan || plan.stints.length === 1))) this.stratPit(c, nextComp, mustStop ? 'rule' : 'worn tyres');
   }
   // pit stop: the lane is driven on rails at the limiter; laps keep counting as the lane runs beside the line
   pitStep(c, dt) {
@@ -1363,7 +1480,7 @@ class Race {
     } else if (q.phase === 'stop') {
       q.t += dt;
       if (q.t >= q.service) {
-        c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.stops++;
+        c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.stops++; c.stintStart = c.lap; c.ext = 0; if (c.plan) { const st = c.plan.stints; c.plan = st.length > 1 && st[1].comp === c.compound ? { stints: st.slice(1), i: 0, n: st.length - 2 } : this.planStrategy(c, c.lap + 1); } c.tyreSave = 0;
         // new tyres fix any puncture; a new nose fixes the front wing (the rest can't be repaired in a race)
         c.dmg.tyre = [1, 1, 1, 1]; c.dmg.punct = [0, 0, 0, 0]; if (q.nose) { c.wingHealth = 1; c.dmg.noses++; } if (c.dmgSaid) for (const k of ['fwL', 'fwR', 'p0', 'p1', 'p2', 'p3']) delete c.dmgSaid[k];
         q.phase = 'out'; q.v = 0; this.emit('pitdone', { car: c, compound: q.compound, time: q.service });
@@ -1457,7 +1574,7 @@ class Race {
       if (c.parked) { c.vx = c.vy = c.r = 0; c.throttle = 0; c.brake = 1; return; }
       if (c.dnf && !c.pit) { this.retireStep(c, dt); return; }
       if (c.dnf && c.pit && c.pit.phase !== 'in' && c.pit.phase !== 'queue') { this.announceDnf(c); c.pit.phase = 'parked'; c.parked = true; c.parkedAt = this.time; c.vx = 0; return; } // retires in the pit box (out of its team-mate's way)
-      if (c !== this.player) this.aiPitDecision(c);
+      if (c !== this.player) this.aiPitDecision(c); else if (!this.online) this.engineer(c);
       if (c.pit || this.pitEntry(c)) { this.pitStep(c, dt); return; }
       c.step(dt, inputs[i]);
       if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; c.penalty += 5; this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }

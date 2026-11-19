@@ -659,6 +659,7 @@ const App = {
     $('#pc-btns').hidden = this.paused;
     $('#p-restart').hidden = !!this.session.online; // an online race restarts for everyone or no one
     $('#p-pad').innerHTML = Pads.summary(); $('#p-pad').hidden = !$('#p-pad').innerHTML;
+    { const t = this.session.race.strategyText(this.session.race.player); $('#p-strat').textContent = t; $('#p-strat').hidden = !t; }
     { const P = this.session.race.player, log = P.lapLog || [], el = $('#p-laps');
       el.hidden = !(this.paused && this.session.race.mode !== 'race' && log.length);
       if (!el.hidden) {
@@ -998,6 +999,7 @@ const App = {
   handleEvents(race) {
     const S = this.session;
     for (const e of race.events) {
+      if (e.type === 'radio') { if (e.car === race.player) Radio.say(e.text, 2); continue; } // the engineer's strategy calls
       Radio.event(e, race); Ach.liveCheck(race, e);
       if (e.type === 'light') { if (e.n > 0) this.audio.beep(520, 0.15, 0.2); if (e.n === 1 && !this.touchOn) Hud.banner('← → steer · A accelerate · D brake', 'info'); }
       else if (e.type === 'go') { this.audio.beep(880, 0.3, 0.25); Hud.banner('Lights out', 'go'); this.audio.cheer(0.8); }

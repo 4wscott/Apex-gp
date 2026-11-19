@@ -177,6 +177,7 @@ body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replay
 .su-eng { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; }
 .su-eng p { margin: 0; }
 .su-presets { flex-wrap: wrap; }
+.p-strat { font-size: 15px; font-weight: 700; color: var(--accent); }
 .su-pf { border-color: #e5a33d; flex-wrap: wrap; }
 .wk-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .wk-s { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--muted); }
@@ -816,6 +817,7 @@ body.touch #h-track { display: none; }
   <div id="pause" class="overlay" hidden>
     <div class="card">
       <h2>Paused</h2>
+      <p class="wk-msg p-strat" id="p-strat" hidden></p>
       <div class="table-wrap"><table><tbody>
         <tr><td>Steer</td><td><kbd>←</kbd> <kbd>→</kbd></td></tr><tr><td>Pit stop (press again to pick tyres / cancel)</td><td><kbd>M</kbd></td></tr><tr><td>Accelerate / brake</td><td><kbd>A</kbd> / <kbd>D</kbd> (or <kbd>↑</kbd> / <kbd>↓</kbd>)</td></tr>
         <tr><td>Shift up / down (manual)</td><td><kbd>E</kbd> / <kbd>Q</kbd></td></tr>
