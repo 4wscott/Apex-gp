@@ -127,16 +127,16 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await ev(() => { const r = App.session.race, P = r.player; P.dmg.fwR = 0.2; P.dmg.rw = 0.3; P.dmg.sus[2] = 0.5; P.puncture(0); P.dmg.pu = 0.4; App.paused = false; });
   await page.waitForTimeout(2500);
   ok(await ev(() => !document.querySelector('#h-dmg').hidden), 'HUD damage diagram shows');
-  await page.screenshot({ path: OUT + `dmg-hud-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `dmg-hud-${tag}.png` });
   await ev(() => { App.paused = true; const P = App.session.race.player, h = P.h; window.__fix = () => { const c = App.camera; c.position.set(P.x + Math.cos(h + 0.9) * 5.5, 1.8, -(P.y + Math.sin(h + 0.9) * 5.5)); c.lookAt(P.x, 0.4, -P.y); }; const r0 = App.render.bind(App); App.render = () => { window.__fix(); r0(); };  });
-  await page.waitForTimeout(1500); await page.screenshot({ path: OUT + `dmg-car-${tag}.png` });
+  await page.waitForTimeout(1500); await page.screenshot({ timeout: 240000, path: OUT + `dmg-car-${tag}.png` });
   // the player retires: the race is classified and the results show
   await ev(() => { const r = App.session.race, P = r.player; App.paused = false; P.dmg.sus[0] = 0.05; P.dnf = 'Suspension damage'; });
   for (let i = 0; i < 120 && (await ev(() => document.querySelector('#results').hidden)); i++) await page.waitForTimeout(500);
   const res = await ev(() => { const P = App.session.race.player; return { shown: !document.querySelector('#results').hidden, title: document.querySelector('#res-title').textContent, dnf: [...document.querySelectorAll('#res-body tr')].filter((tr) => /DNF/.test(tr.textContent)).length, parked: P.parked, vx: P.vx, pit: !!P.pit, ended: App.session.race.endedEarly }; });
   console.log(JSON.stringify(res));
   ok(res.shown && /retired/.test(res.title) && res.dnf >= 2, 'player retirement: results show DNF, the race is classified');
-  await page.screenshot({ path: OUT + `dmg-results-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `dmg-results-${tag}.png` });
   // the setting is in the menu and applies on the go
   ok(await ev(() => !!document.querySelector('[data-set="damage"] [data-v="visual"]')), 'Car damage setting (Off / Visual only / Realistic) in Driving');
   ok(await ev(() => { Menu.applyLevel('beginner'); const a = SIM.settings.damage; Menu.applyLevel('pro'); return a === 'visual' && SIM.settings.damage === 'real' && Menu.levelOf() === 'pro'; }), 'difficulty presets set the damage level (Beginner: visual only)');

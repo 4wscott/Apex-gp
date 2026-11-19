@@ -56,7 +56,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await ev(() => Career.render()); await page.waitForTimeout(400);
   const rel = await ev(() => ({ stay: !!document.querySelector('#cr-next'), offers: document.querySelectorAll('[data-offer]').length, warn: (document.querySelector('.warn-box') || {}).textContent }));
   ok(!rel.stay && rel.offers > 0 && /released/.test(rel.warn || ''), 'released: no "stay" button, offers to sign');
-  await page.screenshot({ path: OUT + `c1-released-${tag}.png`, fullPage: false });
+  await page.screenshot({ timeout: 240000, path: OUT + `c1-released-${tag}.png`, fullPage: false });
 
   // --- a real career race: hub, loading screen, pause card and results
   await ev(() => { Career.retire(); Career.newCareer({ name: 'Test Driver', num: 42, team: 'grove', replaces: 'SIN', laps: 1 }); Menu.sync(); });
@@ -65,24 +65,24 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   ok(hub.goals === 3 && hub.objs === 2 && hub.mate && /50/.test(hub.conf), 'hub shows 3 goals, 2 objectives, the team-mate and confidence ' + JSON.stringify(hub));
   await ev(() => { document.querySelector('#menu').dataset.drawer || Menu.drawer('career'); });
   await page.waitForTimeout(600);
-  await page.screenshot({ path: OUT + `c1-hub-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c1-hub-${tag}.png` });
   await ev(() => { const g = document.querySelector('#career .goals'); g && g.scrollIntoView(); });
-  await page.waitForTimeout(300); await page.screenshot({ path: OUT + `c1-hub2-${tag}.png` });
+  await page.waitForTimeout(300); await page.screenshot({ timeout: 240000, path: OUT + `c1-hub2-${tag}.png` });
   const load = await ev(() => { Career.startRace(null); return document.querySelector('#loading').textContent; });
   ok(/Weekend objectives/.test(load), 'loading screen lists the objectives');
-  await page.screenshot({ path: OUT + `c1-loading-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c1-loading-${tag}.png` });
   for (let i = 0; i < 120 && !(await ev(() => !!(App.session && App.session.race))); i++) await page.waitForTimeout(500);
   await page.waitForTimeout(1500);
   await ev(() => App.togglePause(true)); await page.waitForTimeout(300);
   ok(await ev(() => !document.querySelector('#p-obj').hidden && /Main/.test(document.querySelector('#p-obj').textContent)), 'pause card shows the objectives');
-  await page.screenshot({ path: OUT + `c1-pause-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c1-pause-${tag}.png` });
   await ev(() => App.togglePause(false));
   const res = await ev(() => { const r = App.session.race; r.lightsOutAt = 0; const ai = new SIM.AIDriver(r.player, 1.0, 11); let n = 0; while (!r.player.finished && n < 360 * 900) { r.step(1 / 360, ai.control(1 / 360, r.cars, r)); n++; } App.handleEvents(r); return r.finishOrder.indexOf(r.player) + 1; });
   for (let i = 0; i < 60 && (await ev(() => { if (window.Podium && Podium.on) Podium.end(); return document.querySelector('#results').hidden; })); i++) await page.waitForTimeout(500);
   const rs = await ev(() => ({ rows: document.querySelectorAll('#res-extra .res-obj > div').length, conf: Career.data.conf, h2h: Career.data.mateH2h, last: Career.data.last.score }));
   console.log('race P' + res, JSON.stringify(rs));
   ok(rs.rows >= 3 && rs.h2h.ra + rs.h2h.rb === 1, 'results list both objectives and the confidence change; team-mate race record counted');
-  await page.screenshot({ path: OUT + `c1-results-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c1-results-${tag}.png` });
   await page.click('#r-again'); await page.waitForTimeout(2000);
   ok(await ev(() => Career.data.round === 1 && Career.data.obj && Career.data.obj.key.startsWith('1-1')), 'next round has new objectives');
   // older saves (no goals, no confidence) still load

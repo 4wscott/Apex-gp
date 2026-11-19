@@ -59,7 +59,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   console.log(JSON.stringify(lv));
   ok(lv.lv.finish === 'chrome' && lv.lv.helmet === 'chequer' && lv.lv.numStyle === 'gold' && lv.metal > 0.8, 'chrome finish, chequered helmet and gold numbers on the showroom car');
   await ev(() => { document.querySelector('#menu').dataset.drawer && Menu.drawer(null); }); await page.waitForTimeout(1500);
-  await page.screenshot({ path: OUT + `c3-chrome-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c3-chrome-${tag}.png` });
   // a fresh career: locked styles show the lock and what unlocks them
   const fresh = await ev(() => { const keep = JSON.stringify(Career.data); Career.retire(); Career.newCareer({ name: 'Test Driver', num: 42, team: 'grove', replaces: 'SIN', laps: 5 }); Career.render(); const n = document.querySelectorAll('#career [data-lock]').length, t = (document.querySelector('#lv-finish [data-v="gold"]') || {}).title; Career.data = JSON.parse(keep); Career.save(); Career.render(); return { n, t }; });
   ok(fresh.n === 9 && /World Champion/.test(fresh.t || ''), 'new career: 9 locked styles, each says how to unlock it (' + fresh.t + ')');
@@ -67,8 +67,8 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await ev(() => { Menu.drawer('career'); }); await page.waitForTimeout(600);
   const hub = await ev(() => ({ slots: document.querySelectorAll('.trophy-slot').length, got: document.querySelectorAll('.trophy-slot.got').length, stats: document.querySelectorAll('.stat-grid > div').length }));
   ok(hub.slots === res.total && hub.got === res.total && hub.stats === 10, 'trophy room shelves and the career stats page ' + JSON.stringify(hub));
-  await ev(() => document.querySelector('.trophies').scrollIntoView()); await page.waitForTimeout(400); await page.screenshot({ path: OUT + `c3-trophies-${tag}.png` });
-  await ev(() => document.querySelector('.cstats').scrollIntoView()); await page.waitForTimeout(400); await page.screenshot({ path: OUT + `c3-stats-${tag}.png` });
+  await ev(() => document.querySelector('.trophies').scrollIntoView()); await page.waitForTimeout(400); await page.screenshot({ timeout: 240000, path: OUT + `c3-trophies-${tag}.png` });
+  await ev(() => document.querySelector('.cstats').scrollIntoView()); await page.waitForTimeout(400); await page.screenshot({ timeout: 240000, path: OUT + `c3-stats-${tag}.png` });
   // saves: a reload keeps it all; an older save without stats is rebuilt from its results
   await page.reload(); await page.waitForTimeout(5000);
   const kept = await ev(() => ({ ach: Object.keys(Career.data.ach || {}).length, unlocks: (Career.data.unlocks || []).length, starts: Career.data.stats.starts }));
@@ -84,7 +84,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   const rr = await ev(() => ({ toasts: document.querySelectorAll('#res-extra .ach-toast > div').length, starts: Career.data.stats.starts, ach: Object.keys(Career.data.ach) }));
   console.log(JSON.stringify(rr));
   ok(rr.starts === 1 && (rr.toasts > 0) === (rr.ach.length > 0), 'race results show the achievements just unlocked (' + rr.ach.join(', ') + ')');
-  await page.screenshot({ path: OUT + `c3-results-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c3-results-${tag}.png` });
   ok(!errs.length, 'errors: ' + (errs.slice(0, 4).join(' | ') || 'none'));
   console.log(fails ? `${fails} FAILED` : 'ALL PASS'); await br.close(); process.exit(fails ? 1 : 0);
 })();

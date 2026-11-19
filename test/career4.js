@@ -48,10 +48,10 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   await ev(() => { Career.render(); Menu.drawer('career'); }); await page.waitForTimeout(800);
   const cer = await ev(() => ({ shown: !document.querySelector('#season-end').hidden, text: document.querySelector('#season-end').innerText }));
   ok(cer.shown && /World Champion/i.test(cer.text) && /Constructors' champion/i.test(cer.text), 'season-end ceremony shows both champions');
-  await page.screenshot({ path: OUT + `c4-ceremony-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c4-ceremony-${tag}.png` });
   await ev(() => document.querySelector('#se-ok').click()); await page.waitForTimeout(300);
   ok(await ev(() => document.querySelector('#season-end').hidden), 'ceremony closes to the season review');
-  await page.screenshot({ path: OUT + `c4-review-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c4-review-${tag}.png` });
   await ev(() => { Career.render(); }); await page.waitForTimeout(200);
   ok(await ev(() => document.querySelector('#season-end').hidden), 'ceremony shows only once');
   // two more seasons: the hall of fame keeps all of them
@@ -62,7 +62,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   const hub = await ev(() => ({ maths: !!document.querySelector('.champ-maths .tm-lines li'), gap: document.querySelectorAll('.gap-row').length, hof: !![...document.querySelectorAll('#career h2')].find((h) => h.textContent === 'Hall of fame') }));
   ok(hub.maths && hub.gap === 3 && hub.hof, 'hub: title maths, constructors gap chart (3 teams), hall of fame ' + JSON.stringify(hub));
   await ev(() => document.querySelector('.champ-maths').scrollIntoView()); await page.waitForTimeout(300);
-  await page.screenshot({ path: OUT + `c4-hub-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c4-hub-${tag}.png` });
   // live championship during a race
   await ev(() => Career.startRace(null));
   for (let i = 0; i < 120 && !(await ev(() => !!(App.session && App.session.race))); i++) await page.waitForTimeout(500);
@@ -71,7 +71,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   const live = await ev(() => document.querySelector('#p-obj').innerText);
   console.log(live.replace(/\n/g, ' | '));
   ok(/Championship if the race ended now/i.test(live) && /P\d+ · \d+ pts/.test(live), 'pause card: live championship position');
-  await page.screenshot({ path: OUT + `c4-live-${tag}.png` });
+  await page.screenshot({ timeout: 240000, path: OUT + `c4-live-${tag}.png` });
   ok(!errs.length, 'errors: ' + (errs.slice(0, 4).join(' | ') || 'none'));
   console.log(fails ? `${fails} FAILED` : 'ALL PASS'); await br.close(); process.exit(fails ? 1 : 0);
 })();
