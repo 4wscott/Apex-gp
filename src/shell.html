@@ -497,10 +497,6 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 #h-dmg { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 54px); transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; padding: 6px 6px 4px; border-radius: 8px; background: rgba(8,10,13,0.6); pointer-events: none; z-index: 4; }
 #h-dmg small { font-family: var(--f-display); font-size: 9px; letter-spacing: 0.1em; color: var(--muted); }
 #sp-now { margin: 6px 0; font-weight: 600; }
-#yt-dock { position: fixed; z-index: 30; right: 0; bottom: 0; width: 200px; height: 113px; opacity: 0; pointer-events: none; overflow: hidden; }
-#yt-dock iframe { width: 200px; height: 113px; border: 0; display: block; }
-body.yt-tap #yt-dock { opacity: 1; pointer-events: auto; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 64px); border-radius: 6px; box-shadow: 0 0 0 3px var(--accent); }
-body.yt-tap #yt-dock::after { content: 'Tap the video once to start the music'; position: absolute; left: 0; right: 0; top: -1px; background: var(--accent); color: var(--accent-ink); font: 700 11px/1.6 var(--f-body); text-align: center; pointer-events: none; }
 #h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
 .banner.warn { color: #ffb4b4; border-left: 4px solid var(--red); }
@@ -634,7 +630,6 @@ body.touch #h-track { display: none; }
     <div id="h-track"></div>
   </div>
 
-  <div id="yt-dock" hidden></div>
 <div id="touch" hidden></div>
   <div id="rotate" hidden>Turn your phone sideways to race.</div>
 
@@ -781,30 +776,6 @@ body.touch #h-track { display: none; }
         <div class="row"><label for="vol">Master volume</label><div class="ctl"><input id="vol" type="range" min="0" max="100" step="1"><output id="vol-out"></output></div></div>
         <div class="row"><label for="sfx">Engine &amp; effects</label><div class="ctl"><input id="sfx" type="range" min="0" max="100" step="1"><output id="sfx-out"></output></div></div>
         <div class="row"><label for="voicevol">Radio voice</label><div class="ctl"><input id="voicevol" type="range" min="0" max="100" step="1"><output id="voicevol-out"></output></div></div>
-        <div class="row"><label>Music source</label><div class="ctl seg" data-set="musicSource"><button type="button" data-v="youtube">YouTube playlist</button><button type="button" data-v="game">Built-in hardstyle</button><button type="button" data-v="own">My own music (Spotify, Apple Music…)</button><button type="button" data-v="spotify">Spotify in the game</button></div></div>
-        <p class="hint">With your own music, start a playlist in Spotify first, then open the game: its engine and effects play over your music instead of stopping it.</p>
-        <div id="yt-panel" hidden>
-          <div class="row"><label for="yt-list">Playlist</label><div class="ctl"><select id="yt-list"></select> <button type="button" class="btn" id="yt-shuffle">Another playlist</button></div></div>
-          <div class="row" id="yt-own"><label for="yt-url">Your link</label><div class="ctl"><input id="yt-url" type="url" autocomplete="off" spellcheck="false" placeholder="Paste a YouTube playlist or video link"> <button type="button" class="btn" id="yt-load">Play</button></div></div>
-          <p class="sp-now" id="yt-now" aria-live="polite"></p>
-          <div class="actions"><button type="button" class="btn" id="yt-prev" aria-label="Previous track">⏮</button><button type="button" class="btn primary" id="yt-pp" aria-label="Play or pause">⏯</button><button type="button" class="btn" id="yt-next" aria-label="Next track">⏭</button></div>
-          <p class="hint">During a race: <kbd>N</kbd> next track, <kbd>K</kbd> play/pause. The music needs an internet connection; offline the built-in hardstyle plays instead.</p>
-          <p class="hint" id="yt-msg" aria-live="polite"></p>
-        </div>
-        <div id="sp-panel" hidden>
-          <div class="row"><label for="sp-client">Spotify Client ID</label><div class="ctl"><input id="sp-client" type="text" autocomplete="off" spellcheck="false" placeholder="32 letters and numbers from developer.spotify.com"></div></div>
-          <p class="hint" id="sp-redirect"></p>
-          <div class="actions"><button type="button" class="btn primary" id="sp-login">Connect Spotify</button><button type="button" class="btn" id="sp-logout" hidden>Disconnect</button></div>
-          <div id="sp-ctl" hidden>
-            <p class="sp-now" id="sp-now" aria-live="polite">Nothing playing</p>
-            <div class="actions"><button type="button" class="btn" id="sp-prev" aria-label="Previous track">⏮</button><button type="button" class="btn primary" id="sp-pp" aria-label="Play or pause">⏯</button><button type="button" class="btn" id="sp-next" aria-label="Next track">⏭</button></div>
-            <div class="row"><label for="sp-list">Playlist</label><div class="ctl"><select id="sp-list"><option value="">Loading playlists…</option></select> <button type="button" class="btn" id="sp-playlist">Play</button></div></div>
-            <p class="hint">During a race: <kbd>N</kbd> next track, <kbd>K</kbd> play/pause. Spotify plays on your phone, computer or speaker; on a computer with Spotify Premium the game itself can be the player.</p>
-          </div>
-          <p class="hint" id="sp-msg" aria-live="polite"></p>
-        </div>
-        <div class="row"><label for="music">Music volume</label><div class="ctl"><input id="music" type="range" min="0" max="100" step="1"><output id="music-out"></output></div></div>
-        <div class="row"><label>Music in races</label><div class="ctl seg" data-set="musicRace"><button type="button" data-v="off">Off</button><button type="button" data-v="quiet">Quiet</button><button type="button" data-v="full">Full</button></div></div>
         <div class="row"><label>Units</label><div class="ctl seg" data-set="units"><button type="button" data-v="kmh">km/h</button><button type="button" data-v="mph">mph</button></div></div>
         <details class="credits"><summary>Credits</summary>
           <p class="hint">3D models from Sketchfab, CC BY 4.0, recoloured and adapted for the game: "2027 Formula 1 Car" by abuhossain844 (race car), "Ducati Lenovo Team - MotoGP26" by Kenny3D89 (race bike, all branding removed), "race driver" by asset_for_games (driver and rider), "Racing helmet" by mizucorp4. F1 engine sound cut from "Williams-Cosworth FW32 (2010).ogg" on Wikimedia Commons, CC BY-SA 3.0. The bike engine sound is synthesised. Teams, drivers, riders and championships are fictional.</p>
@@ -833,7 +804,7 @@ body.touch #h-track { display: none; }
         <tr><td>Active aero (driver mode) / overtake (hold)</td><td><kbd>Space</kbd> / <kbd>F</kbd></td></tr>
         <tr><td>ERS mode / brake bias</td><td><kbd>X</kbd> / <kbd>[</kbd> <kbd>]</kbd></td></tr>
         <tr><td>Camera / look back / reset to track</td><td><kbd>C</kbd> / <kbd>B</kbd> / <kbd>R</kbd></td></tr>
-        <tr><td>Pause / music next track, play-pause</td><td><kbd>Esc</kbd> or <kbd>P</kbd> / <kbd>N</kbd>, <kbd>K</kbd></td></tr>
+        <tr><td>Pause</td><td><kbd>Esc</kbd> or <kbd>P</kbd></td></tr>
       </tbody></table></div>
       <div id="p-laps" hidden></div>
       <div id="p-obj" hidden></div>

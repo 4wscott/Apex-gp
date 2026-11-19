@@ -18,6 +18,7 @@ const settings = Object.assign({}, DEFAULTS, store.get('settings', {}));
 // v2: arrow buttons became the default phone steering
 if ((settings.v || 1) < 2) { settings.touchSteer = 'buttons'; settings.v = 2; }
 // v3: High graphics by default everywhere, music from a YouTube playlist
+settings.musicSource = 'off'; // the music options were removed
 if (settings.v < 3) { settings.quality = 2; if (settings.musicSource === 'game') settings.musicSource = 'youtube'; settings.v = 3; }
 if (settings.v < 4) { settings.quality = Math.max(2, settings.quality); settings.autoRes = false; settings.v = 4; }
 if (settings.v < 5) settings.v = 5;
@@ -83,7 +84,7 @@ const App = {
     this.input = new Input(); this.audio = new AudioEngine();
     this.music = new Music(this.audio);
     // browsers only allow sound after a tap or key press: start the menu music on the first one
-    const wake = () => { applyAudioSession(); this.audio.fxVol = settings.sfx ?? 1; this.audio.start(); this.audio.setVolume(settings.volume); this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube' && !YTMusic.player) YTMusic.play().catch(() => this.music.start()); this.music.setDuck(this.session ? raceMusic() : 1); };
+    const wake = () => { applyAudioSession(); this.audio.fxVol = settings.sfx ?? 1; this.audio.start(); this.audio.setVolume(settings.volume); };
     // unlock on every kind of gesture until the audio is really running (iOS only accepts touchend/click)
     const unlock = () => { wake(); if (this.audio.ctx && this.audio.ctx.state === 'running') ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => removeEventListener(e, unlock, true)); };
     ['pointerdown', 'touchend', 'click', 'keydown'].forEach((e) => addEventListener(e, unlock, true));
@@ -528,7 +529,7 @@ const App = {
       loadBikes().then((B) => { if (!B) { settings.series = 'car'; } this.start(cfg); }); return;
     }
     this.audio.start(); this.audio.setVolume(settings.volume);
-    this.music.setLevel(settings.music); if (settings.musicSource === 'game') this.music.start(); else if (settings.musicSource === 'youtube') YTMusic.play().catch(() => this.music.start()); this.music.setDuck(raceMusic()); document.body.classList.remove('yt-tap');
+
     const mode = cfg ? cfg.mode : settings.mode;
     const T = this.getTrack(cfg ? cfg.track : settings.track);
     $('#loading').innerHTML = '<span>Building circuit…</span>' + (cfg && cfg.career && !cfg.sprint ? CareerGoals.briefHTML() : ''); // the weekend's objectives while it loads
@@ -658,7 +659,7 @@ const App = {
     document.body.classList.remove('race-settings'); delete $('#menu').dataset.drawer;
     if (this.session && this.session.online) { Net.racing = false; }
     if (this.wx && this.session) this.weatherVisuals(0, { env: { rain: 0, wet: 0 } }); if (this.rainFx) this.rainFx.lines.visible = false;
-    this.session = null; this.paused = false; this.audio.silence(); this.music.setDuck(1); setTimeout(() => YTMusic.ready && YTMusic.checkTap(), 1500);
+    this.session = null; this.paused = false; this.audio.silence();
     Hud.hide(); $('#touch').hidden = true; document.body.classList.remove('touch'); $('#rotate').hidden = true; $('#pause').hidden = true; $('#results').hidden = true; $('#menu').hidden = false;
     $('#r-again').textContent = 'Race again'; $('#r-menu').textContent = 'Main menu'; $('#r-menu').hidden = false;
     $('#res-head').innerHTML = '<tr><th>Pos</th><th>Driver</th><th>Team</th><th>Time</th><th>Best lap</th><th>Pen.</th><th>Grid</th></tr>';
@@ -806,11 +807,6 @@ const App = {
       let next = order[(cur + 1) % order.length]; if (next === P.compound && P.pitReq == null) next = order[(order.indexOf(next) + 1) % (order.length - 1)];
       race.requestPit(P, next); Radio.boxCall(next);
       Hud.banner(next ? `Box this lap: ${COMPOUNDS[next].name} tyres` : 'Pit stop cancelled', next ? 'info' : 'warn');
-    }
-    if (settings.musicSource === 'youtube') { if (inp.spNextPressed) { YTMusic.next(); Hud.flash('Next track'); } if (inp.spPlayPressed) YTMusic.toggle(); }
-    if (settings.musicSource === 'spotify' && Spotify.connected()) {
-      if (inp.spNextPressed) Spotify.next().then(() => Hud.flash('Spotify: next track')).catch((e) => Hud.flash(e.message));
-      if (inp.spPlayPressed) Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())).catch((e) => Hud.flash(e.message));
     }
     if (inp.resetPressed && race.phase === 'green') {
       if (P.dnf && race.mode === 'race') Hud.flash('Retired from the race');
@@ -2079,49 +2075,6 @@ const Menu = {
     }
     saveSettings(); this.sync();
   },
-  // YouTube music panel
-  initYouTube() {
-    const sel = $('#yt-list');
-    sel.innerHTML = '<option value="random">Random mix (changes each time)</option>' + YT_PLAYLISTS.map((p, k) => `<option value="${k}">${p[0]}</option>`).join('') + '<option value="custom">My own playlist link…</option>';
-    sel.value = settings.ytList ?? 'random'; $('#yt-url').value = settings.ytUrl || '';
-    const own = () => ($('#yt-own').hidden = sel.value !== 'custom');
-    own();
-    sel.onchange = () => { settings.ytList = sel.value; saveSettings(); own(); if (sel.value !== 'custom') { YTMusic.session = null; YTMusic.play(YTMusic.pick()).catch(() => {}); } };
-    $('#yt-load').onclick = () => {
-      settings.ytUrl = $('#yt-url').value.trim(); saveSettings();
-      if (!YTMusic.parse(settings.ytUrl)) { $('#yt-msg').textContent = 'That doesn\'t look like a YouTube playlist or video link.'; return; }
-      $('#yt-msg').textContent = ''; YTMusic.play(settings.ytUrl).catch((e) => ($('#yt-msg').textContent = e.message));
-    };
-    $('#yt-shuffle').onclick = () => { if (sel.value !== 'random') { sel.value = 'random'; settings.ytList = 'random'; saveSettings(); own(); } YTMusic.shuffleList().catch(() => {}); };
-    $('#yt-prev').onclick = () => YTMusic.prev(); $('#yt-next').onclick = () => YTMusic.next(); $('#yt-pp').onclick = () => YTMusic.toggle();
-    YTMusic.onChange = () => { const t = YTMusic.title(); $('#yt-now').textContent = YTMusic.failed ? (YTMusic.msg || 'YouTube unavailable') : t ? `▶ ${t} · ${YTMusic.playlistName()}` : YTMusic.playlistName(); };
-  },
-  // Spotify panel
-  initSpotify() {
-    $('#sp-client').value = store.get('sp.client', '');
-    $('#sp-redirect').innerHTML = `Redirect URI to add in your Spotify app: <code>${Spotify.redirect()}</code>`;
-    const msg = (t) => ($('#sp-msg').textContent = t || '');
-    $('#sp-client').onchange = () => store.set('sp.client', $('#sp-client').value.trim());
-    $('#sp-login').onclick = () => { store.set('sp.client', $('#sp-client').value.trim()); Spotify.login().catch((e) => msg(e.message)); };
-    $('#sp-logout').onclick = () => { Spotify.logout(); this.spotifyUI(); };
-    const act = (f) => () => f().then(() => setTimeout(() => this.spotifyNow(), 500)).catch((e) => msg(e.message));
-    $('#sp-prev').onclick = act(() => Spotify.prev()); $('#sp-next').onclick = act(() => Spotify.next());
-    $('#sp-pp').onclick = act(() => Spotify.now().then((n) => (n && n.is_playing ? Spotify.pause() : Spotify.play())));
-    $('#sp-playlist').onclick = act(() => Spotify.play($('#sp-list').value || undefined));
-    Spotify.finishLogin().then((ok) => { if (ok) { settings.musicSource = 'spotify'; saveSettings(); App.music.stop(); this.sync(); this.drawer('settings'); $$('.tab').find((t) => t.dataset.panel === 'p-gfx')?.click(); msg('Spotify connected.'); } this.spotifyUI(); }).catch((e) => { msg(e.message); this.spotifyUI(); });
-    setInterval(() => { if (Spotify.connected() && settings.musicSource === 'spotify' && !$('#menu').hidden) this.spotifyNow(); }, 8000);
-  },
-  spotifyUI() {
-    const on = Spotify.connected();
-    $('#sp-login').hidden = on; $('#sp-logout').hidden = !on; $('#sp-ctl').hidden = !on;
-    if (on) {
-      this.spotifyNow();
-      Spotify.playlists().then((ls) => { $('#sp-list').innerHTML = '<option value="">Continue what was playing</option>' + ls.map((p) => `<option value="${p.uri}">${p.name.replace(/[<&]/g, '')}</option>`).join(''); }).catch((e) => ($('#sp-msg').textContent = e.message));
-    }
-  },
-  spotifyNow() {
-    Spotify.now().then((n) => { const it = n && n.item; $('#sp-now').textContent = it ? `${n.is_playing ? '▶' : '⏸'} ${it.name} · ${(it.artists || []).map((a) => a.name).join(', ')}${n.device ? ` (on ${n.device.name})` : ''}` : 'Nothing playing: pick a playlist and press Play'; }).catch(() => {});
-  },
   // online room panel
   initOnline() {
     $('#on-name').value = store.get('netname', '') || '';
@@ -2156,7 +2109,7 @@ const Menu = {
     };
   },
   init() {
-    this.initOnline(); this.initSpotify(); this.initYouTube();
+    this.initOnline();
     // circuits
     const grid = $('#circuits');
     TRACKS.forEach((spec) => {
@@ -2199,9 +2152,7 @@ const Menu = {
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
         if (key === 'tod') App.preview(settings.track);
-        if (key === 'musicRace' && App.session) App.music.setDuck(raceMusic());
         if (key === 'camera' && App.session) App.session.camMode = v;
-        if (key === 'musicSource') { applyAudioSession(); if (v === 'game') { App.audio.start(); App.music.start(); App.music.setDuck(App.session ? raceMusic() : 1); } else App.music.stop(); if (v === 'youtube') YTMusic.play().catch(() => {}); else YTMusic.stop(); if (v === 'spotify') this.spotifyUI(); }
       });
     });
     const range = (id, key, fmt, scale = 1) => {
@@ -2213,7 +2164,7 @@ const Menu = {
     range('#su-wing', 'setupWing', (v) => (v === 0 ? 'Balanced' : v < 0 ? `Low downforce ${-v}` : `High downforce ${v}`)); range('#su-bias', 'setupBias', (v) => `${v}% front`);
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
     range('#sfx', 'sfx', (v) => `${Math.round(v * 100)}%`, 100); range('#voicevol', 'voiceVol', (v) => `${Math.round(v * 100)}%`, 100);
-    range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100); range('#music', 'music', (v) => `${Math.round(v * 100)}%`, 100);
+    range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100);
     range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
     // stepped menu
     // career and online need their own panel; the other modes race straight from the showroom
@@ -2376,7 +2327,6 @@ const Menu = {
     const career = settings.mode === 'career';
     $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${Career.teams().find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
       : `<b>${{ race: 'Grand Prix', trial: 'Time trial', practice: 'Practice' }[settings.mode] || ''}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
-    $('#sp-panel').hidden = settings.musicSource !== 'spotify'; $('#yt-panel').hidden = settings.musicSource !== 'youtube';
     const online = settings.mode === 'online';
     const prac = settings.mode === 'practice';
     $('#race-only').hidden = settings.mode !== 'race' && !online && !prac; $('#opps').closest('.row').hidden = online || prac; $('#aipace').closest('.row').hidden = online || (prac && !settings.traffic);
@@ -2464,5 +2414,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.Spotify = Spotify; window.PitCrew = PitCrew; window.Crowd = Crowd; window.YTMusic = YTMusic; window.BIKES = { bikeFrame, poseRider, makeBike, loadBikes, Bike, bikeTrack, BIKE_BASE };
+window.App = App; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd; window.BIKES = { bikeFrame, poseRider, makeBike, loadBikes, Bike, bikeTrack, BIKE_BASE };
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());
