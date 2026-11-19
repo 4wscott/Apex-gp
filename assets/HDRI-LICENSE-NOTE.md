@@ -220,15 +220,6 @@ They are recoloured per team, trimmed and resized for the game.
 - "My take on the 2026 f1 regulations" by MaG80 — https://sketchfab.com/3d-models/4b77c9b72dc44803a530eaaff18ed590
   (car body; wheels removed and the mesh simplified by tools/prep_car.mjs, livery recoloured per team in the game)
 
-## Race bike model and engine sound
-
-`bikes.js` is built by `tools/prep_bike.mjs` (textures by `assets/clean_bike_tex.py`) from this Sketchfab download, CC BY 4.0:
-- "Ducati Lenovo Team - MotoGP26" by Kenny3D89 — https://sketchfab.com/3d-models/497ac78767344110a0046a3ab4a5d058
-  (paddock stand removed; every sponsor, maker and tyre logo removed from the textures; repainted in the game's own
-  fictional liveries; simplified into three detail levels)
-
-`bikeengine.js` is synthesised by `assets/make_bike_engine.py` (no recording is used, so no licence applies).
-
 ## Race car model (2027)
 
 `car27.js` is built by `tools/prep_car2027.mjs` from this Sketchfab download, CC BY 4.0:

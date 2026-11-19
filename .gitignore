@@ -7,8 +7,5 @@ demo/
 node_modules/
 assets/hq_src/
 
-# downloaded bike source (has the real branding) and intermediate files: tools/prep_bike.mjs explains how to get them
-assets/bikes_src/
-
 # downloaded 2027 car source and intermediate files (tools/prep_car2027.mjs explains how to get them)
 assets/car2027_src/

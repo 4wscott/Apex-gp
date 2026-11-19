@@ -50,7 +50,6 @@ const PitCrew = {
   },
   // a crew is created on demand for a team's stop and walks back into the garage afterwards
   get(car) {
-    if (car.isBike) return null; // a bike swap needs no tyre crew
     let c = this.crews.find((k) => k.car === car);
     if (c) return c;
     if (!GFX.models || !GFX.models.crew || !GFX.pit) return null;

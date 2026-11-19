@@ -324,9 +324,6 @@ body.ceremony #hud > *:not(#radio), body.ceremony #touch, body.ceremony #h-dmg {
 #topbar { position: absolute; left: 0; right: 0; top: 0; z-index: 5; display: flex; align-items: center; gap: 18px; padding: calc(10px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
 #topbar .logo { margin: 0; font-family: var(--f-display); font-weight: 900; font-size: 28px; letter-spacing: 0.02em; text-transform: uppercase; transform: skewX(-10deg); white-space: nowrap; color: #ffd21f; text-shadow: 0 2px 10px rgba(255, 170, 30, 0.35); display: flex; align-items: center; gap: 6px; }
 #topbar .logo span { color: #fff; background: linear-gradient(100deg, #ff7a1a, #e8331b); padding: 0 8px 0 7px; border-radius: 4px; font-size: 0.78em; line-height: 1.3; text-shadow: none; box-shadow: 0 2px 10px rgba(232, 51, 27, 0.35); }
-#topbar .series { display: flex; flex: none; border: 1px solid #2a2f37; border-radius: 999px; padding: 2px; }
-#topbar .series button { min-height: 36px; padding: 4px 12px; border: 0; border-radius: 999px; background: none; color: var(--muted); font-weight: 700; }
-#topbar .series button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink, #111); }
 #topbar .modes { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 #topbar .modes button { min-height: 44px; background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 8px 12px 6px; color: var(--muted); display: block; white-space: nowrap; }
 #topbar .modes button b { font-size: 17px; }
@@ -636,7 +633,6 @@ body.touch #h-track { display: none; }
   <div id="menu">
     <header id="topbar">
       <h1 class="logo">Apex <span>GP</span></h1>
-      <nav class="series" data-set="series" aria-label="Series"><button type="button" data-v="car">Cars</button><button type="button" data-v="bike">Bikes</button></nav>
       <nav class="modes" data-set="mode" aria-label="Game mode">
         <button type="button" data-v="career"><b>Career</b><span>Seasons, points, upgrades</span></button>
         <button type="button" data-v="race"><b data-short="GP">Grand Prix</b><span>One race, your rules</span></button>
@@ -705,11 +701,6 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Active aero</label><div class="ctl seg" data-set="aeroAuto"><button type="button" data-v="true">Automatic in zones</button><button type="button" data-v="false">Driver activated</button></div></div>
         <div class="row"><label>Steering assist</label><div class="ctl seg" data-set="steerAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label>Stability control</label><div class="ctl seg" data-set="stab"><button type="button" data-v="0">Off</button><button type="button" data-v="1">Light</button><button type="button" data-v="2">Strong</button></div></div>
-        <div class="row"><label>Bikes: lean assist</label><div class="ctl seg" data-set="leanAssist"><button type="button" data-v="true">On: never more lean than grip</button><button type="button" data-v="false">Off</button></div></div>
-        <div class="row"><label>Bikes: anti-wheelie</label><div class="ctl seg" data-set="antiWheelie"><button type="button" data-v="true">On</button><button type="button" data-v="false">Off</button></div></div>
-        <div class="row"><label>Bikes: brakes</label><div class="ctl seg" data-set="combBrakes"><button type="button" data-v="true">Combined (one input)</button><button type="button" data-v="false">Separate rear (F / X)</button></div></div>
-        <div class="row"><label>Bikes: crashes</label><div class="ctl seg" data-set="crashEnds"><button type="button" data-v="false">Get back on</button><button type="button" data-v="true">Crash ends race</button></div></div>
-        <div class="row"><label>Bikes: helmet camera lean</label><div class="ctl seg" data-set="camLean"><button type="button" data-v="0">Level</button><button type="button" data-v="0.5">Half</button><button type="button" data-v="1">Full</button></div></div>
         <div class="row"><label>Braking assist</label><div class="ctl seg" data-set="brakeAssist"><button type="button" data-v="false">Off</button><button type="button" data-v="true">On: brakes for corners</button></div></div>
         <div class="row"><label>Car damage</label><div class="ctl seg" data-set="damage"><button type="button" data-v="off">Off</button><button type="button" data-v="visual">Visual only</button><button type="button" data-v="real">Realistic</button></div></div>
         <div class="row"><label>Racing line</label><div class="ctl seg" data-set="line"><button type="button" data-v="off">Off</button><button type="button" data-v="corners">Braking zones</button><button type="button" data-v="full">Full lap</button></div></div>
@@ -778,7 +769,7 @@ body.touch #h-track { display: none; }
         <div class="row"><label for="voicevol">Radio voice</label><div class="ctl"><input id="voicevol" type="range" min="0" max="100" step="1"><output id="voicevol-out"></output></div></div>
         <div class="row"><label>Units</label><div class="ctl seg" data-set="units"><button type="button" data-v="kmh">km/h</button><button type="button" data-v="mph">mph</button></div></div>
         <details class="credits"><summary>Credits</summary>
-          <p class="hint">3D models from Sketchfab, CC BY 4.0, recoloured and adapted for the game: "2027 Formula 1 Car" by abuhossain844 (race car), "Ducati Lenovo Team - MotoGP26" by Kenny3D89 (race bike, all branding removed), "race driver" by asset_for_games (driver and rider), "Racing helmet" by mizucorp4. F1 engine sound cut from "Williams-Cosworth FW32 (2010).ogg" on Wikimedia Commons, CC BY-SA 3.0. The bike engine sound is synthesised. Teams, drivers, riders and championships are fictional.</p>
+          <p class="hint">3D models from Sketchfab, CC BY 4.0, recoloured and adapted for the game: "2027 Formula 1 Car" by abuhossain844 (race car), "race driver" by asset_for_games (driver), "Racing helmet" by mizucorp4. F1 engine sound cut from "Williams-Cosworth FW32 (2010).ogg" on Wikimedia Commons, CC BY-SA 3.0. Teams, drivers and championships are fictional.</p>
         </details>
       </section>
     </div>

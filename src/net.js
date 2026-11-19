@@ -1,5 +1,5 @@
 // circuits with hills (2) race differently from the old flat ones (1): both players must have the same
-const NET_LAYOUT = 3; // 3: the bike series (an older app can't join a newer room)
+const NET_LAYOUT = 2;
 // ==== Online multiplayer: peer-to-peer rooms through the free PeerJS broker =================
 // The host's browser is the hub: guests connect to it, it relays every player's car state to the
 // others and decides the track, weather, laps, grid and start time. Each player simulates only their
@@ -10,8 +10,7 @@ const Net = {
   makeCode() { const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for (let i = 0; i < 5; i++) s += a[(Math.random() * a.length) | 0]; return s; },
   myEntry(name) {
     const team = TEAMS.find((t) => t.id === settings.team), dr = team.drivers.find((d) => d.code === settings.driver) || team.drivers[0];
-    const bt = BIKE_TEAMS.find((t) => t.id === settings.bikeTeam) || BIKE_TEAMS[0], bd = bt.drivers.find((d) => d.code === settings.bikeDriver) || bt.drivers[0];
-    return { name: (name || 'Player').slice(0, 20), team: team.id, num: dr.num, bikeTeam: bt.id, bikeNum: bd.num, device: matchMedia('(pointer: coarse)').matches ? (Math.min(screen.width, screen.height) < 600 ? 'phone' : 'tablet') : 'pc' };
+    return { name: (name || 'Player').slice(0, 20), team: team.id, num: dr.num, device: matchMedia('(pointer: coarse)').matches ? (Math.min(screen.width, screen.height) < 600 ? 'phone' : 'tablet') : 'pc' };
   },
   status(text, kind) { this.msg = { text, kind }; this.onChange && this.onChange(); },
   leave() { this.conns.forEach((c) => c.close()); if (this.peer) this.peer.destroy(); Object.assign(this, { peer: null, conns: [], host: false, code: '', players: [], me: null, racing: false }); this.onChange && this.onChange(); },
@@ -63,7 +62,7 @@ const Net = {
   relay(m, from) { this.broadcast(m, from); },
   send(m) { if (this.host) this.broadcast(m); else if (this.conns[0] && this.conns[0].open) this.conns[0].send(m); },
   // the host's race settings, shown in everyone's lobby
-  cfg() { return { track: settings.track, laps: settings.laps, weather: settings.weather, tod: settings.tod || 'auto', layout: NET_LAYOUT, series: settings.series || 'car' }; },
+  cfg() { return { track: settings.track, laps: settings.laps, weather: settings.weather, tod: settings.tod || 'auto', layout: NET_LAYOUT }; },
   // host tells the room when its settings change
   pushCfg() { if (this.host && this.peer) this.broadcast({ t: 'lobby', players: this.players, cfg: this.cfg() }); },
   // host: everyone races on the host's track, laps and weather; grid in join order
@@ -72,7 +71,7 @@ const Net = {
     // only players still connected take part (a rematch after someone left)
     this.players = this.players.filter((p) => p.key === this.me || this.conns.some((c) => c.key === p.key && c.open));
     this.racing = true;
-    const m = { t: 'start', layout: NET_LAYOUT, series: settings.series || 'car', track: settings.track, laps: settings.laps, weather: settings.weather, tod: settings.tod || 'auto', grid: this.players.map((p) => p.key), players: this.players, lightsOutAt: 8.4 + Math.random() * 1.6, seed: (Math.random() * 1e9) | 0, at: Date.now() };
+    const m = { t: 'start', layout: NET_LAYOUT, track: settings.track, laps: settings.laps, weather: settings.weather, tod: settings.tod || 'auto', grid: this.players.map((p) => p.key), players: this.players, lightsOutAt: 8.4 + Math.random() * 1.6, seed: (Math.random() * 1e9) | 0, at: Date.now() };
     this.broadcast(m); this.onStart && this.onStart(m);
   },
 };

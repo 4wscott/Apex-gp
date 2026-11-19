@@ -44,33 +44,6 @@ const TEAMS = [
     drivers: [{ name: 'Sergio Valdes', code: 'VAL', num: 11, skill: 0.965 }, { name: 'Marcus Lindqvist', code: 'LIN', num: 77, skill: 0.958 }] },
 ];
 
-// The bike championship (fictional): six makers, each with a factory team, and five independent teams on their bikes.
-// perf.p: engine, perf.a: chassis (grip). Rider codes don't clash with the car drivers'.
-const BIKE_TEAMS = [
-  { id: 'vantera', maker: 'Vantera', name: 'Vantera Corse', c1: '#c8102e', c2: '#f4f4f4', c3: '#111111', perf: { p: 1.000, a: 0.998 },
-    drivers: [{ name: 'Dario Fenzi', code: 'FEN', num: 14, skill: 0.995 }, { name: 'Pablo Ezcurra', code: 'EZC', num: 58, skill: 0.988 }] },
-  { id: 'haruko', maker: 'Haruko', name: 'Haruko Racing Team', c1: '#1446b4', c2: '#ffffff', c3: '#0c1b3a', perf: { p: 0.992, a: 1.000 },
-    drivers: [{ name: 'Théo Marchal', code: 'MCH', num: 9, skill: 0.990 }, { name: 'Ryota Ishikawa', code: 'ISH', num: 64, skill: 0.975 }] },
-  { id: 'orvane', maker: 'Orvane', name: 'Orvane Factory Racing', c1: '#ff6a00', c2: '#111111', c3: '#1d3c8f', perf: { p: 1.000, a: 0.990 },
-    drivers: [{ name: 'Kian Doherty', code: 'DOH', num: 17, skill: 0.985 }, { name: 'Mateo Lucero', code: 'LUC', num: 3, skill: 0.992 }] },
-  { id: 'solenza', maker: 'Solenza', name: 'Solenza Racing', c1: '#1c1c1c', c2: '#8fd400', c3: '#9aa1a8', perf: { p: 0.996, a: 0.996 },
-    drivers: [{ name: 'Nicolò Ferrante', code: 'FER', num: 26, skill: 0.986 }, { name: 'Álvaro Pineda', code: 'PIN', num: 11, skill: 0.998 }] },
-  { id: 'tenrai', maker: 'Tenrai', name: 'Tenrai Factory', c1: '#f2f2f2', c2: '#d40000', c3: '#1a1a1a', perf: { p: 0.985, a: 0.985 },
-    drivers: [{ name: 'Bruno Castelli', code: 'CAS', num: 47, skill: 0.970 }, { name: 'Hiro Tanabe', code: 'TAN', num: 8, skill: 0.965 }] },
-  { id: 'halvorn', maker: 'Halvorn', name: 'Halvorn Works', c1: '#0b4d2e', c2: '#d4a017', c3: '#f2f2f2', perf: { p: 0.988, a: 0.982 },
-    drivers: [{ name: 'Owen Fairley', code: 'FAI', num: 50, skill: 0.968 }, { name: 'Lukas Brenner', code: 'BRE', num: 19, skill: 0.972 }] },
-  { id: 'rivale', maker: 'Vantera', name: 'Rivale Vantera', c1: '#5bc2e7', c2: '#c8102e', c3: '#111111', perf: { p: 0.998, a: 0.994 },
-    drivers: [{ name: 'Simone Ricci', code: 'RIC', num: 28, skill: 0.982 }, { name: 'Unai Etxeberria', code: 'ETX', num: 66, skill: 0.975 }] },
-  { id: 'sette', maker: 'Solenza', name: 'Sette Colli Solenza', c1: '#ffd400', c2: '#111111', c3: '#ffffff', perf: { p: 0.992, a: 0.992 },
-    drivers: [{ name: 'Gianni Volpe', code: 'VOL', num: 39, skill: 0.978 }, { name: 'Tommaso Sarti', code: 'SAR', num: 91, skill: 0.966 }] },
-  { id: 'azure', maker: 'Haruko', name: 'Azure Coast Racing', c1: '#003b6f', c2: '#00c2d1', c3: '#ffffff', perf: { p: 0.988, a: 0.994 },
-    drivers: [{ name: 'Lachlan Reid', code: 'REI', num: 15, skill: 0.970 }, { name: 'Rui Monteiro', code: 'MON', num: 71, skill: 0.974 }] },
-  { id: 'northline', maker: 'Orvane', name: 'Northline Orvane', c1: '#2b2b2b', c2: '#ff6a00', c3: '#e8e8e8', perf: { p: 0.996, a: 0.986 },
-    drivers: [{ name: 'Felix Aaltonen', code: 'AAL', num: 24, skill: 0.976 }, { name: 'Jesse Kowalski', code: 'KOW', num: 52, skill: 0.972 }] },
-  { id: 'sakura', maker: 'Tenrai', name: 'Sakura Lane Tenrai', c1: '#f7c6d9', c2: '#1a1a1a', c3: '#ffffff', perf: { p: 0.982, a: 0.984 },
-    drivers: [{ name: 'Kaito Mizuno', code: 'MIZ', num: 38, skill: 0.962 }, { name: 'Arun Phromsiri', code: 'PHR', num: 60, skill: 0.958 }] },
-];
-
 // Tracks are written as map vertices [x, y, cornerRadius] in metres, in
 // driving order. Each vertex becomes a corner filleted to that radius; the
 // builder then smooths curvature into clothoid-like transitions. The start
@@ -152,7 +125,7 @@ function teamStats(tm) {
   const r = (v, lo, hi) => Math.round(Math.max(40, Math.min(99, 60 + (v - lo) / (hi - lo) * 39)));
   const power = r(tm.perf.p, 0.975, 1), aero = r(tm.perf.a, 0.97, 1), drivers = Math.round(tm.drivers.reduce((a, d) => a + driverRating(d), 0) / tm.drivers.length);
   const score = (t) => t.perf.p * 0.35 + t.perf.a * 0.45 + (t.drivers.reduce((a, d) => a + d.skill, 0) / t.drivers.length) * 0.2;
-  const L = typeof BIKE_TEAMS !== 'undefined' && BIKE_TEAMS.includes(tm) ? BIKE_TEAMS : TEAMS, rank = L.slice().sort((a, b) => score(b) - score(a)).indexOf(tm) + 1;
+  const rank = TEAMS.slice().sort((a, b) => score(b) - score(a)).indexOf(tm) + 1;
   const tier = rank <= 3 ? 'front' : rank <= 7 ? 'mid' : 'back';
   return { power, aero, drivers, overall: Math.round(power * 0.35 + aero * 0.45 + drivers * 0.2), rank, tier, tierLabel: { front: 'Front-runner', mid: 'Midfield', back: 'Backmarker' }[tier] };
 }

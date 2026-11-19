@@ -1,8 +1,8 @@
 // Joins src/ into a single self-contained index.html
 const fs = require('fs'), path = require('path');
 const src = (f) => fs.readFileSync(path.join(__dirname, 'src', f), 'utf8');
-const ASSETS = ['hdri.js', 'photo.js', 'engine.js', 'models.js', 'car27.js', 'bikes.js', 'bikeengine.js'];
-const appJs = ['data.js', 'sim.js', 'gfx.js', 'bikegfx.js', 'audio.js', 'career.js', 'goals.js', 'champ.js', 'achieve.js', 'podium.js', 'net.js', 'pitcrew.js', 'crowd.js', 'replay.js', 'radio.js', 'mousewheel.js', 'game.js'].map(src).join('\n').replace(/\nif \(typeof module !== 'undefined'\)[^\n]*\n/, '\n');
+const ASSETS = ['hdri.js', 'photo.js', 'engine.js', 'models.js', 'car27.js'];
+const appJs = ['data.js', 'sim.js', 'gfx.js', 'audio.js', 'career.js', 'goals.js', 'champ.js', 'achieve.js', 'podium.js', 'net.js', 'pitcrew.js', 'crowd.js', 'replay.js', 'radio.js', 'mousewheel.js', 'game.js'].map(src).join('\n').replace(/\nif \(typeof module !== 'undefined'\)[^\n]*\n/, '\n');
 const js = ASSETS.map((f) => fs.readFileSync(path.join(__dirname, 'assets', f), 'utf8')).join('\n') + '\n' + appJs;
 const html = src('shell.html').replace('/*__SCRIPTS__*/', () => js);
 fs.writeFileSync(path.join(__dirname, 'index.html'), html);
