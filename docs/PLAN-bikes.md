@@ -301,11 +301,32 @@ Same routine as the graphics plan:
 - **`test/bikevis.js`:** the browser checks: the bike race on screen, the dash, lean, cameras, crash and remount, and a car race afterwards.
 - **F1 simulation:** `test/simtest.js` gives identical results before and after.
 
-### Still to do
+### Added on 19 November
 
 - **Phase 4:**
-  - **Weekend format:** the sprint race and a qualifying format for bikes.
-  - **Penalties:** track limits and the Long Lap penalty.
-  - **Flag to flag:** swapping bikes when it rains.
-- **Phase 5:** the bike career and championship screens, the bike podium, team liveries with race numbers, and in-game credits.
-- **Phase 6:** online bike races, the final sweep and your device check.
+  - **Long Lap penalty:** a painted lane on tarmac run-off at nine circuits, given for a fourth track-limits offence or a jump start. If it's not served within 3 laps, 3 s are added. The street circuits get a time penalty instead.
+  - **Flag to flag:** when it rains, riders swap to their wet bike in about 8 s (`M` / Swap).
+- **Phase 5:**
+  - **Race numbers:** on the tail and the nose.
+  - **Bike Grand Prix weekend:** qualifying uses a bike reference lap.
+  - **Bike career:** a separate save, with the career's sprint weekends.
+  - **Credits:** in Settings.
+- **Phase 6:**
+  - **Online bike races:** the room carries the series, and older apps get a version message.
+  - **Bikes against cars, 22 on the grid:**
+
+    | Preset | Cars | Bikes |
+    |---|---|---|
+    | Lite | 506 draw calls, 1.09M triangles | 434 draw calls, 0.93M triangles |
+    | Smooth | 595 draw calls, 2.26M triangles | 505 draw calls, 2.08M triangles |
+    | Balanced | 1,246 draw calls, 8.1M triangles | 969 draw calls, 7.4M triangles |
+
+    Frame times are also lower with bikes. Beautiful still to measure.
+- **Tests:**
+  - `test/bikemenu.js`, all pass: the switch, the team picker, the separate careers, bike Grand Prix qualifying and online settings.
+  - `test/bikerace.js`, all pass: also the Long Lap and flag to flag.
+
+### Still to do
+
+- Beautiful-preset performance number.
+- Your device check (Intel UHD PC, iPhone).
