@@ -2477,6 +2477,12 @@ function makeCar(team0, num, G2, mats, compound = 'M', hero = false, livery = nu
     for (const k of Object.keys(C.hq)) { if (!mats[k]) continue; const mm = new THREE.Mesh(L0[k] || C.hq[k], mats[k]); mm.castShadow = mm.receiveShadow = k !== 'glass' && k !== 'light' && k !== 'light2'; mm.userData.lod = [C.hq[k], C.game[k] || C.hq[k]]; body.add(mm); parts.push(mm); }
     modelBody = parts.find((p) => p.material === mats.paint) || parts[0]; modelBody.userData.parts = parts;
     mirrors.forEach((m, k) => { m.position.set(0.55, 0.74, (k === 0 ? 1 : -1) * 0.5); m.scale.set(1, 1.2, 1.3); });
+    // the 2027 body has no cockpit interior: a steering column from the wheel's hub forward and down into the nose, so
+    // the wheel is fixed to something
+    { const H = new THREE.Vector3(0.43, 0.725, 0), E = new THREE.Vector3(0.84, 0.6, 0), dir = E.clone().sub(H), len = dir.length();
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.034, len, 12), GFX.mats.carbon);
+      col.position.copy(H).add(E).multiplyScalar(0.5); col.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      body.add(col); }
   } else if (M && M.car) {
     const keep = new Set([hans, shoulders, ...mirrors]);
     body.children.forEach((o) => { if (o.isMesh && !keep.has(o)) o.visible = false; });

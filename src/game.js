@@ -764,6 +764,7 @@ const App = {
     // turntable: the camera holds still while the car turns; a drag spins it by hand and it carries on after a pause
     if (!this.spinDrag && performance.now() - (this.spinTouched || 0) > 2500) this.previewSpin += dt * 0.22;
     this.previewCar.grp.rotation.y = this.previewYaw + this.previewSpin;
+    updateArms(this.previewCar); // the driver's hands on the wheel (in races this runs with the cars' updates)
     const c = this.previewCar.grp.position, T = this.previewTrack, i = this.previewSpot;
     // a long lens on the car: it fills the screen
     const asp = this.camera.aspect, vf = asp < 1.2 ? 26 + (1.2 - asp) * 32 : 26; // tall screens: a wider lens, so the camera needn't back off so far
