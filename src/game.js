@@ -766,7 +766,7 @@ const App = {
     this.previewCar.grp.rotation.y = this.previewYaw + this.previewSpin;
     const c = this.previewCar.grp.position, T = this.previewTrack, i = this.previewSpot;
     // a long lens on the car: it fills the screen
-    const asp = this.camera.aspect, vf = 26;
+    const asp = this.camera.aspect, vf = asp < 1.2 ? 26 + (1.2 - asp) * 32 : 26; // tall screens: a wider lens, so the camera needn't back off so far
     this.camera.fov = vf; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
     if (this.fireworks) this.fireworks.update(dt, this.audio);
     drawBigScreen(null, dt);
@@ -778,8 +778,21 @@ const App = {
       const tv = Math.tan(vf * Math.PI / 360), th = tv * asp, fill = 0.84, band = innerHeight < 500 ? 0.56 : 0.64; // band: the height left between the menu bars
       const D = Math.max(wid / (2 * th * fill), ht / (2 * tv * band)), elev = 0.17;
       // from the grandstand side of the track, a little ahead of the car, looking across at the pit wall and the garages (no crowd)
-      const ang = 0.5, dx = T.nx[i] * Math.cos(ang) + T.tx[i] * Math.sin(ang), dy = T.ny[i] * Math.cos(ang) + T.ty[i] * Math.sin(ang);
-      const d = new THREE.Vector3(dx, 0, -dy).normalize(); // track y is world -z
+      // never outside the barrier (a catch fence in front of the lens): where the track is too narrow for the distance, the
+      // camera swings round to look along the track instead (cached until the spot or the screen changes)
+      const key = i + ':' + D.toFixed(2);
+      if (this.menuCamKey !== key) {
+        this.menuCamKey = key; let best = null;
+        for (let ang = 0.5; ang <= 1.45 && !best; ang += 0.08) for (const sgn of [1, -1]) {
+          const a = ang * sgn, dx = T.nx[i] * Math.cos(a) + T.tx[i] * Math.sin(a), dy = T.ny[i] * Math.cos(a) + T.ty[i] * Math.sin(a), hz = D * Math.cos(elev);
+          const qx = T.px[i] + dx * hz, qy = T.py[i] + dy * hz; let bj = i, bd = 1e9;
+          for (let k = -80; k <= 80; k++) { const j = (i + k + T.n) % T.n, dd = (T.px[j] - qx) ** 2 + (T.py[j] - qy) ** 2; if (dd < bd) { bd = dd; bj = j; } }
+          const lat = (qx - T.px[bj]) * T.nx[bj] + (qy - T.py[bj]) * T.ny[bj];
+          if (Math.abs(lat) < (lat >= 0 ? T.wallL[bj] : T.wallR[bj]) - 1.5) { best = { dx, dy }; break; }
+        }
+        this.menuCamDir = best || { dx: T.tx[i], dy: T.ty[i] }; // no room anywhere: straight along the track
+      }
+      const d = new THREE.Vector3(this.menuCamDir.dx, 0, -this.menuCamDir.dy).normalize(); // track y is world -z
       const look = new THREE.Vector3(c.x, c.y + 0.45, c.z);
       const p = look.clone().addScaledVector(d, D * Math.cos(elev)); p.y += D * Math.sin(elev);
       this.camera.position.copy(p); this.camera.lookAt(look);
