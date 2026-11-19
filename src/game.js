@@ -342,6 +342,20 @@ const App = {
     }
     return d;
   },
+  // running slowly: once per graphics chip and preset, a card that says why and offers a lighter preset (the player
+  // chooses: graphics are never lowered by themselves)
+  slowCard(fps) {
+    const key = 'slowCard.' + (this.gpuName || '?') + '.' + (settings.preset || settings.quality); if (store.get(key, false)) { Hud.flash('Running slow: try the Smooth or Lite preset in Settings → Graphics & sound'); return; }
+    store.set(key, true);
+    const el = $('#slow-card'), why = this.remoteGPU ? 'You are playing through Remote Desktop, which gives the game no graphics card. Play on the computer itself, or use a game-streaming app such as Parsec or Moonlight.'
+      : this.softGPU ? 'Your browser is not using the graphics card, so the 3D is drawn on the processor (about ten times slower). In Chrome or Edge: Settings → System → turn on "Use graphics acceleration when available", then restart the browser.'
+      : this.weakGPU ? 'Your computer uses graphics built into the processor. The Lite preset is made for it: about 720p scaled to your screen, no screen effects, and it keeps the frame rate up.'
+      : 'Your graphics card is struggling with this preset. Smooth keeps the look with fewer effects; Lite is lighter still.';
+    const nf = Math.max(1, Math.round(fps)); el.innerHTML = `<b>Running at about ${nf} frame${nf === 1 ? '' : 's'} a second</b><p>Graphics in use: ${this.gpuName || 'unknown'}.</p><p>${why}</p><div class="actions"><button type="button" class="btn primary" data-p="${this.weakGPU || this.softGPU || this.remoteGPU ? 'lite' : 'smooth'}">Switch to ${this.weakGPU || this.softGPU || this.remoteGPU ? 'Lite' : 'Smooth'}</button><button type="button" class="btn" data-p="">Keep these graphics</button></div>`;
+    el.hidden = false;
+    el.querySelectorAll('button').forEach((b) => (b.onclick = () => { el.hidden = true; if (b.dataset.p) { Menu.applyPreset(b.dataset.p); Menu.sync(); Hud.flash(b.dataset.p === 'lite' ? 'Lite preset on' : 'Smooth preset on'); } }));
+    clearTimeout(this.slowT); this.slowT = setTimeout(() => (el.hidden = true), 20000);
+  },
   perf(dt) {
     const S = this.session; if (!S || this.paused || document.hidden) { this.pf = null; return; }
     const now = performance.now(), pf = (this.pf = this.pf || { t0: now + 2000, n: 0, slow: 0 }); // the first 2 s of a session don't count
@@ -351,7 +365,7 @@ const App = {
     if (!settings.autoRes) {
       // full resolution: just point out the option once if it really struggles (or the real cause: no graphics card in use)
       pf.slow = fps < 30 ? pf.slow + 1 : 0;
-      if (pf.slow >= 4 && !this.slowHint) { this.slowHint = true; Hud.flash(this.softGPU ? 'Your browser is not using the graphics card: see Settings → Graphics & sound' : 'Running slow: try the Smooth preset in Settings → Graphics & sound'); }
+      if (pf.slow >= 4 && !this.slowHint) { this.slowHint = true; this.slowCard(fps); }
       return;
     }
     const sc = this.resScale || 1;
