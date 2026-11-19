@@ -4,7 +4,8 @@
 // stands them up, raises arms, jumps and waves as a car passes their seat, and runs Mexican waves.
 const Crowd = {
   U: { uTime: { value: 0 }, uExcite: { value: 0.2 }, uCar: { value: new THREE.Vector3(1e6, 0, 0) }, uWave: { value: 0 }, uWaveDir: { value: 1 } },
-  spots: [],
+  spots: [], list: [],
+  meshes() { return this.list; }, // every stand's fans and flags (the mirrors leave them out)
   fanGeo() {
     const lite = settings.quality <= 1;
     if (this.geo && this.geoLite === lite) return this.geo;
@@ -118,7 +119,9 @@ const Crowd = {
     });
     const G = fans.geometry = fans.geometry.clone();
     G.setAttribute('aFan', new THREE.InstancedBufferAttribute(aFan, 4)); G.setAttribute('aSkin', new THREE.InstancedBufferAttribute(aSkin, 4)); G.setAttribute('aShirt', new THREE.InstancedBufferAttribute(aShirt, 3));
-    fans.frustumCulled = false; stand.add(fans);
+    // culled like anything else: a bound round all the stand's fans (a little bigger for the waving), so a stand out of view
+    // costs nothing (it used to be drawn every frame wherever the camera looked: up to 2M triangles)
+    fans.computeBoundingSphere(); fans.boundingSphere.radius += 2.5; stand.add(fans); this.list.push(fans);
     if (flagSeats.length) {
       const fl = new THREE.InstancedMesh(this.flagGeo(), this.flagMaterial(), flagSeats.length), fA = new Float32Array(flagSeats.length * 4), col = new THREE.Color();
       fl.userData.noAO = true;
@@ -128,7 +131,7 @@ const Crowd = {
         fA.set(aFan.subarray(i * 4, i * 4 + 4), k * 4); fl.setColorAt(k, col.copy(tc[k % 2]));
       });
       fl.geometry = fl.geometry.clone(); fl.geometry.setAttribute('aFan', new THREE.InstancedBufferAttribute(fA, 4));
-      fl.frustumCulled = false; stand.add(fl);
+      fl.computeBoundingSphere(); fl.boundingSphere.radius += 3; stand.add(fl); this.list.push(fl);
     }
     stand.updateMatrixWorld(true); this.spots.push(new THREE.Vector3().setFromMatrixPosition(stand.matrixWorld));
     return N;

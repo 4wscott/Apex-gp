@@ -697,7 +697,7 @@ function buildWorld(T, themeKey, quality) {
   const add = (geo, mat, o = {}) => { const m = new THREE.Mesh(geo, mat); m.receiveShadow = o.rs !== false; m.castShadow = !!o.cs; world.add(m); return m; };
   const desert = themeKey === 'desert', street = themeKey === 'street';
   // animated crowd: the texture's people bob and wave (two frames offset per column), more when cars pass
-  Crowd.spots = [];
+  Crowd.spots = []; Crowd.list = [];
   const crowdMat = crowdMaterial(tx.crowd);
   GFX.crowdMat = crowdMat;
   const groundAlb = desert ? tx.sand : tx.grass, groundN = desert ? tx.sandN : tx.grassN;

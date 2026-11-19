@@ -118,6 +118,8 @@ const App = {
       const ao = new GTAOPass(this.scene, this.camera, innerWidth, innerHeight);
       ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 2, scale: 1, samples: q >= 3 ? 16 : 10 });
       ao.blendIntensity = 0.85; comp.addPass(ao); this.ao = ao;
+      // a soft effect: worked out at half the resolution (a quarter of the pixels) and scaled up, it looks the same
+      const aoSize = ao.setSize.bind(ao); ao.setSize = (w, h) => aoSize(Math.max(1, Math.ceil(w / 2)), Math.max(1, Math.ceil(h / 2)));
       // the AO pass draws the scene again for its depth and normals: leave out what it can't visibly shade (the crowd)
       const ov = ao.overrideVisibility.bind(ao); ao.overrideVisibility = () => { ov(); ao.scene.traverse((o) => { if (o.userData.noAO && o.visible) { ao._visibilityCache.set(o, true); o.visible = false; } }); };
     }
@@ -1224,13 +1226,19 @@ const App = {
     this.realismFrame(P, cam); this.marshalFrame(S.race); this.cockpitFill(P, mode === 'cockpit' && !(S.orbit && S.orbit.on));
     // mirrors
     if (S.mirror && (mode === 'cockpit' || mode === 'tcam')) {
-      // each glass looks back and slightly outward from where it sits; the two sides update on alternate frames
+      // each glass looks back and slightly outward from where it sits; a mirror updates every other frame, the two sides
+      // in turn (each about 15 times a second at 60 fps), and without the crowd: the fans are one big batch, so a sliver
+      // of grandstand in a mirror the size of a stamp would draw all of them
+      S.mirror.f = (S.mirror.f || 0) + 1;
+    }
+    if (S.mirror && (mode === 'cockpit' || mode === 'tcam') && S.mirror.f % 2 === 0) {
       const sd = S.mirror.sides[S.mirror.n++ % 2], mc = sd.cam;
       sd.glass.getWorldPosition(mc.position);
       const back = fwd.clone().negate(), side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(sd.side); // car-right is +z in the body
       mc.lookAt(mc.position.clone().add(back.multiplyScalar(10)).addScaledVector(side, 1.6).add(new THREE.Vector3(0, -0.35, 0)));
       P.mesh.grp.visible = false;
-      try { this.renderer.setRenderTarget(sd.rt); this.renderer.render(this.scene, mc); } finally { this.renderer.setRenderTarget(null); P.mesh.grp.visible = true; }
+      const crowd = Crowd.meshes ? Crowd.meshes() : []; crowd.forEach((m) => (m.visible = false));
+      try { this.renderer.setRenderTarget(sd.rt); this.renderer.render(this.scene, mc); } finally { this.renderer.setRenderTarget(null); P.mesh.grp.visible = true; crowd.forEach((m) => (m.visible = true)); }
     }
     // steering wheel display at 20 Hz
     // wheel LEDs and rotaries follow the car every frame; the screen redraws at 20 Hz
