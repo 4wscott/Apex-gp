@@ -530,6 +530,9 @@ class Input {
     if (!useKb) { s.throttle = Math.max(s.throttle, this.kbThr); s.brake = Math.max(s.brake, this.kbBrk); }
     if (mw) { s.throttle = Math.max(s.throttle, mw.thr); s.brake = Math.max(s.brake, mw.brk); }
     if (useTouch) { this.tThr = (this.tThr || 0) + clamp(this.touch.thr - (this.tThr || 0), -10 * dt, 5 * dt); this.tBrk = (this.tBrk || 0) + clamp(this.touch.brk - (this.tBrk || 0), -10 * dt, 8 * dt); s.throttle = Math.max(s.throttle, this.tThr); s.brake = Math.max(s.brake, this.tBrk); s.steerFast = false; }
+    // touch arrows: holding ◀ or ▶ keeps the throttle on (one thumb can't press an arrow and the pedal beside it), unless
+    // the brake is pressed
+    if (useTouch && this.touchArrows && opts.arrowGas !== false && this.touch.steer !== 0 && this.touch.brk < 0.05) s.throttle = Math.max(s.throttle, 1);
     for (const [a, , kind] of ACTIONS) {
       if (kind !== 'button') continue;
       const tapped = (KEYMAP[a] || []).some((k) => this.hits.has(k));
