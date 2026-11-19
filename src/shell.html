@@ -138,6 +138,19 @@ body.touch #perf { bottom: auto; top: max(54px, calc(env(safe-area-inset-top, 0p
 #rp-bar button.big { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 58px; font-size: 16px; }
 #rp-car { border-left-width: 4px !important; min-width: 150px !important; cursor: default !important; opacity: 1 !important; }
 .rp-sep { width: 1px; height: 26px; background: var(--line); margin: 0 4px; }
+#rp-wipe { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 0 38%, var(--accent) 38% 46%, rgba(10,12,16,0.92) 46% 62%, transparent 62%); transform: translateX(-130%); pointer-events: none; }
+#rp-wipe.go { animation: rpwipe 0.5s ease-in-out; }
+@keyframes rpwipe { from { transform: translateX(-130%); } to { transform: translateX(130%); } }
+#rp-name { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: 130px; display: flex; align-items: stretch; gap: 10px; background: rgba(10,12,16,0.9); padding: 0 16px 0 0; border-radius: 4px; opacity: 0; font-size: 15px; line-height: 38px; }
+#rp-name i { width: 6px; } #rp-name b { color: var(--accent); } #rp-name small { color: var(--muted); font-size: 12px; }
+#rp-name.show { animation: rpname 3.8s ease forwards; }
+@keyframes rpname { 0% { opacity: 0; transform: translateX(-24px); } 10%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+#rp-gap { position: absolute; top: max(60px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; background: rgba(10,12,16,0.9); padding: 6px 14px; border-radius: 6px; font-size: 14px; }
+#rp-gap span { border-left: 4px solid; padding-left: 6px; font-weight: 800; } #rp-gap b { color: var(--accent); } #rp-gap b.inc { color: #ffcf3a; }
+body.tv-live #rp-bar, body.tv-live #touch, body.tv-live #pc-btns, body.tv-live #mwheel { display: none !important; }
+body.tv-live #rp-name { bottom: 40px; }
+body.tv-live #dash, body.tv-live #h-dmg, body.tv-live #radio { display: none !important; }
+body.tv-live #rp-badge { left: auto; right: max(16px, env(safe-area-inset-right, 0px)); top: auto; bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
 #mwheel { position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); bottom: max(6px, env(safe-area-inset-bottom, 0px)); width: 290px; pointer-events: auto; display: grid; justify-items: center; gap: 2px; user-select: none; -webkit-user-select: none; touch-action: none; }
 #mwheel[data-mode="grab"] #mw-rot { cursor: grab; } #mwheel[data-mode="grab"] #mw-rot:active { cursor: grabbing; }
 #mwheel[data-mode="follow"] { pointer-events: none; }
@@ -829,13 +842,14 @@ body.touch #h-track { display: none; }
       <div id="p-laps" hidden></div>
       <div id="p-obj" hidden></div>
       <p class="hint" id="p-pad" hidden></p>
-      <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-replay">Replay</button><button type="button" class="btn" id="p-garage" hidden>Return to pit box</button><button type="button" class="btn" id="p-settings">Settings</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
+      <div class="actions"><button type="button" class="btn primary" id="p-resume">Resume</button><button type="button" class="btn" id="p-finishq" hidden>Finish qualifying</button><button type="button" class="btn" id="p-replay">Replay</button><button type="button" class="btn" id="p-tv">Watch on TV</button><button type="button" class="btn" id="p-garage" hidden>Return to pit box</button><button type="button" class="btn" id="p-settings">Settings</button><button type="button" class="btn" id="p-restart">Restart session</button><button type="button" class="btn" id="p-quit">Quit to menu</button></div>
     </div>
   </div>
 
   <div id="pad-toast" hidden></div>
   <div id="replay" hidden>
     <div id="rp-badge"><i></i><span id="rp-tag">REPLAY</span></div>
+    <div id="rp-wipe"></div><div id="rp-name"></div><div id="rp-gap" hidden></div>
     <div id="rp-bar" role="toolbar" aria-label="Replay controls">
       <div class="rp-row">
         <span id="rp-time">0:00 / 0:00</span>

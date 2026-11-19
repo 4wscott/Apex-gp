@@ -630,6 +630,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    if (Replay.tvOn) Replay.setTV(false);
     delete $('#results').dataset.wk;
     FFB.release(); // the wheel gets its own centring back
     MouseWheel.show(false);
@@ -707,7 +708,7 @@ const App = {
       if (this.cfg && this.cfg.pitStart && race.mode === 'race' && (race.phase !== 'green' || race.greenT < 4)) { inp.throttle = 0; inp.brake = 1; } // pit lane start: held until the field has gone
       Weekend.tick(S, race);
       const h = 1 / 360; S.acc += dt; let steps = 0;
-      while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
+      while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, Replay.tvOn && S.tvAI ? S.tvAI.control(h, race.cars, race) : inp); S.acc -= h; steps++; } // watching on TV: the AI drives your car
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
       if (Replay.on) FFB.idle(); else { FFB.update(dt, P, race, inp); Setup.telemetry(P, dt); }
@@ -732,6 +733,7 @@ const App = {
     }
     try {
       this.updateVisuals(dt, S, inp);
+      if (Replay.tvOn) Replay.camera(this.camera, true); // live TV: the director's camera
       if (this.fireworks) this.fireworks.update(dt, this.audio);
       drawBigScreen(race, dt);
       this.render();
@@ -2089,6 +2091,7 @@ const Menu = {
     $('#p-restart').onclick = () => App.restart();
     $('#p-settings').onclick = () => this.raceSettings(true);
     $('#p-replay').onclick = () => Replay.open('pause');
+    $('#p-tv').onclick = () => { Replay.setTV(!Replay.tvOn); $('#p-tv').textContent = Replay.tvOn ? 'Back to driving' : 'Watch on TV'; App.togglePause(false); };
     $('#r-replay').onclick = () => Replay.open('results');
     $('#r-high').onclick = () => Replay.open('highlights');
     Replay.init(); Pads.init(); FFB.init();
