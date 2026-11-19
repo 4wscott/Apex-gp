@@ -50,7 +50,7 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   // no double rewards
   ok(await ev(() => { const before = Career.data.rd.points; Ach.give('win'); Ach.give('champ'); return Career.data.rd.points === before; }), 'an achievement pays only once');
   // the livery editor: unlocked styles are selectable, and the finish reaches the car
-  await ev(() => { Career.data.season = 1; Career.save(); Career.render(); Menu.drawer('career'); }); await page.waitForTimeout(800);
+  await ev(() => { SIM.settings.mode = 'career'; Career.data.season = 1; Career.save(); Career.render(); Menu.drawer('career'); }); await page.waitForTimeout(800); // the showroom shows the career car in career mode
   const ed = await ev(() => ({ locked: document.querySelectorAll('#career .livery-ed [data-lock]').length, chrome: !!document.querySelector('#lv-finish [data-v="chrome"]:not([disabled])') }));
   ok(ed.locked === 0 && ed.chrome, 'livery editor: unlocked styles are selectable');
   await ev(() => { document.querySelector('#lv-finish [data-v="chrome"]').click(); document.querySelector('#lv-helmet [data-v="chequer"]').click(); document.querySelector('#lv-number [data-v="gold"]').click(); });
