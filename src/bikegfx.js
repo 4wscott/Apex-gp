@@ -90,7 +90,9 @@ function makeRider(team, num) {
   av.traverse((o) => {
     if (!o.isSkinnedMesh) return; o.frustumCulled = false; o.castShadow = true;
     const n = o.material.name;
-    if (n === 'Wolf3D_Outfit_Top' || n === 'Wolf3D_Outfit_Bottom') o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team, n), roughness: 0.6 });
+    // leathers: the top in the team's colours; the trousers in its dark colour with the main colour as the trim (as most race leathers are)
+    if (n === 'Wolf3D_Outfit_Top') o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team, n), roughness: 0.6 });
+    else if (n === 'Wolf3D_Outfit_Bottom') { const dk = lum(team.c3 || '#000') < 0.2 ? team.c3 : '#16181c'; o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, Object.assign({}, team, { id: team.id + '-lthr', c1: dk, c2: team.c1, c3: team.c1 }), n), roughness: 0.6 }); }
     else if (n === 'Wolf3D_Headwear') o.visible = false; // the race helmet goes on instead
     else o.material = new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.7 }); // gloves, boots
   });
@@ -103,6 +105,27 @@ function makeRider(team, num) {
   }
   av.updateMatrixWorld(true);
   const rest = {}; for (const k in bones) rest[k] = bones[k].quaternion.clone();
+  // race leathers: the aero hump on the back (team colour, a stripe of the second colour) and a knee slider on the outside
+  // of each knee. Placed in the bind pose, in each bone's own space, so they follow the pose
+  holder.updateMatrixWorld(true);
+  const toBone = (bone, worldPos) => bone.worldToLocal(worldPos.clone());
+  if (bones.Spine2) {
+    const sp = bones.Spine2, at = sp.getWorldPosition(new THREE.Vector3()), back = new THREE.Vector3(-1, 0, 0); // the rider faces +x in the holder
+    const hump = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: team.c1, roughness: 0.55 }));
+    hump.scale.set(0.085, 0.12, 0.045); hump.castShadow = true; const hw = new THREE.Group(); hw.add(hump); hump.rotation.x = Math.PI / 2; hump.position.z = 0;
+    const stripe = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: lum(team.c2) > 0.08 ? team.c2 : team.c3 || '#ffffff', roughness: 0.55 }));
+    stripe.scale.set(0.02, 0.122, 0.047); stripe.rotation.x = Math.PI / 2; hw.add(stripe);
+    sp.add(hw); hw.position.copy(toBone(sp, at.clone().addScaledVector(back, 0.085).add(new THREE.Vector3(0, 0.0, 0))));
+    hw.quaternion.copy(sp.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), back)));
+  }
+  const hipsW = bones.Hips.getWorldPosition(new THREE.Vector3()), slider = new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.4, metalness: 0.2 });
+  for (const sd of ['Left', 'Right']) {
+    const leg = bones[sd + 'Leg']; if (!leg) continue;
+    const knee = leg.getWorldPosition(new THREE.Vector3()), out = new THREE.Vector3(0, 0, knee.z - hipsW.z).normalize(); // outward from the bike's centre line
+    const puck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.03, 16), slider); puck.castShadow = true;
+    leg.add(puck); puck.position.copy(toBone(leg, knee.clone().addScaledVector(out, 0.065).add(new THREE.Vector3(0.03, -0.05, 0))));
+    puck.quaternion.copy(leg.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), out)));
+  }
   // the helmet sits on the head bone (scaled from scene metres into the bone's space)
   if (bones.Head) { const s = new THREE.Vector3(); bones.Head.getWorldScale(s); head.scale.setScalar(0.9 / s.x); head.position.set(0, 0.075 / s.y, 0.035 / s.z); head.rotation.y = -Math.PI / 2; bones.Head.add(head); }
   const hip0 = new THREE.Vector3(); bones.Hips.getWorldPosition(hip0); // hips in the holder's space (holder at the origin)

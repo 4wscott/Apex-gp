@@ -2044,7 +2044,11 @@ function prepHelmet(root) {
   root.updateMatrixWorld(true);
   const parts = { shell: [], visor: [], metal: [], dark: [], inner: [] };
   const kind = { Material: 'shell', 'Material.003': 'visor', metalser: 'metal', dershat: 'dark', 'Material.004': 'inner' };
-  root.traverse((o) => { if (o.isMesh) { const g = o.geometry.clone().applyMatrix4(o.matrixWorld); for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); (parts[kind[o.material.name]] || parts.dark).push(g); } });
+  // the packed helmet stores its normals as 8-bit integers, which merging turns into zeros (a flat, unlit helmet):
+  // they're dropped here and worked out again in full precision below
+  root.traverse((o) => { if (o.isMesh) { const g = o.geometry.clone().applyMatrix4(o.matrixWorld); for (const k of Object.keys(g.attributes)) if (!['position', 'uv'].includes(k)) g.deleteAttribute(k);
+    for (const k of ['position', 'uv']) { const at = g.attributes[k]; if (at && !(at.array instanceof Float32Array)) { const f = new Float32Array(at.count * at.itemSize); for (let i = 0; i < at.count; i++) for (let c = 0; c < at.itemSize; c++) f[i * at.itemSize + c] = at.getComponent(i, c); g.setAttribute(k, new THREE.BufferAttribute(f, at.itemSize)); } }
+    (parts[kind[o.material.name]] || parts.dark).push(g); } });
   const out = {};
   for (const [k, list] of Object.entries(parts)) if (list.length) out[k] = mergeGeometries(list.map((g) => (g.index ? g : g)), false);
   const box = new THREE.Box3(); out.shell.computeBoundingBox(); box.copy(out.shell.boundingBox);
