@@ -461,6 +461,7 @@ const App = {
     c.getContext('2d').drawImage(r.domElement, 0, ph - H * pr, W * pr, H * pr, 0, 0, W * pr, H * pr);
     r.setScissorTest(false); r.setViewport(0, 0, r.domElement.width / pr, r.domElement.height / pr);
     sc.remove(car.grp);
+    if (!this.session) this.render(); // the portrait was drawn into the corner of the screen: the menu goes straight back over it
     if (bk) return c.toDataURL('image/jpeg', 0.86); // a bike's paint and parts are shared (cached per team): nothing to free
     const shared = new Set(Object.values(GFX.mats));
     car.grp.traverse((o) => { if (o.isMesh) [].concat(o.material).forEach((m) => { if (!shared.has(m)) { if (m.map && !m.map.userData.keep && !Object.values(GFX.tex).includes(m.map)) m.map.dispose(); m.dispose(); } }); });
@@ -471,6 +472,7 @@ const App = {
     const T = this.getTrack(trackId);
     this.buildScene(T);
     if (this.previewCar) this.worldRoot.remove(this.previewCar.grp);
+    if (this.showDriver) { this.worldRoot.remove(this.showDriver); this.showDriver = null; }
     // in career the showroom shows your career car
     const car = settings.mode === 'career' && Career.data;
     const bk = bikeMenu() && !car;
@@ -484,9 +486,13 @@ const App = {
     const i = (Math.round((st && Math.abs(off) > st.L * 0.35 ? off : -3) / T.ds) + T.n) % T.n;
     poseOnRoad(this.previewCar.grp, T, T.px[i], T.py[i], Math.atan2(T.ty[i], T.tx[i]), i);
     this.previewSpot = i;
-    if (this.previewCar.isBike && this.previewCar.rider) { this.previewCar.grp.updateMatrixWorld(true); poseRider(this.previewCar, { lean: 0, tuck: 0.15 }); } // the rider sits on the bike in the showroom
-    if (this.fireworks) this.fireworks.dispose();
-    this.fireworks = new Fireworks(this.worldRoot, T, GFX.mainStand);
+    // a bike stands on its paddock stand in the showroom, its rider beside it like the car's driver
+    if (this.previewCar.isBike && this.previewCar.rider) this.previewCar.rider.holder.visible = false;
+    const sd = makeShowDriver(team, car ? Career.data.num : dr.num, this.previewCar.isBike);
+    if (sd) { this.showDriver = sd; this.worldRoot.add(sd); }
+    const pc = this.previewCar; if (sd && !pc.isBike) { if (pc.avatar) pc.avatar.root.visible = false; pc.helmet.visible = pc.visor.visible = false; if (pc.sw) pc.sw.wrists.forEach((w) => (w.visible = false)); } // the car's cockpit is empty: its driver stands beside it
+    // no fireworks in the menu any more: the showroom camera looks away from the grandstand they burst over
+    if (this.fireworks) this.fireworks.dispose(); this.fireworks = null;
     this.previewT = 0; this.previewTrack = T; this.previewYaw = this.previewCar.grp.rotation.y; this.previewSpin = this.previewSpin || 0;
     this.teamAccent(team);
   },
@@ -536,7 +542,7 @@ const App = {
     $('#loading').hidden = false; $('#menu').hidden = true; document.activeElement?.blur?.(); // menu focus must not hold on to keys in the car
     setTimeout(() => {
       this.buildScene(T, cfg && cfg.tod);
-      this.previewCar = null; this.fireworks = null;
+      this.previewCar = null; this.fireworks = null; this.showDriver = null;
       const team = cfg ? cfg.team : this.seriesFor(cfg) === 'bike' ? curTeam() : TEAMS.find((t) => t.id === settings.team), driver = cfg ? cfg.driver : team.drivers.find((d) => d.code === settings[this.seriesFor(cfg) === 'bike' ? 'bikeDriver' : 'driver']) || team.drivers[0];
       const opp = mode === 'trial' ? 0 : mode === 'practice' ? settings.traffic : cfg ? cfg.opponents : settings.opponents;
       const gridSlot = { pole: 0, mid: Math.floor(opp / 2), back: opp, random: Math.floor(Math.random() * (opp + 1)) }[settings.grid];
@@ -774,16 +780,32 @@ const App = {
     if (!this.spinDrag && performance.now() - (this.spinTouched || 0) > 2500) this.previewSpin += dt * 0.22;
     this.previewCar.grp.rotation.y = this.previewYaw + this.previewSpin;
     const c = this.previewCar.grp.position, T = this.previewTrack, i = this.previewSpot;
-    this.camera.fov = 52; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
+    // a long lens on the car or bike: it fills the screen, the stands are only a strip behind it
+    const bk = this.previewCar.isBike, asp = this.camera.aspect, vf = bk ? 24 : 26;
+    this.camera.fov = vf; this.camera.near = 0.3; this.camera.updateProjectionMatrix();
     if (this.fireworks) this.fireworks.update(dt, this.audio);
     drawBigScreen(null, dt);
     if (window.DEBUG_CAM) { const d = window.DEBUG_CAM; this.camera.position.set(c.x + d[0], d[1], c.z + d[2]); this.camera.lookAt(c.x + (d[3] || 0), d[4] ?? 0.5, c.z + (d[5] || 0)); }
     else {
-      // stand on the pit-wall side of the track, a little ahead of the line, looking back across at the car and the grandstand
-      // low and tilted up a touch: car in the lower half, grandstand and the fireworks above it
-      const k = 5.6, f = -7.8, wide = Math.max(0, 1.3 - this.camera.aspect) * 11; // tall screens step back to fit the whole car
-      const p = W(T.px[i] - T.nx[i] * (k + wide) + T.tx[i] * f, T.py[i] - T.ny[i] * (k + wide) + T.ty[i] * f, 0);
-      this.camera.position.set(p.x, 1.25, p.z); this.camera.lookAt(c.x + (c.x - p.x) * 0.0, 2.3, c.z);
+      // the subject: the car's turning circle (it spins on the spot) plus the driver standing to one side of it. The camera
+      // backs off just far enough to fit that across the screen (or up it, on a tall screen), from a little above, so the
+      // car fills the view and the grandstand behind is only a band at the top
+      const rad = bk ? 1.1 : 2.75, gap = bk ? 0.5 : 0.55, wid = 2 * rad + gap + 0.5, ht = 1.95;
+      const tv = Math.tan(vf * Math.PI / 360), th = tv * asp, fill = 0.84, band = innerHeight < 500 ? 0.56 : 0.64; // band: the height left between the menu bars
+      const D = Math.max(wid / (2 * th * fill), ht / (2 * tv * band)), elev = bk ? 0.16 : 0.17;
+      // from the grandstand side of the track, a little ahead of the car, looking across at the pit wall and the garages (no crowd)
+      const ang = window.MENU_ANG ?? 0.5, sg = window.MENU_SIDE ?? 1, dx = sg * T.nx[i] * Math.cos(ang) + T.tx[i] * Math.sin(ang), dy = sg * T.ny[i] * Math.cos(ang) + T.ty[i] * Math.sin(ang);
+      const cw = W(T.px[i], T.py[i], 0), d = new THREE.Vector3(dx, 0, -dy).normalize(); // W flips y into -z
+      const right = new THREE.Vector3(d.z, 0, -d.x); // screen right, seen from the camera (d points from the car to the camera)
+      // the driver to the left of the car, just outside its turning circle, turned a little toward the camera
+      const mid = new THREE.Vector3(c.x, 0, c.z).addScaledVector(right, -(gap + 0.5) / 2);
+      if (this.showDriver) {
+        const s = this.showDriver.position.set(c.x, c.y, c.z).addScaledVector(right, -(rad + gap)).addScaledVector(d, rad * 0.35);
+        const to = this.camera.position.clone().sub(s); this.showDriver.rotation.set(0, Math.atan2(to.x, to.z) - 0.35, 0);
+      }
+      const look = mid.clone(); look.y = c.y + (bk ? 0.86 : 0.66);
+      const p = look.clone().addScaledVector(d, D * Math.cos(elev)); p.y += D * Math.sin(elev);
+      void cw; this.camera.position.copy(p); this.camera.lookAt(look);
     }
     if (this.sun) { this.sun.target.position.copy(c); this.sun.position.copy(c).addScaledVector(this.sunDir, 150); }
   },

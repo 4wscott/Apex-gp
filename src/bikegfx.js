@@ -82,8 +82,9 @@ function bikeModel(lod, team, num = 0) {
   }
   return out;
 }
-// the rider: the rigged model in team leathers (boots and gloves dark), the race helmet on the head bone
-function makeRider(team, num) {
+// the rider: the rigged model in team leathers (boots and gloves dark), the race helmet on the head bone.
+// suit: a car driver instead (race suit in the team colours top and bottom, no hump or knee sliders)
+function makeRider(team, num, suit = false) {
   const av = SkeletonUtils.clone(GFX.models.crew), holder = new THREE.Group(); holder.add(av);
   av.rotation.y = Math.PI / 2; // the model faces +z; the bike faces +x
   const bones = {}; av.traverse((o) => { if (o.isBone) bones[o.name.replace(/_\d+$/, '')] = o; });
@@ -92,6 +93,7 @@ function makeRider(team, num) {
     const n = o.material.name;
     // leathers: the top in the team's colours; the trousers in its dark colour with the main colour as the trim (as most race leathers are)
     if (n === 'Wolf3D_Outfit_Top') o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team, n), roughness: 0.6 });
+    else if (n === 'Wolf3D_Outfit_Bottom' && suit) o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, team, n), roughness: 0.75 });
     else if (n === 'Wolf3D_Outfit_Bottom') { const dk = lum(team.c3 || '#000') < 0.2 ? team.c3 : '#16181c'; o.material = new THREE.MeshStandardMaterial({ map: suitFromModel(o.material.map.image, Object.assign({}, team, { id: team.id + '-lthr', c1: dk, c2: team.c1, c3: team.c1 }), n), roughness: 0.6 }); }
     else if (n === 'Wolf3D_Headwear') o.visible = false; // the race helmet goes on instead
     else o.material = new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.7 }); // gloves, boots
@@ -109,7 +111,7 @@ function makeRider(team, num) {
   // of each knee. Placed in the bind pose, in each bone's own space, so they follow the pose
   holder.updateMatrixWorld(true);
   const toBone = (bone, worldPos) => bone.worldToLocal(worldPos.clone());
-  if (bones.Spine2) {
+  if (bones.Spine2 && !suit) {
     const sp = bones.Spine2, at = sp.getWorldPosition(new THREE.Vector3()), back = new THREE.Vector3(-1, 0, 0); // the rider faces +x in the holder
     const hump = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), new THREE.MeshStandardMaterial({ color: team.c1, roughness: 0.55 }));
     hump.scale.set(0.085, 0.12, 0.045); hump.castShadow = true; const hw = new THREE.Group(); hw.add(hump); hump.rotation.x = Math.PI / 2; hump.position.z = 0;
@@ -119,7 +121,7 @@ function makeRider(team, num) {
     hw.quaternion.copy(sp.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), back)));
   }
   const hipsW = bones.Hips.getWorldPosition(new THREE.Vector3()), slider = new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.4, metalness: 0.2 });
-  for (const sd of ['Left', 'Right']) {
+  for (const sd of suit ? [] : ['Left', 'Right']) {
     const leg = bones[sd + 'Leg']; if (!leg) continue;
     const knee = leg.getWorldPosition(new THREE.Vector3()), out = new THREE.Vector3(0, 0, knee.z - hipsW.z).normalize(); // outward from the bike's centre line
     const puck = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.03, 16), slider); puck.castShadow = true;
@@ -130,6 +132,23 @@ function makeRider(team, num) {
   if (bones.Head) { const s = new THREE.Vector3(); bones.Head.getWorldScale(s); head.scale.setScalar(0.9 / s.x); head.position.set(0, 0.075 / s.y, 0.035 / s.z); head.rotation.y = -Math.PI / 2; bones.Head.add(head); }
   const hip0 = new THREE.Vector3(); bones.Hips.getWorldPosition(hip0); // hips in the holder's space (holder at the origin)
   return { holder, av, bones, rest, hip0, head };
+}
+// the menu's driver or rider, standing beside the car or bike in team kit with the helmet on: weight on one leg, one hand
+// on the hip and the other relaxed. Faces +z of the returned group; its feet are at the group's origin
+function makeShowDriver(team, num, bike) {
+  if (!GFX.models || !GFX.models.crew) return null;
+  const r = makeRider(team, num, !bike); r.av.rotation.y = 0; r.av.updateMatrixWorld(true);
+  const p = { holder: r.holder, av: r.av, bones: r.bones, rest: {}, hip0: r.bones.Hips.position.clone() };
+  for (const k in r.bones) p.rest[k] = r.bones[k].quaternion.clone();
+  r.holder.updateMatrixWorld(true);
+  const fwd = new THREE.Vector3(0, 0, 1), out = (x) => new THREE.Vector3(x, -0.3, 0.15).normalize();
+  PitCrew.pose(p, { drop: 0.015, feet: [[0.15, 0.08, 0.03], [-0.09, 0.08, -0.02]], knees: [fwd.clone().add(new THREE.Vector3(0.4, 0, 0)), fwd], hands: [[0.19, 1.02, -0.03], [-0.25, 0.84, 0.02]] });
+  // the hand on the hip: elbow out to the side
+  PitCrew.ik(p, 'LeftArm', 'LeftForeArm', 'LeftHand', r.holder.localToWorld(new THREE.Vector3(0.17, 1.02, -0.02)), out(1));
+  PitCrew.ik(p, 'RightArm', 'RightForeArm', 'RightHand', r.holder.localToWorld(new THREE.Vector3(-0.24, 0.84, 0.03)), out(-0.4));
+  const B = r.bones; if (B.Head) B.Head.rotateX(-0.06);
+  r.holder.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return r.holder;
 }
 function makeBike(team, num, hero = false) {
   const B = GFX.bikes, grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
