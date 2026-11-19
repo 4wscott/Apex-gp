@@ -35,9 +35,8 @@ let fails = 0; const ok = (c, msg) => { console.log((c ? 'ok  ' : 'FAIL') + ' ' 
   ok(cams, 'every camera works (chase, helmet, tail, TV)');
   // a wheelie with anti-wheelie off
   await page.evaluate(async () => { const r = App.session.race, P = r.player, T = r.track; let bi = 0, best = 0, run = 0; for (let i = 0; i < T.n; i++) { if (Math.abs(T.lineK[i]) < 1 / 3000) { run++; if (run > best) { best = run; bi = i - run + 1; } } else run = 0; }
-    P.assist.aw = false; P.assist.tc = 0; P.place((bi + 5) % T.n, 0, 22); P.gear = 1; App.paused = true; let k = 0; for (; k < 360 && P.wheelie < 0.08 && !P.down; k++) r.step(1 / 120, { throttle: 1, brake: 0, steer: 0, lean: 0 }); window.__whDbg = { k, w: P.wheelie, down: P.down && P.down.kind, vx: P.vx, pit: !!P.pit, fin: !!P.finished, dnf: P.dnf, parked: P.parked }; await __sim(0.005, () => ({ throttle: 0.6, brake: 0, steer: 0, lean: 0 })); }); // until the front is well up, then draw it
-  console.log('    wheelie run', JSON.stringify(await page.evaluate(() => window.__whDbg)));
-  const wh = await page.evaluate(() => { const P = App.session.race.player; App.paused = true; App.session.camMode = 'chase'; return { w: P.wheelie, mesh: P.mesh.wh.rotation.z, dash: document.querySelector('#h-bias').textContent }; });
+    P.assist.aw = false; P.assist.tc = 0; P.place((bi + 5) % T.n, 0, 22); P.gear = 1; App.paused = true; let k = 0; for (; k < 360 && P.wheelie < 0.08 && !P.down; k++) r.step(1 / 120, { throttle: 1, brake: 0, steer: 0, lean: 0 }); BIKES.bikeFrame(P, P.mesh, 0, P, true, App.worldRoot, r.track); window.__wh = { w: P.wheelie, mesh: P.mesh.wh.rotation.z, k }; }); // until the front is well up; drawn while paused
+  const wh = await page.evaluate(() => { App.session.camMode = 'chase'; return Object.assign(window.__wh, { dash: document.querySelector('#h-bias').textContent }); });
   await shot('wheelie'); await page.evaluate(() => { App.paused = false; });
   ok(wh.w > 0.02 && Math.abs(wh.mesh - wh.w) < 0.05, `wheelie on screen (${(wh.w * 57.3).toFixed(0)} deg; dash: ${wh.dash})`);
   // a crash: the rider and the bike part, then the rider gets back on

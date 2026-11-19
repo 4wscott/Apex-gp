@@ -32,29 +32,45 @@ function loadBikes() {
   }).catch((e) => { console.warn('bike models', e); return null; }));
 }
 // the team's paint on the fairing: red areas of the mask take the main colour, white areas the second; carbon stays
-function bikePaint(mat, team, lod) {
-  const key = team.id + lod; GFX.bikePaints = GFX.bikePaints || {};
+// the rider's race number: white or black, whichever stands out on the team's main colour
+function bikeNumberTex(team, num) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+  const dark = lum(team.c1) > 0.45; g.font = '900 108px "Saira Condensed", Arial Black, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 12; g.strokeStyle = dark ? '#ffffff' : '#111111'; g.strokeText(String(num), 128, 68); g.fillStyle = dark ? '#111111' : '#ffffff'; g.fillText(String(num), 128, 68);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.userData.keep = true; return t;
+}
+// the team's paint on the fairing: red areas of the mask take the main colour, white areas the second; carbon stays. The
+// rider's number goes on the tail sides and the nose (worked out in the bike's own frame, so it sits on every level)
+function bikePaint(mat, team, lod, num = 0) {
+  const far = lod === 'far', key = team.id + lod + (far ? '' : '#' + num); GFX.bikePaints = GFX.bikePaints || {};
   if (GFX.bikePaints[key]) return GFX.bikePaints[key];
-  const far = lod === 'far';
   const m = new THREE.MeshPhysicalMaterial({ map: far ? null : mat.map, vertexColors: far, roughness: far ? 0.7 : team.matte ? 0.5 : 0.32, metalness: 0.05, clearcoat: far ? 0 : team.matte ? 0.1 : 0.85, clearcoatRoughness: 0.08 });
   const c1 = new THREE.Color(team.c1), c2 = new THREE.Color(lum(team.c2) > 0.08 ? team.c2 : team.c3 || '#ffffff');
+  const inv = { value: new THREE.Matrix4() }, numTex = !far && num ? bikeNumberTex(team, num) : null; m.userData.bkInv = inv;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.bkC1 = { value: c1 }; sh.uniforms.bkC2 = { value: c2 };
     if (far) {
       sh.vertexShader = 'attribute vec2 _livery; varying vec2 vLiv;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vLiv = _livery;');
       sh.fragmentShader = 'uniform vec3 bkC1, bkC2; varying vec2 vLiv;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb = mix(diffuseColor.rgb, bkC1, smoothstep(0.08, 0.35, vLiv.x)); diffuseColor.rgb = mix(diffuseColor.rgb, bkC2, smoothstep(0.1, 0.4, vLiv.y));');
     } else {
-      sh.uniforms.bkMask = { value: GFX.bikes.mask };
-      sh.fragmentShader = 'uniform vec3 bkC1, bkC2; uniform sampler2D bkMask;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\n vec3 bkL = texture2D(bkMask, vMapUv).rgb; diffuseColor.rgb = mix(diffuseColor.rgb, bkC1, bkL.r); diffuseColor.rgb = mix(diffuseColor.rgb, bkC2, bkL.g);');
+      sh.uniforms.bkMask = { value: GFX.bikes.mask }; sh.uniforms.bkInv = inv; sh.uniforms.bkNum = { value: numTex };
+      sh.vertexShader = 'uniform mat4 bkInv; varying vec3 vBkP; varying vec3 vBkN;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vBkP = (bkInv * modelMatrix * vec4(transformed, 1.0)).xyz; vBkN = normalize(mat3(bkInv) * mat3(modelMatrix) * objectNormal);');
+      let frag = '#include <map_fragment>\n vec3 bkL = texture2D(bkMask, vMapUv).rgb; diffuseColor.rgb = mix(diffuseColor.rgb, bkC1, bkL.r); diffuseColor.rgb = mix(diffuseColor.rgb, bkC2, bkL.g);';
+      if (numTex) frag += `
+        { vec2 nuv = vec2(-1.0); float paint = clamp(bkL.r + bkL.g, 0.0, 1.0);
+          if (abs(vBkN.y) > 0.5 && vBkP.x > -0.12 && vBkP.x < 0.26 && vBkP.z > 0.84 && vBkP.z < 1.04) nuv = vec2(vBkN.y > 0.0 ? (0.26 - vBkP.x) / 0.38 : (vBkP.x + 0.12) / 0.38, (vBkP.z - 0.84) / 0.2);
+          else if (vBkN.x > 0.3 && vBkP.x > 1.22 && abs(vBkP.y) < 0.15 && vBkP.z > 0.6 && vBkP.z < 0.95) nuv = vec2((vBkP.y + 0.15) / 0.3, (vBkP.z - 0.6) / 0.35);
+          if (nuv.x >= 0.0 && nuv.x <= 1.0 && nuv.y >= 0.0 && nuv.y <= 1.0) { vec4 nt = texture2D(bkNum, vec2(nuv.x, 1.0 - nuv.y)); diffuseColor.rgb = mix(diffuseColor.rgb, nt.rgb, nt.a * paint); } }`;
+      sh.vertexShader = sh.vertexShader; sh.fragmentShader = 'uniform vec3 bkC1, bkC2; uniform sampler2D bkMask, bkNum; varying vec3 vBkP; varying vec3 vBkN;\n' + sh.fragmentShader.replace('#include <map_fragment>', frag);
     }
   };
-  m.customProgramCacheKey = () => 'bikePaint' + (far ? 'F' : '');
+  m.customProgramCacheKey = () => 'bikePaint' + (far ? 'F' : numTex ? 'N' : '');
   if (!far) carPaintLook(m);
   return (GFX.bikePaints[key] = m);
 }
-function bikeModel(lod, team) {
-  const src = GFX.bikes[lod], root = src.root.clone(true), out = { root, wheels: [] };
-  root.traverse((o) => { if (o.isMesh && (o.material.name === 'Part1_Mat' || lod === 'far')) o.material = bikePaint(o.material, team, lod); });
+function bikeModel(lod, team, num = 0) {
+  const src = GFX.bikes[lod], root = src.root.clone(true), out = { root, wheels: [], paint: null };
+  root.traverse((o) => { if (o.isMesh && (o.material.name === 'Part1_Mat' || lod === 'far')) { o.material = bikePaint(o.material, team, lod, num); if (lod !== 'far') out.paint = o.material; } });
   if (lod !== 'far') {
     // each wheel spins about its true axle (the quantised nodes carry an offset): a pivot at the axle takes the wheel
     root.updateMatrixWorld(true);
@@ -98,7 +114,7 @@ function makeBike(team, num, hero = false) {
   const yaw = new THREE.Group(), lean = new THREE.Group(), wh = new THREE.Group(), st = new THREE.Group(), frame = new THREE.Group();
   body.add(yaw); yaw.add(lean); lean.add(wh); wh.position.x = -BIKE_COG_X; wh.add(st); st.position.x = BIKE_AXLES.front[0]; st.add(frame); frame.position.x = -BIKE_AXLES.front[0];
   const lods = {};
-  for (const k of hero ? ['hero', 'field', 'far'] : ['field', 'far']) { const md = bikeModel(k, team); md.root.rotation.x = -Math.PI / 2; md.root.visible = false; frame.add(md.root); lods[k] = md; }
+  for (const k of hero ? ['hero', 'field', 'far'] : ['field', 'far']) { const md = bikeModel(k, team, num); md.root.rotation.x = -Math.PI / 2; md.root.visible = false; frame.add(md.root); lods[k] = md; }
   const rider = GFX.models && GFX.models.crew ? makeRider(team, num) : null;
   if (rider) frame.add(rider.holder);
   const blob = new THREE.Mesh(GFX.geo.blob, GFX.mats.blob); blob.scale.set(0.5, 1, 0.22); blob.position.y = 0.01; blob.renderOrder = 1; grp.add(blob);
@@ -173,6 +189,7 @@ function bikeFrame(c, m, dt, P, near, worldRoot, T) {
   if (c.down) {
     const D = c.down, k = D.bike;
     poseOnRoad(m.grp, T, k.x, k.y, k.yaw, null);
+    { const L = m.lods[m.lod]; if (L && L.paint && L.paint.userData.bkInv) { L.root.updateMatrixWorld(true); L.paint.userData.bkInv.value.copy(L.root.matrixWorld).invert(); } }
     m.yaw.rotation.y = 0; m.lean.rotation.x = -k.roll; m.lean.position.y = Math.abs(Math.sin(k.roll)) * 0.32; m.wh.rotation.z = 0; m.st.rotation.z = 0;
     if (R) {
       if (R.holder.parent !== worldRoot) { worldRoot.attach(R.holder); riderCrashPose(m); }
@@ -190,6 +207,7 @@ function bikeFrame(c, m, dt, P, near, worldRoot, T) {
   m.yaw.rotation.y = -(c.slideYaw || 0);
   m.wh.rotation.z = c.wheelie || 0; m.st.rotation.z = -(c.stoppie || 0);
   for (const k of ['hero', 'field']) if (m.lods[k] && m.lods[k].root.visible) m.lods[k].wheels.forEach((w) => (w.rotation.y = c.wheelAng));
+  { const L = m.lods[m.lod]; if (L && L.paint && L.paint.userData.bkInv && (c === P || d < 60)) { L.root.updateMatrixWorld(true); L.paint.userData.bkInv.value.copy(L.root.matrixWorld).invert(); } } // the number decal works in the bike's own frame
   m.blob.scale.set(0.5 + Math.abs(Math.sin(leanVis)) * 0.4, 1, 0.22); m.blob.position.z = Math.sin(leanVis) * 0.25;
   // brake light in the rain
   m.rainLight.material.emissiveIntensity = T && c.env && c.env.wet > 0.3 && performance.now() % 400 < 200 ? 6 : 0;
@@ -210,6 +228,17 @@ function buildAirFences(B, world) {
     parts.push(wallRibbon(B, off, side, 0.04, 0.7, 16, inc, o2(-0.07)), wallRibbon(B, o2(-0.07), side, 0.7, 1.25, 16, inc, o2(0.15)), wallRibbon(B, o2(0.15), side, 1.25, 1.38, 16, inc, wall));
   }
   const geo = mergeGeometries(parts, false); parts.forEach((p) => p.dispose());
+  // the Long Lap lane: a tarmac strip on the run-off with orange lines either side
+  const LL = B.longLap;
+  if (LL) {
+    const inc = (i) => (i - LL.i0 + B.n) % B.n < LL.len, sideW = LL.side > 0 ? B.wallL : B.wallR, sd = LL.side;
+    const at = (o) => Float32Array.from(sideW, () => o);
+    const strip = wallRibbon(B, at(LL.off - 1.6), sd, 0.025, 0.025, 8, inc, at(LL.off + 2.6));
+    const lines = mergeGeometries([wallRibbon(B, at(LL.off - 1.6), sd, 0.03, 0.03, 8, inc, at(LL.off - 1.35)), wallRibbon(B, at(LL.off + 2.35), sd, 0.03, 0.03, 8, inc, at(LL.off + 2.6))], false);
+    const tar = new THREE.Mesh(strip, decal(new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.9, side: THREE.DoubleSide }), 1)); tar.receiveShadow = true;
+    const ora = new THREE.Mesh(lines, decal(new THREE.MeshStandardMaterial({ color: 0xff7a00, roughness: 0.6, side: THREE.DoubleSide }), 2));
+    world.add(tar, ora);
+  }
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.65, side: THREE.DoubleSide }));
   mesh.castShadow = mesh.receiveShadow = true; mesh.userData.noBatch = true; world.add(mesh);
   return mesh;

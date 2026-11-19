@@ -152,7 +152,7 @@ function teamStats(tm) {
   const r = (v, lo, hi) => Math.round(Math.max(40, Math.min(99, 60 + (v - lo) / (hi - lo) * 39)));
   const power = r(tm.perf.p, 0.975, 1), aero = r(tm.perf.a, 0.97, 1), drivers = Math.round(tm.drivers.reduce((a, d) => a + driverRating(d), 0) / tm.drivers.length);
   const score = (t) => t.perf.p * 0.35 + t.perf.a * 0.45 + (t.drivers.reduce((a, d) => a + d.skill, 0) / t.drivers.length) * 0.2;
-  const rank = TEAMS.slice().sort((a, b) => score(b) - score(a)).indexOf(tm) + 1;
+  const L = typeof BIKE_TEAMS !== 'undefined' && BIKE_TEAMS.includes(tm) ? BIKE_TEAMS : TEAMS, rank = L.slice().sort((a, b) => score(b) - score(a)).indexOf(tm) + 1;
   const tier = rank <= 3 ? 'front' : rank <= 7 ? 'mid' : 'back';
   return { power, aero, drivers, overall: Math.round(power * 0.35 + aero * 0.45 + drivers * 0.2), rank, tier, tierLabel: { front: 'Front-runner', mid: 'Midfield', back: 'Backmarker' }[tier] };
 }

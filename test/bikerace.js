@@ -34,4 +34,31 @@ for (const id of ids) {
   totalCrash += crashes.length; races++;
 }
 console.log(`    ${totalCrash} crashes in ${races} races: ${L1} on opening laps, ${LN} after`);
-console.log(fails ? `${fails} FAILED` : 'ALL PASS'); process.exit(fails ? 1 : 0);
+// the Long Lap: a rider given one rides the lane and it is served (circuits with a lane), or 3 s are added
+{
+  let served = 0, tried = 0;
+  for (const id of ['silver', 'sakhir', 'baia', 'lonestar']) {
+    const T = S.buildTrack(S.TRACKS.find((t) => t.id === id)), tm = S.BIKE_TEAMS[0];
+    const race = new S.Race(T, { mode: 'race', laps: 4, opponents: 0, team: tm, driver: tm.drivers[0], series: 'bike', weather: 'dry' });
+    const P = race.player, ai = new S.AIDriver(P, 1, 5); race.lightsT = race.lightsOutAt - 0.01;
+    let msgs = []; race.emit = ((e0) => (type, ev) => { if (type === 'msg') msgs.push(ev.text); })(race.emit);
+    for (let t = 0; t < 30; t += 1 / 120) race.step(1 / 120, ai.control(1 / 120, race.cars, race));
+    P.longLapDue = P.lap + 3; tried++; let t = 0;
+    while (P.longLapDue && t < 400 && !P.down) { race.step(1 / 120, ai.control(1 / 120, race.cars, race)); t += 1 / 120; }
+    const ok1 = !P.longLapDue && msgs.includes('Long Lap served'); if (ok1) served++;
+    console.log(`    ${id}: Long Lap ${ok1 ? 'served after ' + t.toFixed(0) + ' s' : 'not served (' + (P.down ? 'crashed' : msgs.slice(-1)[0]) + ')'}`);
+  }
+  ok(served === tried, `Long Lap: the lane can be ridden and the penalty is served (${served} of ${tried} circuits)`);
+  console.log(fails ? `${fails} FAILED` : 'ALL PASS');
+}
+// flag to flag: rain arrives mid-race, riders come in and swap to the wet bike
+{
+  const T = S.buildTrack(S.TRACKS.find((t) => t.id === 'silver')), tm = S.BIKE_TEAMS[0];
+  const race = new S.Race(T, { mode: 'race', laps: 6, opponents: 11, team: tm, driver: tm.drivers[0], series: 'bike', weather: 'dry' });
+  const P = race.player, ai = new S.AIDriver(P, 1, 5); P.isPlayer = false; race.lightsT = race.lightsOutAt - 0.01;
+  let t = 0; while (t < 260) { race.step(1 / 120, ai.control(1 / 120, race.cars, race)); t += 1 / 120; if (t > 60) { race.env.rain = 1; race.env.wet = Math.min(1, race.env.wet + 0.004 / 120 * 60); } }
+  const swapped = race.cars.filter((c) => S.COMPOUNDS[c.compound].wet).length, crashed = race.cars.filter((c) => c.crashes > 0).length;
+  console.log(`    flag to flag: ${swapped} of ${race.cars.length} on the wet bike after the rain, ${crashed} crashed, track wetness ${race.env.wet.toFixed(2)}`);
+  ok(swapped >= race.cars.length - 2, `flag to flag: when it rains the riders swap to the wet bike (${swapped} of ${race.cars.length})`);
+}
+process.exit(fails ? 1 : 0);

@@ -483,6 +483,7 @@ const App = {
     const i = (Math.round((st && Math.abs(off) > st.L * 0.35 ? off : -3) / T.ds) + T.n) % T.n;
     poseOnRoad(this.previewCar.grp, T, T.px[i], T.py[i], Math.atan2(T.ty[i], T.tx[i]), i);
     this.previewSpot = i;
+    if (this.previewCar.isBike && this.previewCar.rider) { this.previewCar.grp.updateMatrixWorld(true); poseRider(this.previewCar, { lean: 0, tuck: 0.15 }); } // the rider sits on the bike in the showroom
     if (this.fireworks) this.fireworks.dispose();
     this.fireworks = new Fireworks(this.worldRoot, T, GFX.mainStand);
     this.previewT = 0; this.previewTrack = T; this.previewYaw = this.previewCar.grp.rotation.y; this.previewSpin = this.previewSpin || 0;
@@ -506,18 +507,18 @@ const App = {
   startOnline(m) {
     if (this.session) this.quit();
     Net.racing = true;
-    const human = (p, i) => {
-      const team = TEAMS.find((t) => t.id === p.team) || TEAMS[0], base = team.drivers.find((d) => d.num === p.num) || team.drivers[0];
+    const bike = m.series === 'bike', human = (p, i) => {
+      const L = bike ? BIKE_TEAMS : TEAMS, team = L.find((t) => t.id === (bike ? p.bikeTeam : p.team)) || L[0], base = team.drivers.find((d) => d.num === (bike ? p.bikeNum : p.num)) || team.drivers[0];
       return { team, driver: { name: p.name, code: 'N' + i, abbr: p.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'PLY', num: base.num, skill: 1 } };
     };
     const all = m.players.map((p, i) => Object.assign({ key: p.key }, human(p, i)));
     const me = all.find((p) => p.key === Net.me) || all[0];
-    this.start({ online: true, mode: 'race', track: m.track, laps: m.laps, weather: m.weather, team: me.team, driver: me.driver, opponents: 0,
+    this.start({ online: true, series: bike ? 'bike' : 'car', mode: 'race', track: m.track, laps: m.laps, weather: m.weather, team: me.team, driver: me.driver, opponents: 0,
       remotes: all.filter((p) => p !== me), gridOrder: m.grid.map((k) => all.find((p) => p.key === k).driver.code),
       lightsOutAt: m.lightsOutAt, seed: m.seed, tod: m.tod, ref: Date.now() - (Net.host ? 0 : 150) });
   },
   // which series a session runs: the menu's Cars / Bikes switch (career and online are car races for now)
-  seriesFor(cfg) { if (cfg && (cfg.career || cfg.online || cfg.gp)) return cfg.series || 'car'; return (cfg && cfg.series) || settings.series || 'car'; },
+  seriesFor(cfg) { if (cfg && (cfg.career || cfg.online)) return cfg.series || 'car'; return (cfg && cfg.series) || settings.series || 'car'; },
   // cfg (career) overrides the free-play settings
   start(cfg) {
     cfg = cfg || null; this.cfg = cfg;
@@ -795,6 +796,7 @@ const App = {
     if (inp.biasFPressed) { P.bias = Math.min(0.62, P.bias + 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     if (inp.biasRPressed) { P.bias = Math.max(0.5, P.bias - 0.005); Hud.flash(`Brake bias ${(P.bias * 100).toFixed(1)}%`); }
     }
+    if (inp.pitPressed && P.isBike && race.mode === 'race' && !race.quali && !P.pit && !P.finished) { P.pitReq = P.pitReq ? null : COMPOUNDS[P.compound].wet ? 'M' : 'W'; Hud.flash(P.pitReq ? `Box this lap: swap to the ${P.pitReq === 'W' ? 'wet' : 'dry'} bike` : 'Bike swap cancelled'); }
     if (inp.pitPressed && !P.isBike && (race.mode === 'race' || race.mode === 'practice') && !race.quali && !P.pit && !P.finished) {
       // each press cycles: box on Soft -> Medium -> Hard -> Intermediate -> Wet -> cancel
       const order = ['S', 'M', 'H', 'I', 'W', null], cur = order.indexOf(P.pitReq ?? null);
@@ -1024,9 +1026,9 @@ const App = {
       else if (e.type === 'vscend') Hud.banner('Green flag: racing resumes', 'go');
       else if (e.type === 'blue') Hud.banner(`Blue flag: let ${e.car.driver.abbr || e.car.driver.code} through`, 'info');
       else if (e.type === 'pitentry' && e.car === race.player && !e.teleport) Hud.banner(race.mode === 'practice' ? 'Pit lane: the car drives itself to your box · Reset cancels' : 'Pit lane: limiter on, the car drives itself to your box', 'info');
-      else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(`Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
+      else if (e.type === 'pitdone' && e.car === race.player) Hud.banner(e.car.isBike ? `Bike swap ${e.time.toFixed(1)} s · on the ${COMPOUNDS[e.compound].wet ? 'wet' : 'dry'} bike` : `Stop ${e.time.toFixed(1)} s · ${COMPOUNDS[e.compound].name} tyres fitted`, 'go');
       else if (e.type === 'pitexit' && e.car === race.player) Hud.banner('Rejoining the track', 'info');
-      else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(`${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
+      else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(e.car.isBike ? `${e.car.driver.abbr || e.car.driver.code} swaps bikes` : `${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
       else if (e.type === 'lap' && e.car === race.player) {
         Hud.lapDone(e, race);
         if (race.mode === 'trial' && e.valid && S.ghost && e.time < S.ghost.best) {
@@ -1526,7 +1528,7 @@ const Hud = {
     $('#h-ers').title = bk ? 'Fuel left (the marker: what the rest of the race needs)' : ''; this.maxLean = 0;
     // the PC race buttons: a bike has an engine map, a rear brake and traction control where a car has ERS, overtake and brake bias
     const pcb = (act, car, bike, tc, tb) => { const e = document.querySelector(`#pc-btns [data-act="${act}"]`); if (e) { e.textContent = bk ? bike : car; e.title = bk ? tb : tc; e.hidden = bk && !bike; } };
-    pcb('pit', 'PIT', '', 'Pit stop: click again to pick tyres / cancel (M)', ''); pcb('ers', 'ERS', 'Map', 'ERS mode (X)', 'Engine map (X)');
+    pcb('pit', 'PIT', 'Swap', 'Pit stop: click again to pick tyres / cancel (M)', 'Swap to the other bike (wet / dry) at the next pit entry (M)'); pcb('ers', 'ERS', 'Map', 'ERS mode (X)', 'Engine map (X)');
     pcb('overtake', 'OT', 'Rear', 'Overtake while held (F)', 'Rear brake while held (F)'); pcb('biasR', 'BB−', 'TC−', 'Brake bias rearward ([)', 'Traction control down ([)'); pcb('biasF', 'BB+', 'TC+', 'Brake bias forward (])', 'Traction control up (])');
     const tower = $('#tower'); tower.innerHTML = '';
     this.rows = race.cars.map(() => { const r = document.createElement('div'); r.className = 'trow'; r.innerHTML = '<span class="tp"></span><span class="tc"></span><span class="td"></span><span class="tg"></span>'; tower.appendChild(r); return r; });
@@ -1614,8 +1616,10 @@ const Hud = {
     $('#h-tft').textContent = P.tempF.toFixed(0) + '°'; $('#h-trt').textContent = P.tempR.toFixed(0) + '°';
     $('#h-wear').innerHTML = `${COMPOUNDS[P.compound].name} ${Math.round((1 - P.wear) * 100)}%${P.pitReq ? `<span class="h-box">BOX → ${COMPOUNDS[P.pitReq].name}</span>` : ''}${S.race.env.wet > 0.05 ? `<span class="h-box wet">Track ${Math.round(S.race.env.wet * 100)}% wet</span>` : ''}`; $('#h-wear').style.color = COMPOUNDS[P.compound].color;
     $('#h-wing').hidden = true; if (P.isBike) $('#h-dmg').hidden = true; else Hud.damage(P);
-    $('#h-ba').hidden = !P.assisting; $('#h-pitlane').hidden = !P.pit; $('#h-boxreq').hidden = !P.pitReq || !!P.pit;
-    if (P.pitReq && !P.pit) $('#h-boxreq').textContent = `BOX THIS LAP · ${this.touchOn ? 'PIT' : 'M / PIT'} to cancel`;
+    $('#h-ba').hidden = !P.assisting; $('#h-pitlane').hidden = !P.pit; $('#h-boxreq').hidden = !(P.pitReq || P.longLapDue) || !!P.pit;
+    if (P.longLapDue) $('#h-boxreq').textContent = `LONG LAP · the orange lane, ${Math.max(0, P.longLapDue - P.lap + 1)} lap${P.longLapDue - P.lap ? 's' : ''} left`;
+    if (P.pitReq && !P.pit && P.isBike) $('#h-boxreq').textContent = `BOX THIS LAP · swap to the ${P.pitReq === 'W' ? 'wet' : 'dry'} bike`;
+    else if (P.pitReq && !P.pit) $('#h-boxreq').textContent = `BOX THIS LAP · ${this.touchOn ? 'PIT' : 'M / PIT'} to cancel`;
     { const r = S.race, el = $('#h-vsc'); el.hidden = !r.vsc && !r.sc;
       if (r.vsc) el.textContent = `VSC ≤ ${Math.round(r.vscCap(P) * (settings.units === 'mph' ? 2.237 : 3.6))}`;
       else if (r.sc) { const k = r.sc.order.indexOf(P), ahead = k <= 0 ? r.sc : r.sc.order[k - 1], gap = ahead.dist - P.dist; el.textContent = `SAFETY CAR · ${k <= 0 ? 'SC' : ahead.driver.abbr || ahead.driver.code} ${Math.max(0, Math.round(gap))} m`; } }
@@ -2006,11 +2010,11 @@ function applySetup(P) {
 }
 // ---- Grand Prix weekend: a two-lap qualifying run, then the race from the grid it sets -----------
 const Weekend = {
-  base() { const team = TEAMS.find((t) => t.id === settings.team); return { team, driver: team.drivers.find((d) => d.code === settings.driver) || team.drivers[0], track: settings.track, weather: settings.weather, gp: true }; },
+  base() { const team = curTeam(); return { team, driver: curDriver(team), track: settings.track, weather: settings.weather, gp: true, series: settings.series || 'car' }; },
   start() { App.start(Object.assign(this.base(), { mode: 'trial', quali: true })); },
   finishQuali(race) {
     const best = race.player.bestLap, me = race.player.driver, all = [];
-    TEAMS.forEach((tm) => tm.drivers.forEach((dr) => { if (!(tm.id === race.player.team.id && dr.code === me.code)) all.push({ tm, dr }); }));
+    (race.series === 'bike' ? BIKE_TEAMS : TEAMS).forEach((tm) => tm.drivers.forEach((dr) => { if (!(tm.id === race.player.team.id && dr.code === me.code)) all.push({ tm, dr }); }));
     const grid = aiQualiTimes(race.track, all, settings.aiPace, (Math.random() * 1e9) | 0).map((t, i) => ({ ...t, tm: all[i].tm, dr: all[i].dr }));
     grid.push({ code: me.code, time: isFinite(best) ? best : Infinity, me: true, tm: race.player.team, dr: me });
     grid.sort((a, b) => a.time - b.time);
@@ -2186,7 +2190,7 @@ const Menu = {
             else { settings.touchSteer = 'buttons'; saveSettings(); this.sync(); $('#tilt-test').hidden = false; $('#tilt-msg').textContent = r === 'unsupported' ? 'This device has no motion sensor, so tilt steering is not available.' : 'Motion access was not allowed. On iPhone: close the game, open it again and tap Tilt the phone, then choose Allow.'; }
           });
         }
-        settings[key] = v; saveSettings(); if (key === 'series') { this.buildTeams(); App.preview(settings.track); if (v === 'bike' && !GFX.bikes) loadBikes().then(() => this.fillCarImages()); } this.sync();
+        settings[key] = v; saveSettings(); if (key === 'series') { this.buildTeams(); Career.reload(); App.preview(settings.track); if (v === 'bike' && !GFX.bikes) loadBikes().then(() => this.fillCarImages()); } this.sync();
         if (App.session) { App.applyLive(key); return; }
         if (key === 'quality') { App.setupComposer(); App.resize(); App.preview(settings.track); App.loadHQ(); }
         if (key === 'autoRes') { App.resScale = 1; App.resize(); }
@@ -2366,7 +2370,7 @@ const Menu = {
     $$('[data-set]').forEach((el) => $$('button[data-v]', el).forEach((b) => b.setAttribute('aria-pressed', String(settings[el.dataset.set]) === b.dataset.v)));
     const spec = TRACKS.find((t) => t.id === settings.track), team = curTeam(), dr = curDriver(team);
     const career = settings.mode === 'career';
-    $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${TEAMS.find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
+    $('#sum').innerHTML = career ? (Career.data ? `<b>Career</b> · ${Career.data.name}, ${Career.teams().find((t) => t.id === Career.data.teamId).name} · Season ${Career.data.season}` : '<b>Career</b> · create your driver to begin')
       : `<b>${{ race: 'Grand Prix', trial: 'Time trial', practice: 'Practice' }[settings.mode] || ''}</b> · ${spec.name} · ${dr.name}, ${team.name}${settings.mode === 'race' ? ` · ${settings.laps} laps, ${settings.opponents} rivals` : ''}`;
     $('#sp-panel').hidden = settings.musicSource !== 'spotify'; $('#yt-panel').hidden = settings.musicSource !== 'youtube';
     const online = settings.mode === 'online';

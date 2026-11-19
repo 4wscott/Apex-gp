@@ -100,7 +100,7 @@ const Champ = {
   },
   hofHTML() {
     const d = Career.data, h = d.hof || []; if (!h.length) return '';
-    const tn = (id) => (TEAMS.find((t) => t.id === id) || { name: id }).name;
+    const tn = (id) => (Career.teams().find((t) => t.id === id) || { name: id }).name;
     return `<div class="group"><h2>Hall of fame</h2><div class="table-wrap"><table><thead><tr><th>Season</th><th>Drivers' champion</th><th>Constructors'</th><th>You</th></tr></thead><tbody>${h.slice().reverse().map((x) =>
       `<tr class="${x.meChamp ? 'me' : ''}"><td class="num">${x.season}</td><td>${x.meChamp ? '🏆 ' : ''}${x.driver} <small>${x.dPts}</small></td><td>${x.teamChamp ? '🏆 ' : ''}${tn(x.team)}</td><td>P${x.me} · ${tn(x.myTeamId)} P${x.myTeam}</td></tr>`).join('')}</tbody></table></div></div>`;
   },

@@ -986,10 +986,13 @@ class AIDriver {
       if (sg > 0 ? target > bound : target < bound) { target = bound; }
       if (Math.abs(bound) > lim + 0.8) squeezed = true;
     }
-    this.latT = clamp(target, -lim, lim) - T.lineO[c.idx];
+    // a Long Lap to serve: out into the painted lane from just before it until its end (beyond the usual track edge)
+    const LL = bk && c.longLapDue ? T.longLap : null, llM = LL ? (c.idx - LL.i0 + n) % n : 0, llOn = LL && (llM < LL.len || llM > n - Math.round(70 / T.ds));
+    this.llOn = llOn;
+    this.latT = (llOn ? LL.side * (LL.off + 0.5) : clamp(target, -lim, lim)) - T.lineO[c.idx];
     const latRate = bk && Math.abs(T.lineK[c.idx]) > 1 / 150 ? 0.7 : 2.4; // a rider picks a side before the corner, not in it
-    this.lat += clamp(this.latT - this.lat, -latRate * dt, latRate * dt);
-    const absLat = clamp(T.lineO[c.idx] + this.lat, -lim, lim);
+    this.lat += clamp(this.latT - this.lat, -(this.llOn ? 2.4 : latRate) * dt, (this.llOn ? 2.4 : latRate) * dt);
+    const absLat = this.llOn ? T.lineO[c.idx] + this.lat : clamp(T.lineO[c.idx] + this.lat, -lim, lim);
     this.lat = absLat - T.lineO[c.idx];
     this.squeezed = squeezed;
 
@@ -1006,7 +1009,7 @@ class AIDriver {
     if (c.isBike) {
       // a rider: aim at a point ahead on the line it wants (pure pursuit) and lean for the arc that reaches it. The lean
       // takes a moment to build, and the point is far enough ahead to start the flick in time
-      const Ld = clamp(v * 0.55, 10, 48), j = (c.idx + Math.round(Ld / T.ds)) % n, off = clamp(T.lineO[j] + this.lat, -lim + 0.3, lim - 0.3); // a margin to the edge: the lean lags a little on the exits
+      const Ld = clamp(v * 0.55, 10, 48), j = (c.idx + Math.round(Ld / T.ds)) % n, off = this.llOn ? T.lineO[j] + this.lat : clamp(T.lineO[j] + this.lat, -lim + 0.3, lim - 0.3); // a margin to the edge: the lean lags a little on the exits
       const dx = T.px[j] + T.nx[j] * off - c.x, dy = T.py[j] + T.ny[j] * off - c.y, al = angleDiff(Math.atan2(dy, dx), c.h);
       const kap2 = (2 * Math.sin(al)) / Math.max(3, Math.hypot(dx, dy));
       const lmax = c.leanLimit() * 0.96; // a rider feels the grip and leans no further than the tyres will take
@@ -1024,6 +1027,7 @@ class AIDriver {
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
     if (c.isBike && this.bikeOff > 1.2) vT *= 1 - Math.min(0.25, (this.bikeOff - 1.2) * 0.04);
     if (bk && this.leanShort > 0.02) vT *= 1 - Math.min(0.2, this.leanShort * 1.5);
+    if (this.llOn) vT = Math.min(vT, 19); // through the Long Lap lane at about 70 km/h
     if (bk && Math.abs(this.lat) > 0.3) {
       // off the line: each corner ahead must be taken on a tighter, slower arc, and a bike can't brake hard once it's leaned
       // in, so the braking for it starts early enough (planned over the braking zone, not just the next moment)
@@ -1213,12 +1217,20 @@ class Race {
     c.vx = n.vx; c.vy = 0; c.r = 0; c.delta = n.delta || 0; c.throttle = n.thr || 0; c.brake = n.brk || 0; c.rpm = n.rpm || 8000; c.gear = n.gear || 4;
     if (n.cmp && n.cmp !== c.compound) c.compound = n.cmp;
     c.wingHealth = n.wing ?? 1; c.pit = n.pit ? c.pit || { phase: 'net' } : null;
+    if (c.isBike) { // another player's bike: its lean, wheelie and crash as sent
+      c.lean = n.ln || 0; c.wheelie = n.wh || 0; c.stoppie = n.so || 0; c.tuck = n.tk ?? 1;
+      if (n.dn) { const d = n.dn; c.down = { kind: d[0], t: d[9], runT: d[10] >= 0 ? d[10] : undefined, side: 1, bike: { x: d[1], y: d[2], yaw: d[3], roll: d[4], vx: 0, vy: 0 }, rider: { x: d[5], y: d[6], z: d[7], tumble: d[8], vx: 0, vy: 0 } }; c.x = d[1]; c.y = d[2]; }
+      else c.down = null;
+    }
     c.locate(false);
     c.dist = n.dist + n.vx * age; c.lastS = c.s;
   }
   netState() {
     const c = this.player;
-    return { x: +c.x.toFixed(2), y: +c.y.toFixed(2), h: +c.h.toFixed(4), vx: +c.vx.toFixed(2), dist: +c.dist.toFixed(1), delta: +c.delta.toFixed(3), thr: +c.throttle.toFixed(2), brk: +c.brake.toFixed(2), rpm: Math.round(c.rpm), gear: c.gear, cmp: c.compound, wing: +c.wingHealth.toFixed(2), pit: !!c.pit };
+    const st = { x: +c.x.toFixed(2), y: +c.y.toFixed(2), h: +c.h.toFixed(4), vx: +c.vx.toFixed(2), dist: +c.dist.toFixed(1), delta: +c.delta.toFixed(3), thr: +c.throttle.toFixed(2), brk: +c.brake.toFixed(2), rpm: Math.round(c.rpm), gear: c.gear, cmp: c.compound, wing: +c.wingHealth.toFixed(2), pit: !!c.pit };
+    if (c.isBike) { st.ln = +(c.lean || 0).toFixed(3); st.wh = +(c.wheelie || 0).toFixed(3); st.so = +(c.stoppie || 0).toFixed(3); st.tk = +(c.tuck || 0).toFixed(2);
+      if (c.down) { const D = c.down; st.dn = [D.kind, +D.bike.x.toFixed(2), +D.bike.y.toFixed(2), +D.bike.yaw.toFixed(2), +D.bike.roll.toFixed(2), +D.rider.x.toFixed(2), +D.rider.y.toFixed(2), +D.rider.z.toFixed(2), +D.rider.tumble.toFixed(2), +D.t.toFixed(1), D.runT ?? -1]; } }
+    return st;
   }
   // ---- weather -----------------------------------------------------------------------------
   weatherStep(dt) {
@@ -1342,8 +1354,11 @@ class Race {
   requestPit(c, compound) { c.pitReq = compound || null; return c.pitReq; }
   lapsLeft(c) { return this.laps - Math.max(0, c.lap - 1); }
   aiPitDecision(c) {
-    if (c.isBike) return; // no tyre stops in a bike race (flag-to-flag bike swaps: phase 4)
     if (this.mode !== 'race' || this.quali || c.pitReq || c.pit || c.finished || c.dnf) return;
+    if (c.isBike) { // no tyre stops in a bike race: only flag to flag, a swap to the second bike when the track turns wet or dries
+      const w = this.env.wet, onWet = COMPOUNDS[c.compound].wet; if (this.lapsLeft(c) < 1) return;
+      if (!onWet && w > 0.4) c.pitReq = 'W'; else if (onWet && w < 0.18) c.pitReq = 'M'; return;
+    }
     if (c.dmg.punct.some(Boolean)) { c.pitReq = COMPOUNDS[c.compound].wet ? c.compound : c.compound === 'H' ? 'M' : 'H'; return; } // limp back for new tyres
     const left = this.lapsLeft(c);
     if (left < 2) return;
@@ -1379,6 +1394,7 @@ class Race {
       q.t += dt;
       if (q.t >= q.service) {
         c.usedCompounds = (c.usedCompounds || [c.compound]).concat(q.compound); c.compound = q.compound; c.wear = 0; c.tempF = c.tempR = 85; c.stops++;
+        if (c.isBike) { c.dmg = freshDamage(); c.lean = 0; c.fuel = Math.max(c.fuel, 0.5); } // the second bike: fresh, set up for the conditions
         // new tyres fix any puncture; a new nose fixes the front wing (the rest can't be repaired in a race)
         c.dmg.tyre = [1, 1, 1, 1]; c.dmg.punct = [0, 0, 0, 0]; if (q.nose) { c.wingHealth = 1; c.dmg.noses++; } if (c.dmgSaid) for (const k of ['fwL', 'fwR', 'p0', 'p1', 'p2', 'p3']) delete c.dmgSaid[k];
         q.phase = 'out'; q.v = 0; this.emit('pitdone', { car: c, compound: q.compound, time: q.service });
@@ -1413,15 +1429,15 @@ class Race {
     if (k > 4) return false;
     // a good stop is ~2.3 s; now and then a wheel nut sticks
     const nose = c.wingHealth < 0.92; // a nose change adds about 8 s to the stop
-    const service = (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0) + (nose ? 7.5 + Math.random() * 1.2 : 0);
-    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, nose, box: P.boxS(Math.max(0, TEAMS.indexOf(c.team))) };
+    const service = c.isBike ? 7 + Math.random() * 1.5 : (c === this.player ? 2.3 + Math.random() * 0.4 : 2.1 + Math.random() * 0.9) + (Math.random() < 0.08 ? 1.5 + Math.random() * 3 : 0) + (nose ? 7.5 + Math.random() * 1.2 : 0); // a bike: the rider jumps onto the second bike
+    c.pit = { phase: 'in', s: k * this.track.ds, v: c.vx, d0: c.d, compound: c.pitReq, service, nose, box: P.boxS(Math.max(0, (c.isBike ? BIKE_TEAMS : TEAMS).indexOf(c.team))) };
     c.pitReq = null; this.emit('pitentry', { car: c });
     return true;
   }
   // practice: straight back to the team's box (like "return to garage"); the car rolls the last metres in so the crew are out in time
   toBox(c, compound, force) {
     if (c.pit || (c.finished && !force)) return false; // force: after the flag, to park it in the garage
-    const P = this.pit, box = P.boxS(Math.max(0, TEAMS.indexOf(c.team)));
+    const P = this.pit, box = P.boxS(Math.max(0, (c.isBike ? BIKE_TEAMS : TEAMS).indexOf(c.team)));
     const nose = c.wingHealth < 0.92, service = 2.4 + Math.random() * 0.4 + (nose ? 7.5 : 0);
     c.pit = { nose, phase: 'queue', s: box - 22, v: 0, d0: 0, compound: compound || c.pitReq || c.compound, service, box, tp: true };
     c.pitReq = null; c.vx = c.vy = c.r = 0; this.emit('pitentry', { car: c, teleport: true });
@@ -1475,7 +1491,7 @@ class Race {
       if (c !== this.player) this.aiPitDecision(c);
       if (c.pit || this.pitEntry(c)) { this.pitStep(c, dt); return; }
       c.step(dt, inputs[i]);
-      if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; c.penalty += 5; this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }
+      if (held && c === this.player && !c.jump && c.dist - (c.gridDist ?? (c.gridDist = c.dist)) > 0.8) { c.jump = true; if (c.isBike && T.longLap) { c.longLapDue = c.lap + 3; this.emit('msg', { car: c, text: 'Jump start: Long Lap penalty within 3 laps', kind: 'warn' }); } else c.penalty += 5; if (!c.isBike) this.emit('msg', { car: c, text: 'Jump start: 5 second penalty', kind: 'warn' }); }
     });
     collideCars(this.cars.filter((c) => !c.pit && !c.parked && !c.down));
     this.damageStep();
@@ -1503,11 +1519,21 @@ class Race {
         } else if (this.mode !== 'race') { if (c.lapValid && c.dist > 0) this.emit('msg', { car: c, text: 'Track limits: lap deleted (time trial laps must stay inside the lines)', kind: 'warn' }); c.lapValid = false; }
         else {
           c.trackLimits++;
-          if (c.trackLimits % 4 === 0) { c.penalty += 5; (c.penalties = c.penalties || []).push('Track limits'); this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }
+          if (c.trackLimits % 4 === 0 && c.isBike && T.longLap) { c.longLapDue = c.lap + 3; this.emit('msg', { car: c, text: 'Track limits: Long Lap penalty. Ride through the orange Long Lap lane within 3 laps', kind: 'warn' }); }
+          else if (c.trackLimits % 4 === 0) { c.penalty += 5; (c.penalties = c.penalties || []).push('Track limits'); this.emit('msg', { car: c, text: 'Track limits: 5 second penalty', kind: 'warn' }); }
           else if (c.trackLimits % 4 === 3) this.emit('msg', { car: c, text: 'Black and white flag: one more track limits offence is a penalty', kind: 'warn' });
           else this.emit('msg', { car: c, text: `Track limits warning ${c.trackLimits % 4} of 3`, kind: 'info' });
         }
       } else if (!over && Math.abs(c.d) < T.hw) c.offTrack = false;
+    }
+    // the Long Lap: served by riding the whole lane (entering in its first third, leaving in its last), else 3 s added
+    const LL = T.longLap;
+    if (LL && c.longLapDue) {
+      const m = (c.idx - LL.i0 + T.n) % T.n, inLane = m < LL.len && LL.side * c.d > LL.off - 1.6 && LL.side * c.d < LL.off + 2.6;
+      if (inLane && m < LL.len / 3) c.llIn = true;
+      if (c.llIn && !inLane && m < LL.len && m < LL.len * 0.66) c.llIn = false; // left the lane too early
+      if (c.llIn && m >= LL.len * 0.66 && inLane) { c.longLapDue = 0; c.llIn = false; this.emit('msg', { car: c, text: 'Long Lap served', kind: 'info' }); }
+      if (c.longLapDue && c.lap > c.longLapDue) { c.longLapDue = 0; c.penalty += 3; (c.penalties = c.penalties || []).push('Long Lap not served'); this.emit('msg', { car: c, text: 'Long Lap not served: 3 seconds added', kind: 'warn' }); }
     }
     // sectors
     if (c.dist >= 0) {
@@ -1697,7 +1723,7 @@ class Bike extends Car {
   // placed somewhere (the grid, a reset, a rejoin): upright and settled
   place(i, lateral, speed = 0) {
     super.place(i, lateral, speed);
-    this.lean = this.leanRate = this.wheelie = this.stoppie = this.pitchRate = this.slideYaw = this.slideRate = this.slidePeak = 0; this.frontSlideT = 0; this.axT = 0; this.overLean = 0;
+    this.lean = this.leanRate = this.wheelie = this.stoppie = this.pitchRate = this.slideYaw = this.slideRate = this.slidePeak = 0; this.frontSlideT = 0; this.axT = 0; this.overLean = 0; this.down = null;
   }
   // how far the bike can lean here: the grip the tyres have now (lean assist keeps a margin under it)
   leanLimit() { return Math.min(this.p.maxLean, Math.atan(this.gripNow || this.p.mu)); }
@@ -1725,7 +1751,9 @@ class Bike extends Car {
         const grav = (side > 0 ? T.gravelL : T.gravelR)[this.idx];
         const kind = grav ? 'gravel' : T.spec.runoff === 'grass' ? 'grass' : 'runoff';
         this.surface = kind;
-        if (kind === 'gravel') { smu = 0.4; sdrag = 700; bump = 2; } else if (kind === 'grass') { smu = 0.5; sdrag = 160; bump = 1.5; } else smu = 0.95;
+        const LL = T.longLap, lm = LL ? (this.idx - LL.i0 + T.n) % T.n : 1e9, onLL = LL && lm < LL.len && LL.side * this.d > LL.off - 1.8 && LL.side * this.d < LL.off + 2.8; // the Long Lap lane is painted tarmac
+        if (onLL) { this.surface = 'runoff'; smu = 0.95; }
+        else if (kind === 'gravel') { smu = 0.4; sdrag = 700; bump = 2; } else if (kind === 'grass') { smu = 0.5; sdrag = 160; bump = 1.5; } else smu = 0.95;
       }
     }
     this.kerbHit = bump;
@@ -1993,13 +2021,23 @@ function bikeTrack(T) {
     for (let i = 0; i < n; i++) { A[i] = sm[i] > 0.05 ? Math.min(1, sm[i]) : 0; out[i] = Math.max(Math.min(W[i], T.hw + 0.25), W[i] - D * A[i]); } // thinner where the wall is right at the edge
     B[key] = out; B[air] = A;
   }
+  // the Long Lap loop: a 40 m painted lane on tarmac run-off on the outside of a slow corner's exit, with room to spare
+  let best = null;
+  for (let i = 0; i < n; i += 4) {
+    const k = T.lineK[i]; if (Math.abs(k) < 1 / 160) continue;
+    const side = k > 0 ? -1 : 1, W = side > 0 ? B.wallL : B.wallR, Gv = side > 0 ? T.gravelL : T.gravelR, len = Math.round(40 / T.ds), i0 = (i + Math.round(15 / T.ds)) % n;
+    let ok = true, room = 1e9; for (let m = 0; m < len; m++) { const j = (i0 + m) % n; room = Math.min(room, W[j] - T.hw); if (Gv[j] || room < 7) { ok = false; break; } }
+    if (ok && (!best || Math.abs(k) > best.k)) best = { i0, i1: (i0 + len) % n, len, side, k: Math.abs(k), off: T.hw + 4 };
+  }
+  B.longLap = best;
   return (T.bikeView = B);
 }
 
 const _refLaps = {};
 function referenceLap(T) {
-  if (_refLaps[T.spec.id]) return _refLaps[T.spec.id];
-  const tm = TEAMS[3], car = new Car(T, tm, tm.drivers[0], {}), ai = new AIDriver(car, 1.0, 7);
+  const key = (T.isBikeView ? 'bike:' : '') + T.spec.id; // a bike race's track view: the reference is a bike's lap
+  if (_refLaps[key]) return _refLaps[key];
+  const tm = T.isBikeView ? BIKE_TEAMS[2] : TEAMS[3], car = new (T.isBikeView ? Bike : Car)(T, tm, tm.drivers[0], {}), ai = new AIDriver(car, 1.0, 7);
   ai.pace = 1; ai.noise = 0; ai.noiseT = 1e9;
   car.place(T.n - 40, T.lineO[T.n - 40], 70); car.dist = car.s - T.length;
   const dt = 1 / 240; let t = 0, t0 = null;
@@ -2008,7 +2046,7 @@ function referenceLap(T) {
     if (t0 === null && car.dist >= 0) t0 = t;
     if (t0 !== null && car.dist >= T.length) break;
   }
-  return (_refLaps[T.spec.id] = t - t0);
+  return (_refLaps[key] = t - t0);
 }
 // qualifying times for the AI field: skill, car and a little randomness
 function aiQualiTimes(T, field, aiPace, seed) {
