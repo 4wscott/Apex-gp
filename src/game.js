@@ -8,7 +8,7 @@ const QUALITY = ['Low', 'Medium', 'High', 'Ultra'];
 const DEFAULTS = {
   mode: 'race', compound: 'M', track: 'parco', team: 'ardent', driver: 'PRI', laps: 5, opponents: 21, aiPace: 0.96, grid: 'mid',
   tc: 2, abs: true, autoGear: true, steerAssist: true, wheelAssist: false, aeroAuto: true, line: 'corners',
-  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
+  quality: 2, fov: 56, touch: 'auto', touchSteer: 'buttons', tiltInvert: false, touchSens: 1, touchSize: 'M', touchLayout: 'split', analogPedals: true, haptics: true, touchAssist: true, mirrors: true, volume: 0.7, music: 0.55, musicRace: 'quiet', musicSource: 'youtube', autoRes: false, showPerf: false, rumbleLevel: 'strong', sfx: 1, voiceVol: 0.9, stab: 1, brakeAssist: false, damage: 'real', mouseSteer: 'grab', mouseSens: 1, tod: 'auto', heat: false, lens: true, mwHints: 0, weekend: 'race', triggerRumble: true, wheelFfb: 0.7, wheelDamp: 0.3, wheelInvert: false, setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid', radio: 'voice', ytUrl: '', ytList: 'random', traffic: 0, weather: 'dry', units: 'kmh', camera: 'cockpit', deadzone: 0.06, linearity: 1.4, hud: 'auto',
 };
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const IS_PHONE = IS_TOUCH && Math.min(screen.width, screen.height) < 600;
@@ -629,6 +629,7 @@ const App = {
     this.worldRoot.add(m);
   },
   quit() {
+    FFB.release(); // the wheel gets its own centring back
     MouseWheel.show(false);
     store.set('running', null);
     if (this.session && this.session.mirror) { this.session.mirror.sides.forEach((sd) => sd.rt.dispose()); this.session.mirror = null; } // free the mirror pictures
@@ -697,12 +698,14 @@ const App = {
     const inp = this.input.poll(dt, P.vx, settings);
     if (inp.pausePressed && $('#results').hidden) this.togglePause();
     if (S.online && this.paused) { const h = 1 / 360; S.acc += dt; let k = 0; while (S.acc >= h && k < 40) { race.step(h, { steer: 0, throttle: 0, brake: 1 }); S.acc -= h; k++; } }
+    if (this.paused) FFB.idle();
     if (!this.paused) {
       this.applyPlayerControls(inp, P, race);
       const h = 1 / 360; S.acc += dt; let steps = 0;
       while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
+      if (Replay.on) FFB.idle(); else FFB.update(dt, P, race, inp);
       Replay.sample(race);
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
@@ -1054,7 +1057,7 @@ const App = {
       const m = c.mesh;
       poseOnRoad(m.grp, race.track, c.x, c.y, c.h, Replay.on ? null : c.idx);
       m.body.rotation.z = clamp(c.axS * 0.0016, -0.02, 0.012);
-      m.body.rotation.x = clamp(c.ay * 0.0011, -0.025, 0.025);
+      m.body.rotation.x = clamp((c.ayR ?? c.ay) * 0.0011, -0.025, 0.025);
       // the driver's head leans with lateral load and nods under braking
       m.helmet.rotation.x = lerp(m.helmet.rotation.x, clamp(c.ay * 0.006, -0.22, 0.22), Math.min(1, dt * 8));
       m.helmet.rotation.z = lerp(m.helmet.rotation.z, clamp(c.axS * 0.004, -0.14, 0.08), Math.min(1, dt * 8));
@@ -1065,7 +1068,7 @@ const App = {
       m.blurs.forEach((b) => { b.visible = bl > 0.02; b.material.opacity = bl; });
       m.steer.forEach((s) => (s.rotation.y = c.delta));
       // steering wheel turns ~100 degrees each way at full lock; arms follow the grips
-      m.swSpin.rotation.x = -(c.delta / c.p.maxSteer) * 1.75;
+      m.swSpin.rotation.x = -(c.delta / c.p.maxSteer) * 1.75 + (c.isPlayer && c.kerbHit ? (Math.random() - 0.5) * 0.05 * c.kerbHit : 0) + (c.isPlayer && c.lockF ? (Math.random() - 0.5) * 0.02 : 0);
       // level of detail: on the lowest quality, distant drivers are hidden and arms only animate nearby
       const far = dx0(c, P), lod = settings.quality === 0 ? 70 : 220;
       if (m.avatar) m.avatar.root.visible = c === P || far < lod;
@@ -1125,7 +1128,7 @@ const App = {
       this.grade.uniforms.vig.value = lens ? 0.3 : 0;
     }
     this.heatHaze = settings.heat && settings.quality >= 2 && mode !== 'cockpit';
-    S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002), 0.2);
+    S.shake = lerp(S.shake, (P.kerbHit ? 0.006 * P.kerbHit : 0) + Math.min(0.002, P.vx * 0.00002) + (P.lockF || P.lockR ? 0.0025 : 0) + clamp(((P.frontSat || 0) - 0.9) * 0.01, 0, 0.0015), 0.2);
     const look = inp.lookBack ? Math.PI : 0;
     if (mode === 'orbit') {
       // free camera: dragged round the car by a finger or the mouse, pinch or scroll to zoom
@@ -1637,9 +1640,7 @@ const Hud = {
   },
   flash(text) { const f = $('#flash'); f.textContent = text; f.hidden = false; f.dataset.until = performance.now() + 1200; },
   rumble(strong, weak, dur) {
-    const k = Pads.strength(); if (!k) return;
-    const now = performance.now(); if (now - (this.lastRumble || 0) < dur) return; this.lastRumble = now;
-    const p = App.input.pad(); if (p && p.vibrationActuator && p.vibrationActuator.playEffect) p.vibrationActuator.playEffect('dual-rumble', { duration: dur, strongMagnitude: Math.min(1, strong * k), weakMagnitude: Math.min(1, weak * k) }).catch(() => {});
+    FFB.pulse(strong, weak, dur); // mixed with the continuous road feel (src/ffb.js)
   },
 };
 
@@ -2096,7 +2097,8 @@ const Menu = {
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
     range('#sfx', 'sfx', (v) => `${Math.round(v * 100)}%`, 100); range('#voicevol', 'voiceVol', (v) => `${Math.round(v * 100)}%`, 100);
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100);
-    range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10);
+    range('#tsens', 'touchSens', (v) => `${v.toFixed(1)}×`, 10); range('#dz', 'deadzone', (v) => `${Math.round(v * 100)}%`, 100); range('#lin', 'linearity', (v) => v.toFixed(1), 10); range('#ffbs', 'wheelFfb', (v) => `${Math.round(v * 100)}%`, 100); range('#ffbd', 'wheelDamp', (v) => `${Math.round(v * 100)}%`, 100);
+    $('#ffb-connect').onclick = () => FFB.connect(); FFB.ui();
     // stepped menu
     // career and online need their own panel; the other modes race straight from the showroom
     $$('.modes button').forEach((b) => b.addEventListener('click', () => setTimeout(() => {
@@ -2133,7 +2135,7 @@ const Menu = {
     $('#p-replay').onclick = () => Replay.open('pause');
     $('#r-replay').onclick = () => Replay.open('results');
     $('#r-high').onclick = () => Replay.open('highlights');
-    Replay.init(); Pads.init();
+    Replay.init(); Pads.init(); FFB.init();
     // tilt test meter in Settings: the dot follows the phone while the Controls tab is open
     setInterval(() => { const d = $('#tilt-test-dot'); if (!d || $('#tilt-test').hidden || App.session) return; if (!Tilt.zeroSet && Tilt.have) { Tilt.centre(); Tilt.zeroSet = true; } d.style.transform = `translateX(${-Tilt.steer(settings) * 0.45 * (d.parentElement.clientWidth || 200)}px)`; }, 50);
     setInterval(() => { const S = App.session; if (!S || App.paused || !$('#results').hidden || Replay.on) Pads.nav(); }, 16);
@@ -2345,5 +2347,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
+window.App = App; window.FFB = FFB; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

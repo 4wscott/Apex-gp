@@ -113,7 +113,7 @@ Sprint Qualifying → Sprint → Qualifying → Race).
 
 ## Status
 
-- [ ] Phase 1: driving feel and force feedback
+- [x] Phase 1: driving feel and force feedback (19 Nov: steering torque, load transfer, Logitech WebHID force feedback (untested on real hardware), continuous and trigger rumble, self-centring keys, shake; tests: test/ffb.js, test/smoke.js)
 - [ ] Phase 2: car setup depth
 - [ ] Phase 3: full race weekends with practice and parc fermé
 - [ ] Phase 4: smarter AI racecraft and strategy

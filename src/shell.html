@@ -710,6 +710,12 @@ body.touch #h-track { display: none; }
       <section class="panel" id="p-controls" hidden>
         <div class="ctl-group" id="ctl-pads"><h3>Keyboard, controller and wheel</h3>
         <div class="row"><label>Vibration</label><div class="ctl seg" data-set="rumbleLevel"><button type="button" data-v="off">Off</button><button type="button" data-v="light">Light</button><button type="button" data-v="strong">Strong</button></div></div>
+        <div class="row"><label>Trigger rumble</label><div class="ctl seg" data-set="triggerRumble"><button type="button" data-v="true">On (Xbox, Chrome / Edge)</button><button type="button" data-v="false">Off</button></div></div>
+        <div class="row"><label>Wheel force feedback</label><div class="ctl"><button type="button" class="btn" id="ffb-connect">Connect wheel for force feedback</button></div></div>
+        <p class="hint" id="ffb-status"></p>
+        <div class="row"><label for="ffbs">Force feedback strength</label><div class="ctl"><input id="ffbs" type="range" min="0" max="100" step="5"><output id="ffbs-out"></output></div></div>
+        <div class="row"><label for="ffbd">Force feedback damping</label><div class="ctl"><input id="ffbd" type="range" min="0" max="100" step="5"><output id="ffbd-out"></output></div></div>
+        <div class="row"><label>Force direction</label><div class="ctl seg" data-set="wheelInvert"><button type="button" data-v="false">Normal</button><button type="button" data-v="true">Inverted</button></div></div>
         <p class="note" id="pads">No controller detected.</p>
         <div class="table-wrap"><table><thead><tr><th>Action</th><th>Keyboard</th><th>Controller / wheel</th><th></th></tr></thead><tbody id="binds"></tbody></table></div>
         <p class="hint" id="bind-msg">Gamepads work straight away. For a wheel and pedals, bind steer left, steer right, throttle and brake: press Bind, then turn or press that control fully.</p>

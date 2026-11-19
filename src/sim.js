@@ -405,6 +405,9 @@ const CAR_BASE = {
   ClA: 4.4, CdA: 1.45, aeroBal: 0.41, mu: 1.78, muR: 1.06,
   Pice: 400e3, Pers: 350e3, brakeMax: 42000, maxSteer: 0.32, steerRate: 1.6,
   rr: 0.012, BF: 14, CF: 1.5, BR: 17, CR: 1.3, wheelR: 0.36,
+  // lateral load transfer: track width, the front's share of the roll stiffness (springs and anti-roll bars set it), how
+  // fast the body rolls into a corner, and how much grip a tyre loses as its load rises (load sensitivity)
+  tw: 1.6, rollF: 0.47, rollTau: 0.09, kLT: 0.12,
   gears: [82, 122, 158, 192, 228, 264, 302, 348], redline: 12500, // km/h at redline per gear
 };
 const ERS_MODES = [
@@ -413,6 +416,7 @@ const ERS_MODES = [
   { name: 'ATTACK', deploy: 350e3, harvestCoast: 0 },
 ];
 const SOC_MAX = 4e6;
+const ROLL_F0 = 0.47; // the standard setup's front roll stiffness share: the car's balance as the speed profile assumes it
 // grip of a compound on a track with water level w (0 dry .. 1 standing water), relative to its dry grip
 function wetGrip(key, w) {
   if (key === 'I') return 1 - 0.26 * Math.abs(w - 0.45) / 0.55 - (w < 0.15 ? 0.06 : 0);
@@ -612,7 +616,10 @@ class Car {
       + ((1 - tyreH[0]) - (1 - tyreH[1])) * 0.012 * Math.min(1, vxa / 25) + ((1 - tyreH[2]) - (1 - tyreH[3])) * 0.004 * Math.min(1, vxa / 25)) : 0;
     const tgtSteer = clamp(inp.steer, -1, 1) * p.maxSteer;
     // when the rear steps out, the wheel moves faster so on/off keys and buttons can still catch the slide
-    const rate = p.steerRate * (1 + (inp.steerFast ? 2 : 0)) * (Math.abs(this.slipR || 0) > 0.08 && vxa > 8 ? 2.5 : 1);
+    let rate = p.steerRate * (1 + (inp.steerFast ? 2 : 0)) * (Math.abs(this.slipR || 0) > 0.08 && vxa > 8 ? 2.5 : 1);
+    // keys and touch arrows: letting go, the wheel comes back with the tyres' aligning torque (quicker at speed, slower
+    // when the fronts are sliding and the steering has gone light)
+    if (inp.selfAlign && Math.abs(tgtSteer) < Math.abs(this.delta) && Math.sign(tgtSteer - this.delta) === -Math.sign(this.delta)) rate *= 1 + clamp(Math.abs(this.steerTq || 0) / 700, 0, 1.6);
     this.delta += clamp(tgtSteer - this.delta, -rate * dt, rate * dt);
     const deltaW = this.delta + (this.dmgPull || 0); // what the front wheels actually point at
 
@@ -665,8 +672,14 @@ class Car {
     // bent suspension and flat tyres cost grip on their axle
     const axF = (1 - 0.2 * (2 - susH[0] - susH[1]) / 2) * (0.4 + 0.6 * Math.min(tyreH[0], tyreH[1])), axR = (1 - 0.25 * (2 - susH[2] - susH[3]) / 2) * (0.4 + 0.6 * Math.min(tyreH[2], tyreH[3]));
     this.dmgPace = real ? Math.sqrt(Math.min(axF, axR)) * (0.92 + 0.08 * fw) * (0.94 + 0.06 * flH) * (0.95 + 0.05 * rwH) : 1;
-    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF * axF;
-    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR * axR;
+    // lateral load transfer: the body rolls into the corner (with a short lag) and moves load to the outside tyres; a tyre
+    // gives less grip per kilo as its load rises, so the axle carrying more of the transfer loses grip. The split between
+    // front and rear (roll stiffness) sets the balance; the standard split is the car the speed profile was made for
+    this.ayR = lerp(this.ayR || 0, this.ay || 0, Math.min(1, dt / p.rollTau));
+    const dLT = (p.m * Math.abs(this.ayR) * p.h) / p.tw, rr2 = (sh, Fz) => Math.min(1, (sh * dLT) / (Fz / 2)) ** 2;
+    const ltF = 1 - p.kLT * (rr2(p.rollF, FzF) - rr2(ROLL_F0, FzF)), ltR = 1 - p.kLT * (rr2(1 - p.rollF, FzR) - rr2(1 - ROLL_F0, FzR));
+    const capF = p.mu * smu * gripT(this.tempF) * wearF * this.gripWet * FzF * axF * ltF;
+    const capR = p.mu * p.muR * smu * gripT(this.tempR) * wearF * this.gripWet * FzR * axR * ltR;
 
     // --- power unit
     const curve = clamp(0.55 + 0.45 * Math.sin(((this.rpm - 4000) / 8000) * Math.PI * 0.62), 0.3, 1);
@@ -697,16 +710,17 @@ class Car {
     this.soc = clamp(this.soc + (harvest * 0.8 - Pers) * dt, 0, SOC_MAX);
 
     // --- assists
+    this.absAct = false; this.tcAct = false; // ABS or traction control working this step (trigger rumble, the HUD)
     if (this.assist.abs) {
-      if (Math.abs(FxF) > capF * 0.96) FxF = Math.sign(FxF) * capF * 0.96;
-      if (FxR < 0 && -FxR > capR * 0.96) FxR = -capR * 0.96;
+      if (Math.abs(FxF) > capF * 0.96) { FxF = Math.sign(FxF) * capF * 0.96; this.absAct = true; }
+      if (FxR < 0 && -FxR > capR * 0.96) { FxR = -capR * 0.96; this.absAct = true; }
     }
     const tc = this.assist.tc; // 0 off, 1 medium, 2 full
     if (tc > 0 && FxR > 0) {
       // traction control leaves room for the cornering force the rear is carrying
       const latUse = Math.min(Math.abs(this.FyRprev || 0), capR * 0.97);
       const lim = Math.max(capR * 0.2, Math.sqrt(capR * capR - latUse * latUse) * (tc === 2 ? 0.9 : 1.0));
-      if (FxR > lim) FxR = tc === 2 ? lim : lerp(FxR, lim, 0.7);
+      if (FxR > lim) { FxR = tc === 2 ? lim : lerp(FxR, lim, 0.7); this.tcAct = true; }
     }
     // --- lock-up / wheelspin
     let latF, latR;
@@ -724,6 +738,12 @@ class Car {
     const aR = Math.atan2(this.vy - p.b * this.r, vxs);
     const FyF = -latF * Math.sin(p.CF * Math.atan(p.BF * aF)), FyR = -latR * Math.sin(p.CR * Math.atan(p.BR * aR));
     this.slipF = aF; this.slipR = aR; this.FyRprev = FyR;
+    // steering torque (the force feedback signal): the front tyres' aligning torque, their lateral force times a trail
+    // that collapses as the slip nears the tyre's peak (so the wheel goes light when the front washes out), plus the
+    // caster's mechanical trail. N m at the kingpins; + turns the wheel to the left
+    const aPkF = Math.tan(Math.PI / (2 * p.CF)) / p.BF, aPkR = Math.tan(Math.PI / (2 * p.CR)) / p.BR;
+    this.frontSat = Math.abs(aF) / aPkF; this.rearSat = Math.abs(aR) / aPkR;
+    this.steerTq = -FyF * (0.045 * Math.max(-0.15, 1 - this.frontSat * 0.95) + 0.018);
 
     // --- body forces
     const cd = Math.cos(deltaW), sd = Math.sin(deltaW);

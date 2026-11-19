@@ -523,6 +523,7 @@ class Input {
     const assistOn = this.lastDevice === 'wheel' ? opts.wheelAssist : useTouch ? opts.touchAssist !== false : opts.steerAssist;
     if (assistOn) steer *= 1 / (1 + (Math.max(0, speed) / 40) ** 2) ** 0.5 * (useKb ? 1 : 1);
     s.steer = steer; s.steerFast = !useKb || mouseSteer;
+    s.selfAlign = (useKb && !mouseSteer) || (useTouch && !!this.touchArrows); // digital steering: the car's aligning torque brings the wheel back
     const padOn = this.lastDevice === 'gamepad' || this.lastDevice === 'wheel'; // resting controllers contribute nothing
     s.throttle = Math.max(useKb ? this.kbThr : 0, padOn ? padThr : 0);
     s.brake = Math.max(useKb ? this.kbBrk : 0, padOn ? padBrk : 0);
