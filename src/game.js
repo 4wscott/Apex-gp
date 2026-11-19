@@ -448,7 +448,7 @@ const App = {
     const q = settings.quality;
     sun.castShadow = true; // phones too: without shadows the cars and scenery look pasted on
     sun.shadow.mapSize.set(...[[1024, 1024], [1024, 1024], [2048, 2048], [4096, 4096]][q]);
-    this.renderer.shadowMap.type = q <= 1 ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // Low and Medium: one shadow lookup instead of a soft filter
+    this.renderer.shadowMap.type = q <= 1 || (IS_TOUCH && q <= 2) ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // Low and Medium (and High on phones and tablets): one shadow lookup instead of a soft filter for every lit pixel
     const ext = q === 0 ? 38 : q === 3 ? 48 : 60, sc = sun.shadow.camera; sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 600;
     sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.03; sun.shadow.radius = 3;
     root.add(sun); root.add(sun.target); this.sun = sun;
