@@ -576,7 +576,7 @@ class Car {
     const ad = Math.abs(this.d), side = this.d >= 0 ? 1 : -1, hw = T.hw;
     let smu = 1, sdrag = 0, bump = 0; this.surface = 'tarmac';
     if (ad > hw) {
-      if (T.kerb[this.idx] && ad < hw + 1.4) { this.surface = 'kerb'; smu = 0.92; bump = 1; }
+      if (T.kerb[this.idx] && ad < hw + 1.4) { this.surface = 'kerb'; smu = p.kerbMu || 0.92; bump = 1; }
       else {
         const grav = (side > 0 ? T.gravelL : T.gravelR)[this.idx];
         const kind = grav ? 'gravel' : T.spec.runoff === 'grass' ? 'grass' : 'runoff';
@@ -655,7 +655,8 @@ class Car {
     if (!aeroAllowed && this.aeroX && (!T.aeroZone[this.idx] || brk > 0.05 || Math.abs(this.delta) > 0.05)) this.aeroX = false;
     if (!this.aeroReq) this.aeroX = false;
     const q = 0.5 * RHO * this.vx * this.vx;
-    const clA = p.ClA * (this.aeroX ? 0.6 : 1) * (1 - this.dirty * 0.18) * (0.88 + 0.12 * fw) * (0.78 + 0.22 * flH); // a broken front wing or floor loses downforce
+    const bottom = (p.bottomK || 0) * (Math.max(0, Lk - 1.12) * 2 + (this.surface === 'kerb' ? 0.5 : 0) + Math.max(0, this.vx - 75) * 0.01); this.bottoming = bottom > 0.02;
+    const clA = p.ClA * (1 - Math.min(0.2, bottom)) * (this.aeroX ? 0.6 : 1) * (1 - this.dirty * 0.18) * (0.88 + 0.12 * fw) * (0.78 + 0.22 * flH); // a broken front wing or floor loses downforce
     const cdA = p.CdA * (this.aeroX ? 0.7 : 1) * (1 - this.tow * 0.28) * (0.86 + 0.14 * rwH); // less rear wing: less drag too
     const balF = p.aeroBal * (0.88 + 0.12 * fw);
     const DfF = q * clA * balF, DfR = q * clA * (1 - balF) * (this.aeroX ? 1.1 : 1) * (0.7 + 0.3 * rwH);
@@ -710,24 +711,25 @@ class Car {
     this.soc = clamp(this.soc + (harvest * 0.8 - Pers) * dt, 0, SOC_MAX);
 
     // --- assists
+    const lgF = p.longF || 1, lgR = p.longR || 1, trR = p.tracR || 1; // setup: camber costs braking grip, the differential sets traction
     this.absAct = false; this.tcAct = false; // ABS or traction control working this step (trigger rumble, the HUD)
     if (this.assist.abs) {
-      if (Math.abs(FxF) > capF * 0.96) { FxF = Math.sign(FxF) * capF * 0.96; this.absAct = true; }
-      if (FxR < 0 && -FxR > capR * 0.96) { FxR = -capR * 0.96; this.absAct = true; }
+      if (Math.abs(FxF) > capF * lgF * 0.96) { FxF = Math.sign(FxF) * capF * lgF * 0.96; this.absAct = true; }
+      if (FxR < 0 && -FxR > capR * lgR * 0.96) { FxR = -capR * lgR * 0.96; this.absAct = true; }
     }
     const tc = this.assist.tc; // 0 off, 1 medium, 2 full
     if (tc > 0 && FxR > 0) {
       // traction control leaves room for the cornering force the rear is carrying
       const latUse = Math.min(Math.abs(this.FyRprev || 0), capR * 0.97);
-      const lim = Math.max(capR * 0.2, Math.sqrt(capR * capR - latUse * latUse) * (tc === 2 ? 0.9 : 1.0));
+      const lim = Math.max(capR * 0.2, Math.sqrt(capR * capR - latUse * latUse) * (tc === 2 ? 0.9 : 1.0) * trR);
       if (FxR > lim) { FxR = tc === 2 ? lim : lerp(FxR, lim, 0.7); this.tcAct = true; }
     }
     // --- lock-up / wheelspin
     let latF, latR;
-    this.lockF = Math.abs(FxF) > capF && vxa > 2;
+    this.lockF = Math.abs(FxF) > capF * lgF && vxa > 2;
     if (this.lockF) { FxF = Math.sign(FxF) * capF * 0.82; latF = capF * 0.28; }
     else latF = Math.sqrt(Math.max(0, capF * capF - FxF * FxF));
-    const overR = Math.abs(FxR) > capR && vxa > 1;
+    const overR = Math.abs(FxR) > capR * (FxR > 0 ? trR : lgR) && vxa > 1;
     this.lockR = overR && FxR < 0; this.spin = overR && FxR > 0;
     if (overR) { FxR = Math.sign(FxR) * capR * 0.84; latR = capR * 0.3; }
     else latR = Math.sqrt(Math.max(0, capR * capR - FxR * FxR));
@@ -751,7 +753,10 @@ class Car {
     const rolling = (p.rr * (FzF + FzR) + sdrag * Math.min(v, 20) / 20 * 3 + (4 - tyreH[0] - tyreH[1] - tyreH[2] - tyreH[3]) * 700) * (vxa > 0.1 ? 1 : 0); // running on a rim drags
     const Fx = FxF * cd - FyF * sd + FxR - (drag + rolling) * sgn + Fgx;
     const Fy = FxF * sd + FyF * cd + FyR + Fgy;
-    const Mz = p.a * (FyF * cd + FxF * sd) - p.b * FyR;
+    // the differential: more locking resists the car turning (stability, understeer on power or on the overrun), less lets
+    // it rotate. Relative to the standard setup, so the standard car is unchanged
+    const Mdiff = -this.r * (FxR > 0 ? (p.diffOn ?? 0.5) - 0.5 : (p.diffOff ?? 0.5) - 0.5) * Math.abs(FxR) * 0.12;
+    const Mz = p.a * (FyF * cd + FxF * sd) - p.b * FyR + Mdiff;
     const ax = Fx / p.m + this.vy * this.r, ay = Fy / p.m - this.vx * this.r;
     const prevVx = this.vx;
     let Mzs = 0;
@@ -783,8 +788,8 @@ class Car {
     const slipP = Math.abs(FyF * aF * vxs) + Math.abs(FyR * aR * vxs) + (this.lockF || this.lockR || this.spin ? 60e3 : 0);
     const cool = 0.004 * (1 + vxa / 80), roll = 0.005 * vxa;
     const hot = (t) => Math.max(0, t - 125) * 0.08; // past ~125 C the rubber sheds heat fast (and grip already falls)
-    this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool - hot(this.tempF)) * dt;
-    this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool - hot(this.tempR)) * dt;
+    this.tempF += (roll + Math.abs(FyF * aF * vxs) * 1e-4 * (p.heatF || 1) + (this.lockF ? 20 : 0) - (this.tempF - 30) * cool - hot(this.tempF)) * dt;
+    this.tempR += (roll + Math.abs(FyR * aR * vxs) * 1e-4 * (p.heatR || 1) + (this.spin || this.lockR ? 20 : 0) - (this.tempR - 30) * cool - hot(this.tempR)) * dt;
     this.tempF = clamp(this.tempF, 15, 150); this.tempR = clamp(this.tempR, 15, 150);
     this.wear = Math.min(1, this.wear + slipP * 1.1e-8 * cp.wear * (this.wearMul || 1) * (this.setupWear || 1) * (cp.wet && wet < 0.2 ? 3.5 : 1) * dt); // wet tyres overheat on a dry track
 

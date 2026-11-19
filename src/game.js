@@ -705,7 +705,7 @@ const App = {
       while (S.acc >= h && steps < 40) { for (const c of race.cars) { c._px = c.x; c._py = c.y; c._ph = c.h; } race.step(h, inp); S.acc -= h; steps++; }
       if (steps >= 40) S.acc = 0;
       this.handleEvents(race);
-      if (Replay.on) FFB.idle(); else FFB.update(dt, P, race, inp);
+      if (Replay.on) FFB.idle(); else { FFB.update(dt, P, race, inp); Setup.telemetry(P, dt); }
       Replay.sample(race);
       this.ghostUpdate(dt, P, race);
       if (S.online) { S.netT += dt; if (S.netT >= 0.05) { S.netT = 0; Net.send({ t: 's', k: Net.me, s: race.netState() }); } }
@@ -968,12 +968,11 @@ const App = {
     else if (key === 'mirrors') this.setupMirrors(P);
     else if (key === 'mouseSteer') MouseWheel.show(!this.touchOn);
     else if (key === 'damage') { if (!S.online) S.race.cars.forEach((c) => (c.damageMode = settings.damage)); Hud.flash({ off: 'Damage off', visual: 'Damage: visual only', real: 'Damage: realistic' }[settings.damage]); }
-    else if (/^setup/.test(key)) {
-      // parc fermé: in a race the setup is locked once the lights are out; practice, time trial and the grid can change it
-      if (S.race.mode === 'race' && S.race.phase === 'green') { Hud.flash('Car setup is locked during the race: it applies next session'); return; }
-      Object.assign(P.p, P.pBase, { gears: P.pBase.gears.slice() }); applySetup(P); Hud.flash('Car setup changed');
-    } else if (key === 'tod') Hud.flash('Time of day changes at the next session');
+    else if (key === 'tod') Hud.flash('Time of day changes at the next session');
   },
+  // may the setup change now? Practice, time trial and the grid: yes; once a race is under way: no (it applies next session)
+  setupAllowed() { const S = this.session; if (!S) return true; const r = S.race; return !(r.mode === 'race' && r.phase === 'green'); },
+  setupLockText() { return 'Car setup is locked during the race: it applies next session'; },
   // back on the racing line, standing still, with every sliding/pit state cleared and the camera behind the car
   resetPlayer(race, why) {
     const P = race.player, T = race.track, S = this.session;
@@ -1017,6 +1016,9 @@ const App = {
       else if (e.type === 'pitdone' && e.car !== race.player && Math.abs(race.player.dist - e.car.dist) < race.track.length * 0.5) Hud.flash(`${e.car.driver.abbr || e.car.driver.code} pits: ${COMPOUNDS[e.compound].name}`);
       else if (e.type === 'lap' && e.car === race.player) {
         Hud.lapDone(e, race);
+        // the engineer looks at the lap: in practice and time trial, the finding on the radio (the setup screen shows the fix)
+        { const P = race.player; P.teleLast = P.tele; P.tele = null;
+        if ((race.mode === 'practice' || (race.mode === 'trial' && !race.quali)) && e.valid) { const adv = Setup.advise(P); if (adv && adv.change && Math.random() < 0.7) Radio.say(adv.text + ' Change it in the car setup.', 1); } }
         if (race.mode === 'trial' && e.valid && S.ghost && e.time < S.ghost.best) {
           S.ghost.best = e.time; S.ghost.data = S.ghostRec.slice();
           store.set('tt.' + race.track.spec.id, { time: e.time, ghost: S.ghost.data, layout: race.track.layout });
@@ -1921,25 +1923,6 @@ function crashCheck() {
   setTimeout(() => { const t = $('#pad-toast'); if (!t) return; t.textContent = 'The game closed unexpectedly last time. If it keeps happening, try Settings → Graphics → Smooth.'; t.hidden = false; setTimeout(() => (t.hidden = true), 7000); }, 1500);
 }
 
-// ---- car setup: four choices that change the player's car in the physics -----------------------
-function setupEffect() {
-  const w = settings.setupWing, parts = [];
-  if (w) parts.push(w < 0 ? `about ${-w * 2} km/h more top speed, less grip in fast corners` : `more grip in fast corners, about ${w * 2} km/h less top speed`);
-  if (settings.setupBias !== 56) parts.push(settings.setupBias > 56 ? 'stable under braking, may lock the fronts' : 'rotates more under braking, rear can step out');
-  if (settings.setupPress !== 'mid') parts.push(settings.setupPress === 'low' ? 'more grip, tyres wear faster' : 'tyres last longer, a little less grip');
-  if (settings.setupGear !== 'mid') parts.push(settings.setupGear === 'short' ? 'quicker acceleration, lower top speed' : 'higher top speed, slower out of corners');
-  return parts.length ? 'Effect: ' + parts.join('; ') + '.' : 'Standard setup: a good all-round balance.';
-}
-function applySetup(P) {
-  if (!P.pBase) P.pBase = Object.assign({}, P.p, { gears: P.p.gears.slice() });
-  const p = P.p, w = settings.setupWing || 0;
-  p.ClA *= 1 + 0.025 * w; p.CdA *= 1 + 0.022 * w;
-  P.bias = (settings.setupBias || 56) / 100;
-  const pr = { low: -1, mid: 0, high: 1 }[settings.setupPress] || 0;
-  p.mu *= 1 - 0.012 * pr; P.setupWear = 1 - 0.13 * pr;
-  const g = { short: -1, mid: 0, long: 1 }[settings.setupGear] || 0;
-  p.gears = p.gears.map((v) => v * (1 + 0.035 * g));
-}
 // ---- Grand Prix weekend: a two-lap qualifying run, then the race from the grid it sets -----------
 const Weekend = {
   base() { const team = TEAMS.find((t) => t.id === settings.team); return { team, driver: team.drivers.find((d) => d.code === settings.driver) || team.drivers[0], track: settings.track, weather: settings.weather, gp: true }; },
@@ -2093,7 +2076,6 @@ const Menu = {
       const out = $(id + '-out'); const upd = () => { settings[key] = +el.value / scale; out.textContent = fmt(settings[key]); saveSettings(); if (key === 'volume') App.audio.setVolume(settings.volume); if (key === 'sfx') App.audio.setFx(settings.sfx); if (key === 'music') App.music.setLevel(settings.music); if (this.sync) this.sync(); if (App.session && /^setup/.test(key)) { clearTimeout(this.liveT); this.liveT = setTimeout(() => App.applyLive(key), 250); } };
       el.addEventListener('input', upd); out.textContent = fmt(settings[key]);
     };
-    range('#su-wing', 'setupWing', (v) => (v === 0 ? 'Balanced' : v < 0 ? `Low downforce ${-v}` : `High downforce ${v}`)); range('#su-bias', 'setupBias', (v) => `${v}% front`);
     range('#laps', 'laps', (v) => `${v} laps`); range('#opps', 'opponents', (v) => `${v} cars`); range('#traffic', 'traffic', (v) => (v ? `${v} cars` : 'None')); range('#aipace', 'aiPace', (v) => `${Math.round(v * 100)}%`, 100);
     range('#sfx', 'sfx', (v) => `${Math.round(v * 100)}%`, 100); range('#voicevol', 'voiceVol', (v) => `${Math.round(v * 100)}%`, 100);
     range('#fov', 'fov', (v) => `${v}°`); range('#vol', 'volume', (v) => `${Math.round(v * 100)}%`, 100);
@@ -2114,7 +2096,7 @@ const Menu = {
     $('#open-opts').onclick = () => this.drawer('opts');
     $$('.tab').forEach((t) => (t.onclick = () => { $$('.tab').forEach((x) => x.setAttribute('aria-selected', x === t)); $$('.panel').forEach((p) => (p.hidden = p.id !== t.dataset.panel)); }));
     $('#start').onclick = () => { if (settings.touchSteer === 'tilt' && (IS_TOUCH || settings.touch === 'on')) Tilt.ask(); (settings.mode === 'race' && settings.weekend === 'quali' ? Weekend.start() : App.start()); };
-    $('#su-reset').onclick = () => { Object.assign(settings, { setupWing: 0, setupBias: 56, setupPress: 'mid', setupGear: 'mid' }); saveSettings(); $('#su-wing').value = 0; $('#su-bias').value = 56; $('#su-wing').dispatchEvent(new Event('input')); $('#su-bias').dispatchEvent(new Event('input')); this.sync(); };
+    Setup.init();
     // drag the empty showroom to spin the car
     const menu = $('#menu');
     menu.addEventListener('pointerdown', (e) => { if (e.target !== menu) return; App.spinDrag = { x: e.clientX }; menu.setPointerCapture(e.pointerId); });
@@ -2269,7 +2251,7 @@ const Menu = {
     const wk = settings.mode === 'race' && settings.weekend === 'quali';
     $('#weekend-row').hidden = settings.mode !== 'race'; if (settings.mode === 'race') $('[data-set="grid"]').closest('.row').hidden = wk;
     if (wk) $('#opts-sum').textContent = 'Qualifying + ' + $('#opts-sum').textContent;
-    $('#su-effect').textContent = setupEffect();
+    Setup.sync();
     $('#career').hidden = !career; $$('.free-only').forEach((el) => (el.hidden = career)); $('#start').hidden = career || online; $('#online').hidden = !online;
     $('#pc-name').textContent = spec.name; $('#pc-meta').textContent = spec.country;
     $('#pt-name').textContent = dr.name; $('#pt-meta').textContent = team.name;
@@ -2347,5 +2329,5 @@ function drawMiniMap(canvas, T) {
 }
 
 applyRoster(store.get('roster', null));
-window.App = App; window.FFB = FFB; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
+window.App = App; window.FFB = FFB; window.Setup = Setup; window.SETUP_STD = SETUP_STD; window.roadZ = roadZ; window.roadAt = roadAt; window.trackDistance = trackDistance; window.Hud = Hud; window.Replay = Replay; window.Tilt = Tilt; window.HDRI_BUF = HDRI_BUF; window.Pads = Pads; window.Radio = Radio; window.Weekend = Weekend; window.GFX = GFX; window.Career = Career; window.CareerGoals = CareerGoals; window.Champ = Champ; window.Ach = Ach; window.ACH = ACH; window.Podium = Podium; window.MouseWheel = MouseWheel; window.THREE = THREE; window.TEAMS = TEAMS; window.teamStats = teamStats; window.SIM = { AIDriver, Race, Car, TRACKS, settings, COMPOUNDS }; window.collideCarsT = collideCars; window.Menu = Menu; window.AUDIO = { AudioEngine, Music }; window.Net = Net; window.PitCrew = PitCrew; window.Crowd = Crowd;
 (document.fonts && document.fonts.load ? Promise.race([Promise.all(['800 40px "Saira Condensed"', '700 20px "Saira Condensed"'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve()).catch(() => {}).then(() => Promise.race([Promise.all([loadModels(), preloadHDRI()]), new Promise((r) => setTimeout(r, 8000))])).then(() => App.init());

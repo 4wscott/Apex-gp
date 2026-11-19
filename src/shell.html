@@ -167,6 +167,16 @@ body.replaying #hud, body.replaying #touch, body.replaying #pc-btns, body.replay
 /* car setup block inside race settings */
 .setup { display: grid; gap: 14px; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }
 .setup h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); }
+.su-bal { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--muted); }
+.su-meter { position: relative; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #3a7bd5 0%, #2a2f37 35% 65%, #e5533d 100%); }
+.su-meter i { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 2px #000a; }
+.su-bal small { grid-column: 2; display: flex; justify-content: space-between; font-size: 11px; }
+.su-bal small b { font-weight: 600; }
+.su-row .ctl output { min-width: 84px; text-align: right; }
+.su-hint { grid-column: 1 / -1; margin: -6px 0 0; font-size: 11.5px; }
+.su-eng { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; }
+.su-eng p { margin: 0; }
+.su-presets { flex-wrap: wrap; }
 #su-effect { margin: 0; }
 /* team radio message: under the timing panel on the right, like a broadcast caption */
 #radio { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: max(176px, calc(env(safe-area-inset-top, 0px) + 172px)); max-width: min(360px, 40vw); background: rgba(10,12,16,0.86); border-left: 4px solid var(--accent, #ffd21f); border-radius: 6px; padding: 8px 12px; display: grid; gap: 3px; font-family: var(--f-body, system-ui), sans-serif; animation: radioin 0.25s ease-out; }
@@ -748,13 +758,15 @@ body.touch #h-track { display: none; }
       </section>
 
       <section class="panel setup" id="p-setup" hidden>
-            <p class="hint">Changes apply straight away in practice, time trial and on the grid; once a race is under way the setup is locked until the next session.</p>
-            <div class="row"><label for="su-wing">Wings</label><div class="ctl"><input id="su-wing" type="range" min="-5" max="5" step="1"><output id="su-wing-out"></output></div></div>
-            <div class="row"><label for="su-bias">Brake balance</label><div class="ctl"><input id="su-bias" type="range" min="52" max="60" step="1"><output id="su-bias-out"></output></div></div>
-            <div class="row"><label>Tyre pressure</label><div class="ctl seg" data-set="setupPress"><button type="button" data-v="low">Low</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="high">High</button></div></div>
-            <div class="row"><label>Gearing</label><div class="ctl seg" data-set="setupGear"><button type="button" data-v="short">Short</button><button type="button" data-v="mid">Standard</button><button type="button" data-v="long">Long</button></div></div>
+            <h3 id="su-track">Setup</h3>
+            <p class="hint">Saved for each circuit. Changes apply straight away in practice, time trial and on the grid; once a race is under way the setup is locked until the next session.</p>
+            <p class="note warn" id="su-lock" hidden></p>
+            <div class="su-eng" id="su-eng" hidden><p id="su-eng-text"></p><button type="button" class="btn" id="su-eng-apply">Apply the change</button></div>
+            <div class="actions su-presets"><button type="button" class="btn" data-preset="low">Low downforce</button><button type="button" class="btn" data-preset="std">Standard</button><button type="button" class="btn" data-preset="high">High downforce</button></div>
+            <div class="su-bal"><span>Slow corners</span><div class="su-meter"><i id="su-bal-slow"></i></div><span>Fast corners</span><div class="su-meter"><i id="su-bal-fast"></i></div><small><b>Understeer</b><b>Neutral</b><b>Oversteer</b></small></div>
             <p class="hint" id="su-effect"></p>
-            <div class="actions"><button type="button" class="btn" id="su-reset">Reset setup</button></div>
+            <div id="su-rows"></div>
+            <div class="actions"><button type="button" class="btn" id="su-reset">Reset to standard</button></div>
           </section>
 
       <section class="panel" id="p-gfx" hidden>
