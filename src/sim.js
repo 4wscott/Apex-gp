@@ -969,9 +969,14 @@ class AIDriver {
     const myO = T.lineO[c.idx] + this.lat;
     for (const o of cars) {
       if (o === c || o.parked || o.pit) continue;
-      const ds = o.dist - c.dist;
+      const ds = lapGap(o.dist - c.dist, T.length); // where it is on the track, whichever lap it is on (practice traffic, lapping)
       if (Math.abs(ds) < L && Math.abs(o.d - c.d) < 4.5) side.push(o);                     // overlapping: alongside
-      else if (ds >= L && ds < 45) { if (Math.abs(o.d - myO) < 2.5 && ds < gapAhead) { gapAhead = ds; blocked = o; } }
+      else if (ds >= L) {
+        // a car ahead in my path: looked for further out the faster I'm closing on it (2.2 s of warning, at least 45 m), and
+        // judged by where my line will be when I get there, not where it is here
+        // (a much slower car, say one rejoining from the run-off, counts from further to the side)
+        const cl = Math.max(0, c.vx - o.vx); if (ds < Math.max(45, 15 + cl * 2.2) && Math.abs(o.d - (T.lineO[o.idx] + this.lat)) < 2.6 + clamp((cl - 10) / 20, 0, 1) * 1.4 && ds < gapAhead) { gapAhead = ds; blocked = o; }
+      }
       else if (ds <= -L && ds > -25 && o.vx > c.vx - 1 && -ds < attackGap) { attackGap = -ds; attacker = o; }
     }
     // debris on the racing line: steer round it like a slow car
@@ -997,7 +1002,7 @@ class AIDriver {
         want = Math.abs(tgt) <= lim + 0.3 ? tgt : null; // no room either side: sit behind and wait
         // on a straight, stay in the slipstream and only pull out late, before the braking zone (or when right on its gearbox)
         const bzA = this.brakeAhead(240);
-        if (want !== null && bzA > 150 + aggr * 30 && gapAhead > 9 && Math.abs(T.lineK[c.idx]) < 1 / 600) want = blocked.d;
+        if (want !== null && bzA > 150 + aggr * 30 && gapAhead > 9 && Math.abs(T.lineK[c.idx]) < 1 / 600 && blocked.vx > 40 && c.vx - blocked.vx < 8) want = blocked.d; // only in a real battle, never behind a slow or stopped car
       }
     } else this.passCar = null;
     // defend: a car close behind before a braking zone; one move to cover the inside, then hold it to the corner
@@ -1018,7 +1023,8 @@ class AIDriver {
       if (Math.abs(bound) > lim + 0.8) squeezed = true;
     }
     this.latT = clamp(target, -lim, lim) - T.lineO[c.idx];
-    this.lat += clamp(this.latT - this.lat, -2.4 * dt, 2.4 * dt);
+    const latRate = blocked && c.vx - blocked.vx > 15 && gapAhead < 90 ? 4.5 : 2.4; // coming up fast on a much slower car: move over sooner
+    this.lat += clamp(this.latT - this.lat, -latRate * dt, latRate * dt);
     const absLat = clamp(T.lineO[c.idx] + this.lat, -lim, lim);
     this.lat = absLat - T.lineO[c.idx];
     this.squeezed = squeezed;
@@ -1042,11 +1048,15 @@ class AIDriver {
     vT *= this.pace * (1 + this.noise) * (race ? race.aiPace : 1) * (this.cool ? 0.7 : 1);
     vT *= 1 - Math.min(0.15, Math.abs(this.lat) * 0.012);
     // following: brake early enough not to run into the car ahead (bumper gap, closing speed, the braking it has)
-    if (blocked && Math.abs(blocked.d - c.d) < 2.4) {
+    if (blocked && (Math.abs(blocked.d - c.d) < 2.4 || Math.abs(blocked.d - absLat) < 2.4)) { // in my lane now, or where I'm heading
       const closing = c.vx - blocked.vx, room = gapAhead - 6.2;
       if (closing > 0 && room < (closing * closing) / (2 * 16) + 2) vT = Math.min(vT, blocked.vx + Math.max(0, room) * 0.6);
       if (room < 1.5) vT = Math.min(vT, blocked.vx - 1);
-    }
+      // too close to stop in the usual way (a car braking early, spinning, stopping): full brakes at once
+      this.emerg = closing > 2 && room < (closing * closing) / (2 * 30) + 3;
+    } else this.emerg = false;
+    // practice: no racing. Behind your car the AI keeps its distance (about 35 m) and passes on a straight
+    if (race && race.mode === 'practice' && blocked && blocked === race.player && gapAhead < 35 && this.brakeAhead(200) < 160) vT = Math.min(vT, Math.max(0, blocked.vx + (gapAhead - 35) * 0.25)); // drop back to open the gap
     if (this.squeezed) vT *= 0.95; // no room alongside: lift and tuck in behind
     // side by side into a corner: the car on the inside has the corner; the outside car that is not ahead backs out
     // (a car ahead on the outside keeps it and the inside car gives it room)
@@ -1084,6 +1094,7 @@ class AIDriver {
     else inp.throttle = 0.35;
     // off-line correction: lift if sliding
     if (Math.abs(c.slipR) > 0.08) inp.throttle *= 0.3;
+    if (this.emerg) { inp.throttle = 0; inp.brake = 1; }
     if (v < 40) inp.throttle = Math.min(inp.throttle, 1 - 0.6 * Math.max(0, Math.abs(inp.steer) - 0.3));
     // active aero / overtake
     c.aeroReq = T.aeroZone[c.idx] === 1;
@@ -1100,7 +1111,7 @@ class AIDriver {
     const c = this.car, T = c.track;
     for (const o of cars) {
       if (o === c) continue;
-      const g = c.dist - o.dist;
+      const g = lapGap(c.dist - o.dist, T.length);
       if (g > -15 && g < 120 && Math.abs(o.d - T.lineO[c.idx]) < 4) return false;
     }
     return true;
@@ -1111,6 +1122,9 @@ class AIDriver {
     c.dist = d0; c.lastS = c.s; this.lat = 0; this.latT = 0;
   }
 }
+// a gap in race distance as a gap on the track: the nearest way round (-L/2 .. L/2), so a car a lap ahead or behind
+// that is right next to you counts as right next to you
+function lapGap(g, L) { g = ((g % L) + L) % L; return g > L / 2 ? g - L : g; }
 function angleDiff(a, b) { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; }
 
 // ---- Race / session manager ----------------------------------------------
