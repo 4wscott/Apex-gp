@@ -556,12 +556,12 @@ tr.me td { color: var(--accent); }
 #touch.tside-split #t-steer { left: calc(max(16px, env(safe-area-inset-left, 0px)) + 104px * var(--tb, 1)); width: 40%; }
 #touch.tside-swap #t-steer { left: auto; right: 0; padding-right: env(safe-area-inset-right, 0px); }
 #touch.tside-swap .t-pedals { right: auto; left: max(16px, env(safe-area-inset-left, 0px)); flex-direction: row-reverse; }
-/* arrows, split: ◀ then the brake on the left edge, the throttle then ▶ on the right edge */
-#touch.tside-asplit #t-steer.steer-buttons, #touch.tside-aswap #t-steer.steer-buttons { left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: auto; pointer-events: none; }
+/* arrows, split: the brake on the left edge with ◀ inside it, ▶ then the throttle on the right edge */
+#touch.tside-asplit #t-steer.steer-buttons { left: calc(max(16px, env(safe-area-inset-left, 0px)) + 106px * var(--tb, 1)); right: calc(max(16px, env(safe-area-inset-right, 0px)) + 118px * var(--tb, 1)); width: auto; pointer-events: none; }
+#touch.tside-aswap #t-steer.steer-buttons { left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: auto; pointer-events: none; }
 #touch.tside-asplit .t-arrows, #touch.tside-aswap .t-arrows { justify-content: space-between; width: 100%; }
 #touch.tside-asplit .t-arrows button, #touch.tside-aswap .t-arrows button { pointer-events: auto; }
-#touch.tside-asplit #t-brk { position: fixed; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 110px * var(--tb, 1)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
-#touch.tside-asplit .t-pedals { right: calc(max(16px, env(safe-area-inset-right, 0px)) + 110px * var(--tb, 1)); }
+#touch.tside-asplit #t-brk { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
 /* arrows, both pedals left: ◀ on the left edge, the pedals beside it, ▶ on the right edge */
 #touch.tside-aswap .t-pedals { right: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 110px * var(--tb, 1)); flex-direction: row-reverse; }
 #t-steer.steer-wheel.ghost #t-wheel { opacity: 0; }
@@ -783,7 +783,6 @@ body.touch #h-track { display: none; }
         <div class="row"><label>Touch steering assist</label><div class="ctl seg" data-set="touchAssist"><button type="button" data-v="true">Speed sensitive</button><button type="button" data-v="false">Direct</button></div></div>
         <div class="row"><label>Pedals</label><div class="ctl seg" data-set="analogPedals"><button type="button" data-v="true">Analogue (finger height)</button><button type="button" data-v="false">On / off</button></div></div>
         <div class="row"><label>Layout</label><div class="ctl seg" data-set="touchLayout"><button type="button" data-v="split">Brake left, throttle right</button><button type="button" data-v="std">Both pedals right</button><button type="button" data-v="swap">Both pedals left</button></div></div>
-        <div class="row"><label>Arrows: throttle while steering</label><div class="ctl seg" data-set="arrowGas"><button type="button" data-v="true">On (holding an arrow keeps the throttle on, unless braking)</button><button type="button" data-v="false">Off</button></div></div>
         <div class="row"><label>Button size</label><div class="ctl seg" data-set="touchSize"><button type="button" data-v="S">Small</button><button type="button" data-v="M">Medium</button><button type="button" data-v="L">Large</button></div></div>
         <div class="row"><label>Vibration</label><div class="ctl seg" data-set="haptics"><button type="button" data-v="true">On</button><button type="button" data-v="false">Off</button></div></div>
         <p class="hint">On a phone, turn it sideways. With the F1 wheel, put your thumb on the wheel and turn it like the real thing. Slide up a pedal for more throttle or brake. Paddle-shift buttons appear when the gearbox is set to manual. Tilt steering isn't available, because the game page can't read the phone's motion sensors.</p>

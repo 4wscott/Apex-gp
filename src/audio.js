@@ -376,7 +376,7 @@ class Input {
     const st = this.touch; st.steer = 0; st.thr = 0; st.brk = 0; st.btn = {};
     const big = { S: 0.8, M: 1, L: 1.25 }[o.touchSize] || 1;
     root.style.setProperty('--tb', big);
-    // arrows: by default ◀ and the brake under the left thumb, the throttle and ▶ under the right (or both pedals on one side)
+    // arrows: by default the brake at the left edge with ◀ inside it, ▶ and the throttle at the right edge (or both pedals on one side)
     root.className = 'tside-' + (o.touchSteer === 'buttons' ? ({ split: 'asplit', std: 'std', swap: 'aswap' }[o.touchLayout || 'split'] || 'asplit') : o.touchLayout || 'split'); this.tiltMode = false;
     this.touchArrows = o.touchSteer === 'buttons';
     const btn = (act, label, extra = '') => `<button type="button" data-act="${act}" ${extra}>${label}</button>`;
@@ -530,9 +530,6 @@ class Input {
     if (!useKb) { s.throttle = Math.max(s.throttle, this.kbThr); s.brake = Math.max(s.brake, this.kbBrk); }
     if (mw) { s.throttle = Math.max(s.throttle, mw.thr); s.brake = Math.max(s.brake, mw.brk); }
     if (useTouch) { this.tThr = (this.tThr || 0) + clamp(this.touch.thr - (this.tThr || 0), -10 * dt, 5 * dt); this.tBrk = (this.tBrk || 0) + clamp(this.touch.brk - (this.tBrk || 0), -10 * dt, 8 * dt); s.throttle = Math.max(s.throttle, this.tThr); s.brake = Math.max(s.brake, this.tBrk); s.steerFast = false; }
-    // touch arrows: holding ◀ or ▶ keeps the throttle on (one thumb can't press an arrow and the pedal beside it), unless
-    // the brake is pressed
-    if (useTouch && this.touchArrows && opts.arrowGas !== false && this.touch.steer !== 0 && this.touch.brk < 0.05) s.throttle = Math.max(s.throttle, 1);
     for (const [a, , kind] of ACTIONS) {
       if (kind !== 'button') continue;
       const tapped = (KEYMAP[a] || []).some((k) => this.hits.has(k));
