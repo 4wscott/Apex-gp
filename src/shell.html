@@ -524,8 +524,12 @@ input[type=text], input[type=number], select { background: var(--panel-2); color
 #dash.compact { display: none; }
 #h-wing { color: var(--red); font-weight: 700; }
 .dnf { color: var(--red); font-weight: 700; }
-#h-dmg { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 54px); transform: translateX(-50%); display: grid; justify-items: center; gap: 2px; padding: 6px 6px 4px; border-radius: 8px; background: rgba(8,10,13,0.6); pointer-events: none; z-index: 4; }
+#h-dmg { position: absolute; right: calc(max(16px, env(safe-area-inset-right, 0px)) + 334px); bottom: max(14px, env(safe-area-inset-bottom, 0px)); display: grid; justify-items: center; gap: 2px; padding: 6px 6px 4px; border-radius: 8px; background: rgba(8,10,13,0.6); pointer-events: none; z-index: 4; }
 #h-dmg small { font-family: var(--f-display); font-size: 9px; letter-spacing: 0.1em; color: var(--muted); }
+/* the damage diagram sits beside the speed panel, out of the view of the road: left of the dash (PC), left of the centred
+   dash (phones and tablets), right of the dash when the mouse wheel moves it to the left */
+body.touch #h-dmg { right: calc(50% + 62px); bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+body.mwheel #h-dmg { right: auto; left: calc(max(16px, env(safe-area-inset-left, 0px)) + 180px); bottom: calc(max(14px, env(safe-area-inset-bottom, 0px)) + 178px); }
 #sp-now { margin: 6px 0; font-weight: 600; }
 #h-vsc { color: #111; background: var(--accent); padding: 0 6px; border-radius: 3px; font-weight: 800; margin-left: 6px; }
 #banner { position: absolute; left: 50%; top: 23%; transform: translateX(-50%); padding: 8px 22px; border-radius: 4px; font-weight: 700; font-size: 26px; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(10, 12, 16, 0.85); white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
@@ -598,6 +602,7 @@ body.touch #h-track { display: none; }
   .row { grid-template-columns: 1fr; gap: 4px; }
   #tower-wrap { width: 150px; } .trow { font-size: 12px; line-height: 16px; } .trow .tg { font-size: 10px; }
   #dash { width: 220px; } #h-speed { font-size: 38px; } #h-gear { font-size: 44px; }
+  body:not(.touch):not(.mwheel) #h-dmg { right: calc(max(16px, env(safe-area-inset-right, 0px)) + 254px); }
   #minimap { width: 120px; height: 120px; }
 }
 @media (max-height: 500px) {
