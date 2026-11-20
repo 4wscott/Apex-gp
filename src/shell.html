@@ -595,7 +595,8 @@ body.touch #dash .dash-grid, body.touch #dash .bar + .bar { display: none; }
 body.touch #dash.compact { display: grid; }
 body.touch[data-tl="split"] #dash { left: auto; transform: none; right: calc(max(16px, env(safe-area-inset-right, 0px)) + 104px * var(--tb, 1) + 20px); }
 body.touch #dash.compact .dash-main { display: flex; gap: 14px; }
-body.touch #minimap { display: none; }
+/* phones and tablets: a smaller map, above the left-hand controls (the tower measures it and stops short of it) */
+body.touch #minimap { width: calc(104px * var(--tb, 1)); height: calc(104px * var(--tb, 1)); bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 122px * var(--tb, 1)); }
 body.touch #h-track { display: none; }
 #rotate { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ink); font-family: var(--f-display); font-size: 24px; text-transform: uppercase; letter-spacing: 0.08em; padding: 24px; text-align: center; }
 @media (max-width: 640px) {

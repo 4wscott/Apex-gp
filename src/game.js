@@ -635,7 +635,7 @@ const App = {
       const brake = T.lineV[i] < T.lineVf[i] - 0.8, coast = !brake && T.lineV[i] < 94 && T.lineV[(i + 6) % T.n] < T.lineV[i] + 0.3;
       const c = brake ? [1, 0.12, 0.1] : coast ? [1, 0.75, 0.1] : [0.15, 0.9, 0.35];
       const show = settings.line === 'full' || brake || coast;
-      for (const s of [-0.35, 0.35]) { pos.push(x + T.nx[i] * s, 0.025, -(y + T.ny[i] * s)); col.push(...c); }
+      for (const s of [-0.35, 0.35]) { pos.push(x + T.nx[i] * s, roadZ(T, i, o + s) + 0.03, -(y + T.ny[i] * s)); col.push(...c); } // on the road surface (hills, banking, camber)
       return show;
     };
     let prevShow = false;

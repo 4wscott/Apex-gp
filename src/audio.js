@@ -375,7 +375,7 @@ class Input {
   buildTouch(root, o) {
     const st = this.touch; st.steer = 0; st.thr = 0; st.brk = 0; st.btn = {};
     const big = { S: 0.8, M: 1, L: 1.25 }[o.touchSize] || 1;
-    root.style.setProperty('--tb', big);
+    root.style.setProperty('--tb', big); document.documentElement.style.setProperty('--tb', big); // the minimap (outside the controls) sizes with them too
     // arrows: by default the brake at the left edge with ◀ inside it, ▶ and the throttle at the right edge (or both pedals on one side)
     root.className = 'tside-' + (o.touchSteer === 'buttons' ? ({ split: 'asplit', std: 'std', swap: 'aswap' }[o.touchLayout || 'split'] || 'asplit') : o.touchLayout || 'split'); this.tiltMode = false;
     this.touchArrows = o.touchSteer === 'buttons';
